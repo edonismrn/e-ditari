@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  SafeAreaView, 
-  KeyboardAvoidingView, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  SafeAreaView,
+  KeyboardAvoidingView,
   Platform,
   Dimensions
 } from 'react-native';
@@ -100,7 +100,7 @@ const LoginScreen = ({ onLogin }) => {
     }
   };
 
-  const isAdmin = username === 'admin@e-ditari.com';
+  const isAdmin = username === 'admin@ditari-elektronik.com';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -110,13 +110,13 @@ const LoginScreen = ({ onLogin }) => {
           <Text style={styles.toastText}>{toastMessage}</Text>
         </View>
       )}
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={[styles.logoContainer, { width: 80, height: 80, borderRadius: 24, backgroundColor: '#2563eb', shadowColor: '#2563eb', shadowOffset: {width: 0, height: 12}, shadowOpacity: 0.4, shadowRadius: 20, elevation: 12 }]}>
+            <View style={[styles.logoContainer, { width: 80, height: 80, borderRadius: 24, backgroundColor: '#2563eb', shadowColor: '#2563eb', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 12 }]}>
               <School color="white" size={40} />
             </View>
             <Text style={[styles.title, { fontSize: 32, fontWeight: '900', letterSpacing: -1, marginTop: 12 }]}>{t('welcome_title')}</Text>
@@ -124,13 +124,13 @@ const LoginScreen = ({ onLogin }) => {
 
           {/* Role Switcher */}
           <View style={styles.roleSwitcher}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.roleButton, role === 'mesues' && styles.activeRoleButton]}
               onPress={() => setRole('mesues')}
             >
               <Text style={[styles.roleButtonText, role === 'mesues' && styles.activeRoleButtonText]}>{t('teacher')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.roleButton, role === 'nxenes' && styles.activeRoleButton]}
               onPress={() => setRole('nxenes')}
             >
@@ -144,7 +144,7 @@ const LoginScreen = ({ onLogin }) => {
                 <Text style={styles.label}>{t('school_code')}</Text>
                 <View style={styles.inputContainer}>
                   <School size={18} color="#64748b" style={styles.inputIcon} />
-                  <TextInput 
+                  <TextInput
                     style={styles.input}
                     placeholder={t('school_code_placeholder')}
                     value={schoolCode}
@@ -159,7 +159,7 @@ const LoginScreen = ({ onLogin }) => {
               <Text style={styles.label}>{t('email')}</Text>
               <View style={styles.inputContainer}>
                 <Mail size={18} color="#64748b" style={styles.inputIcon} />
-                <TextInput 
+                <TextInput
                   style={styles.input}
                   placeholder={t('email_placeholder')}
                   value={username}
@@ -174,7 +174,7 @@ const LoginScreen = ({ onLogin }) => {
               <Text style={styles.label}>{t('password')}</Text>
               <View style={styles.inputContainer}>
                 <Lock size={18} color="#64748b" style={styles.inputIcon} />
-                <TextInput 
+                <TextInput
                   style={styles.input}
                   value={password}
                   onChangeText={setPassword}
@@ -194,14 +194,14 @@ const LoginScreen = ({ onLogin }) => {
 
             {/* Language Selector */}
             <View style={[styles.languageContainer, { marginTop: 24, marginBottom: 0, justifyContent: 'center' }]}>
-              <TouchableOpacity 
-                style={[styles.langToggle, language === 'sq' && styles.activeLang]} 
+              <TouchableOpacity
+                style={[styles.langToggle, language === 'sq' && styles.activeLang]}
                 onPress={() => changeLanguage('sq')}
               >
                 <Text style={[styles.langText, language === 'sq' && styles.activeLangText]}>SQ</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.langToggle, language === 'sr' && styles.activeLang]} 
+              <TouchableOpacity
+                style={[styles.langToggle, language === 'sr' && styles.activeLang]}
                 onPress={() => changeLanguage('sr')}
               >
                 <Text style={[styles.langText, language === 'sr' && styles.activeLangText]}>SR</Text>
@@ -227,7 +227,7 @@ const LoginScreen = ({ onLogin }) => {
                   <Text style={styles.label}>{t('new_password')}</Text>
                   <View style={styles.inputContainer}>
                     <Lock size={18} color="#64748b" style={styles.inputIcon} />
-                    <TextInput 
+                    <TextInput
                       style={styles.input}
                       value={newPassword}
                       onChangeText={setNewPassword}
@@ -240,7 +240,7 @@ const LoginScreen = ({ onLogin }) => {
                   <Text style={styles.label}>{t('confirm_password')}</Text>
                   <View style={styles.inputContainer}>
                     <Lock size={18} color="#64748b" style={styles.inputIcon} />
-                    <TextInput 
+                    <TextInput
                       style={styles.input}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
@@ -267,11 +267,11 @@ const LoginScreen = ({ onLogin }) => {
                   <Text style={styles.modalDescription}>
                     {t('reset_password_desc')}
                   </Text>
-                  
-                  <TextInput 
-                    style={styles.inputField} 
-                    placeholder={t('email_placeholder')} 
-                    value={resetEmail} 
+
+                  <TextInput
+                    style={styles.inputField}
+                    placeholder={t('email_placeholder')}
+                    value={resetEmail}
                     onChangeText={setResetEmail}
                     autoCapitalize="none"
                     keyboardType="email-address"
@@ -279,9 +279,9 @@ const LoginScreen = ({ onLogin }) => {
 
                   <View style={styles.modalButtons}>
                     <TouchableOpacity style={styles.cancelButton} onPress={() => {
-                        setIsResetModalVisible(false);
-                        setResetStep('email');
-                      }}>
+                      setIsResetModalVisible(false);
+                      setResetStep('email');
+                    }}>
                       <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.submitButton} onPress={handleResetRequest}>
@@ -295,11 +295,11 @@ const LoginScreen = ({ onLogin }) => {
                   <Text style={styles.modalDescription}>
                     {t('enter_code_desc')}
                   </Text>
-                  
-                  <TextInput 
-                    style={styles.inputField} 
-                    placeholder={t('code_placeholder')} 
-                    value={resetCode} 
+
+                  <TextInput
+                    style={styles.inputField}
+                    placeholder={t('code_placeholder')}
+                    value={resetCode}
                     onChangeText={setResetCode}
                     keyboardType="number-pad"
                     maxLength={8}
