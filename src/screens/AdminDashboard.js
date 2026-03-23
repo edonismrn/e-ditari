@@ -1,0 +1,2385 @@
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  SafeAreaView,
+  Dimensions,
+  TextInput,
+  FlatList,
+  Platform
+} from 'react-native';
+import {
+  Home,
+  School,
+  Users,
+  Hash,
+  Database,
+  LogOut,
+  ShieldCheck,
+  Plus,
+  ChevronRight,
+  ArrowLeft,
+  RefreshCw,
+  Trash2,
+  Building2,
+  GraduationCap,
+  Settings,
+  Search,
+  Check,
+  UserSquare,
+  LayoutGrid,
+  UserPlus,
+  UserCheck,
+  BarChart3,
+  Zap,
+  Info,
+  Calendar,
+  BookOpen,
+  ChevronDown
+} from 'lucide-react-native';
+import { useLanguage } from '../context/LanguageContext';
+import { KOSOVO_DATA } from '../data/kosovoSchools';
+import { KOSOVO_SUBJECTS } from '../data/kosovoSubjects';
+import { Modal, Alert } from 'react-native';
+
+const { width } = Dimensions.get('window');
+
+const AdminDashboard = ({
+  user, onLogout, schools, teachers, classes, students,
+  onAddSchool, onAddTeacher, onAddClass, onAddStudent,
+  onActivateProfile, onRemoveTeacher, onAssignStudentToClass, onUpdateClassTeachers,
+  onDeleteSchool, onDeleteClass, onRemoveTeacherFromClass, onRemoveStudentFromClass,
+  onDeleteTeacher, onDeleteStudent
+}) => {
+  const { t } = useLanguage();
+  const [navigation, setNavigation] = useState({ view: 'home', data: null });
+
+  // School Form State
+  const [newSchoolCity, setNewSchoolCity] = useState('');
+  const [newSchoolName, setNewSchoolName] = useState('');
+  const [isCityDropdownVisible, setIsCityDropdownVisible] = useState(false);
+  const [isSchoolDropdownVisible, setIsSchoolDropdownVisible] = useState(false);
+  const [citySearchQuery, setCitySearchQuery] = useState('');
+  const [schoolSearchQuery, setSchoolSearchQuery] = useState('');
+
+  const resetSchoolForm = () => {
+    setNewSchoolCity('');
+    setNewSchoolName('');
+    setIsCityDropdownVisible(false);
+    setIsSchoolDropdownVisible(false);
+    setCitySearchQuery('');
+    setSchoolSearchQuery('');
+    setIsSchoolModalVisible(false);
+  };
+
+  // Teacher Form State
+  const [teacherFirstName, setTeacherFirstName] = useState('');
+  const [teacherLastName, setTeacherLastName] = useState('');
+  const [teacherUsername, setTeacherUsername] = useState('');
+  const [teacherPassword, setTeacherPassword] = useState('');
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
+
+  // Class Form State
+  const [newClassName, setNewClassName] = useState('');
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
+
+  // Student Form State
+  const [studentName, setStudentName] = useState('');
+  const [studentUsername, setStudentUsername] = useState('');
+  const [studentPassword, setStudentPassword] = useState('');
+
+  // Modal Visibility State
+  const [isSchoolModalVisible, setIsSchoolModalVisible] = useState(false);
+  const [isTeacherModalVisible, setIsTeacherModalVisible] = useState(false);
+  const [isWizardVisible, setIsWizardVisible] = useState(false); // Unified Wizard Modal
+  const [isClassModalVisible, setIsClassModalVisible] = useState(false);
+  const [isStudentModalVisible, setIsStudentModalVisible] = useState(false);
+  const [isAddTeacherToClassModalVisible, setIsAddTeacherToClassModalVisible] = useState(false);
+
+  // Wizard State
+  const [wizardStep, setWizardStep] = useState(0); // 0=off, 1=teacher, 2=class, 3=students
+  const [wizardData, setWizardData] = useState({ teacher: null, class: null, students: [] });
+  const [tempStudentName, setTempStudentName] = useState('');
+  const [tempStudentEmail, setTempStudentEmail] = useState('');
+  const [tempStudentPass, setTempStudentPass] = useState('');
+
+  // Settings Deletion States
+  const [settingsSearchQuery, setSettingsSearchQuery] = useState('');
+  const [selectedEntityForAction, setSelectedEntityForAction] = useState(null);
+  const [activeSettingsMode, setActiveSettingsMode] = useState(null); // 'delete_school', 'delete_class', 'dissociate_teacher', 'dissociate_student'
+
+  // Confirm Modal State
+  const [confirmState, setConfirmState] = useState({
+    visible: false,
+    message: '',
+    onConfirm: null
+  });
+
+  const cleanSchoolName = (name) => {
+    // Extract text inside single quotes if available (e.g. SHML Gjimnazi 'Sami Frashëri' -> Sami Frashëri)
+    const match = name.match(/'([^']+)'/);
+    if (match && match[1]) return match[1];
+
+    // Otherwise, just remove common prefixes
+    return name.replace(/^(SHML|SHMFU|SHMU|SHM|SHFMU|Gjimnazi|Shkolla e Mesme|Shkolla e Mesme Teknike|Shkolla e Mesme Ekonomike|Shkolla e Mesme e Muzikës)\s+/i, '').trim();
+  };
+
+  const generateSchoolCode = (city, name) => {
+    const cityPart = (city || '').replace(/\s+/g, '').substring(0, 3).toUpperCase();
+    const cleanName = cleanSchoolName(name);
+
+    let namePart = '';
+    const words = (cleanName || '').split(/\s+/).filter(w => w.length > 0);
+
+    if (words.length >= 3) {
+      namePart = words.slice(0, 3).map(w => w[0]).join('').toUpperCase();
+    } else if (words.length === 2 && words[0].length >= 3) {
+      // Per "Rasim Kicina", prende R(0), s(2), e K(0) del secondo nome per fare RSK
+      namePart = (words[0][0] + words[0][2] + words[1][0]).toUpperCase();
+    } else {
+      namePart = (cleanName || '').replace(/\s+/g, '').substring(0, 3).toUpperCase();
+    }
+
+    const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `${cityPart}-${namePart}-${randomPart}`;
+  };
+
+  const handleAddSchoolLocal = async () => {
+    if (!newSchoolCity || !newSchoolName) return;
+    const result = await onAddSchool({
+      name: newSchoolName,
+      city: newSchoolCity,
+      code: generateSchoolCode(newSchoolCity, newSchoolName) // This will use the cleaned name inside
+    });
+    if (!result?.error) {
+      setNewSchoolCity('');
+      setNewSchoolName('');
+      setIsSchoolModalVisible(false);
+    }
+  };
+
+  const toggleSubject = (subject) => {
+    if (teacherSubjects.includes(subject)) {
+      setTeacherSubjects(teacherSubjects.filter(s => s !== subject));
+    } else {
+      setTeacherSubjects([...teacherSubjects, subject]);
+    }
+  };
+
+  const handleAddTeacherLocal = async (specificSchoolId) => {
+    const schoolId = specificSchoolId || navigation.data?.id || navigation.data?.schoolId || wizardData.schoolId;
+    if (!schoolId) {
+      // console.log('Gabim', 'Asnjë shkollë e përzgjedhur.');
+      return;
+    }
+
+    if (!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0) {
+      return;
+    }
+    const result = await onAddTeacher({
+      firstName: teacherFirstName,
+      lastName: teacherLastName,
+      name: `${teacherFirstName} ${teacherLastName}`,
+      username: teacherUsername,
+      password: teacherPassword,
+      subjects: teacherSubjects,
+      schoolId: schoolId,
+      email: teacherUsername
+    });
+
+    if (result.data) {
+      setWizardData({ ...wizardData, teacher: result.data });
+      setWizardStep(2); // Step 2: Class
+      setIsWizardVisible(true);
+      setIsTeacherModalVisible(false);
+
+      setTeacherFirstName('');
+      setTeacherLastName('');
+      setTeacherUsername('');
+      setTeacherPassword('');
+      setTeacherSubjects([]);
+    }
+  };
+
+  const handleWizardSelectClass = async (cls) => {
+    const updatedTeacherIds = [...(cls.teacherIds || []), wizardData.teacher.id];
+    await onUpdateClassTeachers(cls.id, updatedTeacherIds);
+    setWizardData({ ...wizardData, class: { ...cls, teacherIds: updatedTeacherIds } });
+    setWizardStep(3);
+  };
+
+  const handleWizardAddClass = async () => {
+    if (!newClassName) {
+      // console.log('Gabim', 'Ju lutem jepni një emër për klasën.');
+      return;
+    }
+    const result = await onAddClass({
+      name: newClassName,
+      schoolId: wizardData.teacher.school_id,
+      teacherIds: [wizardData.teacher.id]
+    });
+
+    if (result.data) {
+      setWizardData({ ...wizardData, class: result.data });
+      setWizardStep(3); // Move to Students Step
+      setNewClassName('');
+    }
+  };
+
+  const handleWizardAddStudent = async () => {
+    if (!tempStudentName || !tempStudentEmail || !tempStudentPass) {
+      // console.log('Gabim', 'Ju lutem plotësoni të gjitha fushat e nxënësit.');
+      return;
+    }
+    const result = await onAddStudent({
+      name: tempStudentName,
+      username: tempStudentEmail,
+      password: tempStudentPass,
+      classId: wizardData.class.id,
+      schoolId: wizardData.teacher.school_id
+    });
+
+    if (result.data) {
+      setWizardData({
+        ...wizardData,
+        students: [...wizardData.students, result.data]
+      });
+      // Reset temp inputs
+      setTempStudentName('');
+      setTempStudentEmail('');
+      setTempStudentPass('');
+      // console.log('Sukses', `Nxënësi ${tempStudentName} u shtua! Mund të shtoni të tjerë ose të përfundoni.`);
+    }
+  };
+
+  const handleWizardComplete = async () => {
+    if (wizardData.students.length === 0) {
+      // console.log('Kujdes', 'Duhet të shtoni të paktën një nxënës para se të aktivizoni mësuesin.');
+      return;
+    }
+
+    const result = await onActivateProfile(wizardData.teacher.id);
+    if (!result.error) {
+      // console.log('Sukses', 'Konfigurimi përfundoi! Mësuesi është aktivizuar.');
+      setIsWizardVisible(false);
+      setWizardStep(0);
+      setWizardData({ teacher: null, class: null, students: [] });
+    }
+  };
+
+  const handleAddClassLocal = async (specificSchoolId) => {
+    const schoolId = specificSchoolId || navigation.data?.id || navigation.data?.schoolId;
+    if (!schoolId) return;
+
+    if (!newClassName) return;
+
+    const result = await onAddClass({
+      name: newClassName,
+      schoolId: schoolId,
+      teacherIds: selectedTeacherId ? [selectedTeacherId] : []
+    });
+
+    if (!result?.error) {
+      setNewClassName('');
+      setSelectedTeacherId('');
+      setIsClassModalVisible(false);
+    }
+  };
+
+  const handleAddStudent = (classId) => {
+    if (!studentName || !studentUsername || !studentPassword) {
+      // console.log('Gabim', 'Ju lutem plotësoni të gjitha fushat.');
+      return;
+    }
+    onAddStudent({
+      name: studentName,
+      username: studentUsername,
+      password: studentPassword,
+      classId: classId,
+      schoolId: navigation.data?.schoolId || navigation.data?.id
+    });
+    setStudentName('');
+    setStudentUsername('');
+    setStudentPassword('');
+    setIsStudentModalVisible(false);
+  };
+
+  const renderSettings = () => {
+    const getFilteredList = () => {
+      const query = settingsSearchQuery.toLowerCase();
+      switch (activeSettingsMode) {
+        case 'delete_school':
+          return schools.filter(s => s.name.toLowerCase().includes(query));
+        case 'delete_class':
+          return classes.filter(c => c.name.toLowerCase().includes(query));
+        case 'dissociate_teacher':
+          return teachers.filter(t => t.name.toLowerCase().includes(query));
+        case 'delete_teacher':
+          return teachers.filter(t => t.name.toLowerCase().includes(query));
+        case 'dissociate_student':
+          return students.filter(s => s.name.toLowerCase().includes(query));
+        case 'delete_student':
+          return students.filter(s => s.name.toLowerCase().includes(query));
+        default:
+          return [];
+      }
+    };
+
+    const handleConfirmAction = () => {
+      if (!selectedEntityForAction) return;
+
+      const entity = selectedEntityForAction;
+      switch (activeSettingsMode) {
+        case 'delete_school':
+          confirmDelete(`${t('confirm_delete_school')}: ${entity.name}? ${t('cascade_warning_school')}`, async () => {
+            await onDeleteSchool(entity.id);
+            setSelectedEntityForAction(null);
+          });
+          break;
+        case 'delete_class':
+          confirmDelete(`${t('confirm_delete_class')}: ${entity.name}? ${t('cascade_warning_class')}`, async () => {
+            await onDeleteClass(entity.id);
+            setSelectedEntityForAction(null);
+          });
+          break;
+        case 'dissociate_teacher':
+          confirmDelete(`${t('confirm_dissociate_teacher')}: ${entity.name}?`, async () => {
+            const classId = classes.find(c => (c.teacherIds || []).includes(entity.id))?.id;
+            if (classId) await onRemoveTeacherFromClass(entity.id, classId);
+            setSelectedEntityForAction(null);
+          });
+          break;
+        case 'dissociate_student':
+          confirmDelete(`${t('confirm_dissociate_student')}: ${entity.name}?`, async () => {
+            if (entity.classId) await onRemoveStudentFromClass(entity.id, entity.classId);
+            setSelectedEntityForAction(null);
+          });
+          break;
+        case 'delete_teacher':
+          confirmDelete(`${t('confirm_delete_teacher') || 'Jeni të sigurt që doni të fshini këtë mësues?'}: ${entity.name}?`, async () => {
+            if (onDeleteTeacher) await onDeleteTeacher(entity.id);
+            setSelectedEntityForAction(null);
+          });
+          break;
+        case 'delete_student':
+          confirmDelete(`${t('confirm_delete_student') || 'Jeni të sigurt që doni të fshini këtë nxënës?'}: ${entity.name}?`, async () => {
+            if (onDeleteStudent) await onDeleteStudent(entity.id);
+            setSelectedEntityForAction(null);
+          });
+          break;
+      }
+    };
+
+    return (
+      <View style={styles.viewContainer}>
+        <Text style={styles.viewTitle}>{t('settings')}</Text>
+
+        {!activeSettingsMode ? (
+          <ScrollView contentContainerStyle={styles.settingsMenu}>
+            {[
+              { id: 'delete_school', label: t('delete_school'), icon: School, color: '#ef4444' },
+              { id: 'delete_class', label: t('delete_class'), icon: Hash, color: '#f59e0b' },
+              { id: 'dissociate_teacher', label: t('dissociate_teacher'), icon: Users, color: '#3b82f6' },
+              { id: 'dissociate_student', label: t('dissociate_student'), icon: GraduationCap, color: '#10b981' },
+            ].map(item => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.settingsItem}
+                onPress={() => setActiveSettingsMode(item.id)}
+              >
+                <item.icon size={24} color={item.color} />
+                <Text style={styles.settingsItemLabel}>{item.label}</Text>
+                <ChevronRight size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={{ flex: 1 }}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                setActiveSettingsMode(null);
+                setSettingsSearchQuery('');
+                setSelectedEntityForAction(null);
+              }}
+            >
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.searchBarContainer}>
+              <Search size={18} color="#94a3b8" />
+              <TextInput
+                style={styles.searchBarInput}
+                placeholder={t('search_placeholder')}
+                value={settingsSearchQuery}
+                onChangeText={setSettingsSearchQuery}
+              />
+            </View>
+
+            <FlatList
+              data={getFilteredList()}
+              keyExtractor={item => item.id}
+              style={{ flex: 1, marginTop: 12 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.entityItem, selectedEntityForAction?.id === item.id && styles.selectedEntityItem]}
+                  onPress={() => setSelectedEntityForAction(item)}
+                >
+                  <View>
+                    <Text style={styles.entityName}>{item.name}</Text>
+                    {item.city && <Text style={styles.entitySub}>{item.city}</Text>}
+                    {item.schoolId && <Text style={styles.entitySub}>{schools.find(s => s.id === item.schoolId)?.name}</Text>}
+                  </View>
+                  <Trash2 size={18} color={selectedEntityForAction?.id === item.id ? '#ef4444' : '#94a3b8'} />
+                </TouchableOpacity>
+              )}
+            />
+
+            {selectedEntityForAction && (
+              <TouchableOpacity style={styles.actionFab} onPress={handleConfirmAction}>
+                <Trash2 size={24} color="white" />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const handleAssignStudentLocal = async (studentId, classId) => {
+    const result = await onAssignStudentToClass(studentId, classId);
+    if (!result.error) {
+      if (isWizardVisible) {
+        const student = students.find(s => s.id === studentId);
+        setWizardData({
+          ...wizardData,
+          students: [...wizardData.students, { ...student, classId: classId }]
+        });
+      } else {
+        setIsStudentModalVisible(false);
+      }
+    }
+  };
+
+  const handleAddTeacherToClass = (teacherId) => {
+    const currentClass = navigation.data;
+    if (currentClass.teacherIds.includes(teacherId)) {
+      // console.log('Njoftim', 'Ky mësues është tashmë në këtë klasë.');
+      return;
+    }
+    const updatedTeachers = [...currentClass.teacherIds, teacherId];
+    onUpdateClassTeachers(currentClass.id, updatedTeachers);
+    setNavigation({ ...navigation, data: { ...currentClass, teacherIds: updatedTeachers } });
+    setIsAddTeacherToClassModalVisible(false);
+  };
+
+  const handleRemoveTeacherLocal = (teacherId) => {
+    const currentClass = navigation.data;
+    const updatedTeachers = currentClass.teacherIds.filter(id => id !== teacherId);
+    onUpdateClassTeachers(currentClass.id, updatedTeachers);
+    setNavigation({ ...navigation, data: { ...currentClass, teacherIds: updatedTeachers } });
+  };
+
+  const confirmDelete = (msg, callback) => {
+    setConfirmState({
+      visible: true,
+      message: msg,
+      onConfirm: callback
+    });
+  };
+
+  const renderMain = () => (
+    <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+      <View style={styles.statsGrid}>
+        <View style={styles.statCard}>
+          <BarChart3 size={20} color="#64748b" style={{ marginBottom: 12 }} />
+          <Text style={styles.statValue}>{schools.length}</Text>
+          <Text style={styles.statLabel}>{t('manage_schools')}</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Users size={20} color="#64748b" style={{ marginBottom: 12 }} />
+          <Text style={styles.statValue}>{teachers.length}</Text>
+          <Text style={styles.statLabel}>{t('manage_teachers')}</Text>
+        </View>
+        <View style={styles.statCard}>
+          <GraduationCap size={20} color="#64748b" style={{ marginBottom: 12 }} />
+          <Text style={styles.statValue}>{students.length}</Text>
+          <Text style={styles.statLabel}>{t('students_label') || 'Studentët'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.quickActions}>
+        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'schools', data: null })}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff' }]}>
+            <Building2 size={24} color="#6366f1" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('manage_schools')}</Text>
+          <ChevronRight size={18} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'teachers', data: null })}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#f0fdf4' }]}>
+            <Users size={24} color="#10b981" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('manage_teachers')}</Text>
+          <ChevronRight size={18} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'students', data: null })}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#fdf4ff' }]}>
+            <GraduationCap size={24} color="#a21caf" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('manage_students')}</Text>
+          <ChevronRight size={20} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'codes', data: null })}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#fff7ed' }]}>
+            <Hash size={24} color="#ea580c" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('registration_codes')}</Text>
+          <ChevronRight size={20} color="#94a3b8" />
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={styles.wizardCard}
+        onPress={() => {
+          setWizardStep(1);
+          setIsWizardVisible(true);
+        }}
+      >
+        <View style={styles.wizardGradient}>
+          <View style={styles.wizardContent}>
+            <View style={styles.wizardInfo}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Zap size={16} color="white" />
+                <Text style={styles.wizardTitle}>{t('quick_setup')}</Text>
+              </View>
+              <Text style={styles.wizardDesc}>{t('wizard_desc')}</Text>
+            </View>
+            <View style={styles.wizardIconCircle}>
+              <Plus size={24} color="#2563eb" strokeWidth={3} />
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const renderSchools = () => {
+    if (navigation.view === 'schools' || navigation.view === 'classes') {
+      const isClassesOnly = navigation.view === 'classes';
+      const listData = isClassesOnly ? classes : schools;
+
+      return (
+        <View style={styles.viewContainer}>
+          <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
+          </TouchableOpacity>
+          <View style={styles.viewHeader}>
+            <View></View>
+            {!isClassesOnly && (
+              <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsSchoolModalVisible(true)}>
+                <Plus size={18} color="#fff" />
+                <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.searchBarContainer}>
+            <Search size={20} color="#94a3b8" />
+            <TextInput
+              placeholder={isClassesOnly ? t('search_classes') : t('search_schools')}
+              style={styles.searchBarInput}
+              value={settingsSearchQuery}
+              onChangeText={setSettingsSearchQuery}
+            />
+          </View>
+
+          <ScrollView style={styles.scrollContent}>
+            {listData
+              .filter(item => (isClassesOnly ? item.name : item.name).toLowerCase().includes(settingsSearchQuery.toLowerCase()))
+              .map(item => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.card}
+                  onPress={() => setNavigation({ view: isClassesOnly ? 'class-detail' : 'school-detail', data: item })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                    <View style={[styles.actionIconContainer, { backgroundColor: isClassesOnly ? '#f5f3ff' : '#eff6ff', width: 44, height: 44 }]}>
+                      {isClassesOnly ? <LayoutGrid size={20} color="#a855f7" /> : <Building2 size={20} color="#6366f1" />}
+                    </View>
+                    <View>
+                      <Text style={styles.cardTitle}>{isClassesOnly ? `${t('add_class_short')} ${item.name}` : item.name}</Text>
+                      <Text style={styles.cardSubtitle}>
+                        {isClassesOnly
+                          ? (schools.find(s => s.id === item.schoolId)?.name || t('no_school'))
+                          : (item.address || 'Kosovë')}
+                      </Text>
+                    </View>
+                  </View>
+                  <ChevronRight size={18} color="#94a3b8" />
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
+        </View>
+      );
+    }
+
+    if (navigation.view === 'school-detail') {
+      const school = navigation.data;
+      const schoolClasses = classes.filter(c => c.schoolId === school.id);
+      const schoolTeachers = teachers.filter(t => t.schoolId === school.id);
+
+      return (
+        <View style={styles.viewContainer}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'schools', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('manage_schools')}</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+              <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff', width: 56, height: 56 }]}>
+                <Building2 size={28} color="#6366f1" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.viewTitle}>{school.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Hash size={14} color="#64748b" />
+                  <Text style={styles.cardSubtitle}>{school.code}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.statsRow}>
+              <View style={styles.statCard}>
+                <Users size={18} color="#6366f1" />
+                <Text style={styles.statValue}>{schoolTeachers.length}</Text>
+                <Text style={styles.statLabel}>{t('teachers_count')}</Text>
+              </View>
+              <View style={styles.statCard}>
+                <LayoutGrid size={18} color="#10b981" />
+                <Text style={styles.statValue}>{schoolClasses.length}</Text>
+                <Text style={styles.statLabel}>{t('classes_label')}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t('actions')}</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+            <TouchableOpacity
+              style={[styles.actionButton, { flex: 1, backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}
+              onPress={() => setIsTeacherModalVisible(true)}
+            >
+              <UserPlus size={20} color="#6366f1" />
+              <Text style={[styles.actionButtonText, { color: '#6366f1' }]}>{t('add_teacher')}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, { flex: 1, backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}
+              onPress={() => setIsClassModalVisible(true)}
+            >
+              <Plus size={20} color="#10b981" />
+              <Text style={[styles.actionButtonText, { color: '#10b981' }]}>{t('add_class_short')}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>{t('school_classes')}</Text>
+          <ScrollView style={styles.scrollContent}>
+            {schoolClasses.map(cls => (
+              <TouchableOpacity
+                key={cls.id}
+                style={styles.card}
+                onPress={() => setNavigation({ view: 'class-detail', data: cls })}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{t('add_class_short')} {cls.name}</Text>
+                  <Text style={styles.cardSubtitle}>
+                    {(cls.teacherIds || []).length} {t('teachers_count')} • {students.filter(s => s.classId === cls.id).length} {t('students_count')}
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            ))}
+            {schoolClasses.length === 0 && (
+              <Text style={styles.emptyTextSmall}>{t('no_classes_registered')}</Text>
+            )}
+          </ScrollView>
+        </View>
+      );
+    }
+
+    if (navigation.view === 'class-detail') {
+      const currentClass = navigation.data;
+      const classStudents = students.filter(s => s.classId === currentClass.id);
+      const school = schools.find(s => s.id === currentClass.schoolId);
+
+      return (
+        <View style={styles.viewContainer}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => setNavigation({ view: 'school-detail', data: school })}
+          >
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{school?.name || 'Detajet'}</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+              <View style={[styles.actionIconContainer, { backgroundColor: '#f5f3ff', width: 52, height: 52 }]}>
+                <LayoutGrid size={24} color="#a855f7" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.viewTitle}>Klasa {currentClass.name}</Text>
+                <Text style={styles.cardSubtitle}>{school?.name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_class')}: ${currentClass.name}?`, async () => {
+                if (onDeleteClass) {
+                  await onDeleteClass(currentClass.id);
+                  setNavigation({ view: 'school-detail', data: school });
+                }
+              })}>
+                <Trash2 size={24} color="#ef4444" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <Text style={styles.label}>{t('class_teachers')}</Text>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  onPress={() => setIsAddTeacherToClassModalVisible(true)}
+                >
+                  <Plus size={16} color="#6366f1" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#6366f1' }}>{t('add')}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ gap: 8 }}>
+                {(currentClass.teacherIds || []).map(tId => {
+                  const teacher = teachers.find(t => t.id === tId);
+                  return (
+                    <View key={tId} style={styles.teacherListItem}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                          <GraduationCap size={16} color="#6366f1" />
+                        </View>
+                        <View>
+                          <Text style={styles.teacherNameText}>{teacher?.name || t('unknown_teacher')}</Text>
+                          <Text style={{ fontSize: 11, color: '#64748b' }}>{(teacher?.subjects || []).join(', ')}</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity onPress={() => handleRemoveTeacherLocal(tId)}>
+                        <View style={{ padding: 8, borderRadius: 8, backgroundColor: '#fef2f2' }}>
+                          <Trash2 size={16} color="#ef4444" />
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+                {(currentClass.teacherIds || []).length === 0 && (
+                  <Text style={styles.emptyTextSmall}>{t('no_teachers_assigned')}</Text>
+                )}
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+            <View>
+              <Text style={styles.sectionTitle}>{t('students_label')} ({classStudents.length})</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.smallAddButton}
+              onPress={() => setIsStudentModalVisible(true)}
+            >
+              <Plus size={16} color="white" />
+              <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.scrollContent}>
+            {classStudents.map(student => (
+              <View key={student.id} style={styles.card}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#f0f9ff', alignItems: 'center', justifyContent: 'center' }}>
+                    <Users size={20} color="#6366f1" />
+                  </View>
+                  <View>
+                    <Text style={styles.cardTitle}>{student.name}</Text>
+                    <Text style={styles.cardSubtitle}>{student.username}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => onRemoveStudentFromClass(student.id, currentClass.id)}>
+                  <Trash2 size={18} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            {classStudents.length === 0 && (
+              <Text style={styles.emptyTextSmall}>{t('no_students_in_class')}</Text>
+            )}
+          </ScrollView>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  const renderTeachers = () => (
+    <View style={styles.viewContainer}>
+      <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
+        <ArrowLeft size={18} color="#1e293b" />
+        <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
+      </TouchableOpacity>
+      <View style={styles.viewHeader}>
+        <View></View>
+        <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsTeacherModalVisible(true)}>
+          <Plus size={20} color="white" />
+          <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.scrollContent}>
+        {teachers.map(teacher => (
+          <View key={teacher.id} style={styles.card}>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <View style={[styles.actionIconContainer, { backgroundColor: '#f0fdf4', width: 40, height: 40 }]}>
+                  <UserCheck size={20} color="#10b981" />
+                </View>
+                <View>
+                  <Text style={styles.cardTitle}>{teacher.name}</Text>
+                  <Text style={styles.cardSubtitle}>{(teacher.subjects || []).join(', ')}</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 12, color: '#64748b' }}>
+                {t('school_label')}: {schools.find(s => s.id === teacher.schoolId)?.name || t('no_school')}
+              </Text>
+              <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                {t('classes_label')}: {classes.filter(c => (c.teacherIds || []).includes(teacher.id)).map(c => c.name).join(', ') || t('none')}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                style={[styles.smallAddButton, { backgroundColor: '#eff6ff', paddingHorizontal: 10 }]}
+                onPress={() => setNavigation({ view: 'teachers', data: teacher, mode: 'link' })}
+              >
+                <Plus size={16} color="#6366f1" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_teacher') || 'Jeni të sigurt që doni të fshini këtë mësues?'}: ${teacher.name}?`, async () => {
+                if (onDeleteTeacher) await onDeleteTeacher(teacher.id);
+              })}>
+                <Trash2 size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+
+      {navigation.view === 'teachers' && navigation.mode === 'link' && (
+        <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }]}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{t('link_teacher_class').replace('{name}', navigation.data.name)}</Text>
+            <Text style={styles.label}>{t('select_class_school')} ({t('school_label')}: {schools.find(s => s.id === navigation.data.schoolId)?.name})</Text>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {classes
+                .filter(c => c.schoolId === navigation.data.schoolId)
+                .map(cls => {
+                  const isAlreadyIn = (cls.teacherIds || []).includes(navigation.data.id);
+                  return (
+                    <TouchableOpacity
+                      key={cls.id}
+                      style={[styles.schoolSelectItem, isAlreadyIn && styles.activeSchoolSelect]}
+                      onPress={async () => {
+                        if (isAlreadyIn) return;
+                        const newTeacherIds = [...(cls.teacherIds || []), navigation.data.id];
+                        await onUpdateClassTeachers(cls.id, newTeacherIds);
+                        setNavigation({ view: 'teachers', data: null });
+                      }}
+                    >
+                      <Text style={[styles.schoolSelectText, isAlreadyIn && styles.activeSchoolSelectText]}>
+                        {cls.name} {isAlreadyIn ? `(${t('already_linked')})` : ''}
+                      </Text>
+                      {isAlreadyIn ? <Check size={16} color="#6366f1" /> : <ChevronRight size={16} color="#94a3b8" />}
+                    </TouchableOpacity>
+                  );
+                })}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.cancelButton, { marginTop: 20 }]}
+              onPress={() => setNavigation({ view: 'teachers', data: null })}
+            >
+              <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
+  const renderStudents = () => {
+    const unassignedStudents = students.filter(s => !s.classId);
+
+    return (
+      <View style={styles.viewContainer}>
+        <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <ArrowLeft size={18} color="#1e293b" />
+          <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
+        </TouchableOpacity>
+        <View style={styles.viewHeader}>
+          <View></View>
+          <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsStudentModalVisible(true)}>
+            <Plus size={18} color="#fff" />
+            <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.searchBarContainer}>
+          <Search size={20} color="#94a3b8" />
+          <TextInput
+            placeholder={t('search_students')}
+            style={styles.searchBarInput}
+            value={settingsSearchQuery}
+            onChangeText={setSettingsSearchQuery}
+          />
+        </View>
+
+        <ScrollView style={styles.scrollContent}>
+          {unassignedStudents.length > 0 && (
+            <View style={{ marginBottom: 24 }}>
+              <Text style={styles.sectionTitle}>{t('unassigned')} ({unassignedStudents.length})</Text>
+              {unassignedStudents.map(student => (
+                <View key={student.id} style={styles.card}>
+                  <View>
+                    <Text style={styles.cardTitle}>{student.name}</Text>
+                    <Text style={styles.cardSubtitle}>
+                      {schools.find(s => s.id === student.schoolId)?.name || t('no_school')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.smallAddButton, { backgroundColor: '#eff6ff' }]}
+                    onPress={() => setNavigation({ view: 'students', data: student, mode: 'assign' })}
+                  >
+                    <Text style={[styles.smallAddButtonText, { color: '#6366f1' }]}>{t('assign')}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <Text style={styles.sectionTitle}>{t('all_students')}</Text>
+          {students
+            .filter(s => s.name.toLowerCase().includes(settingsSearchQuery.toLowerCase()))
+            .map(student => (
+              <View key={student.id} style={styles.card}>
+                <View>
+                  <Text style={styles.cardTitle}>{student.name}</Text>
+                  <Text style={{ fontSize: 12, color: '#64748b' }}>
+                    {classes.find(c => c.id === student.classId)?.name || t('no_class')} •
+                    {schools.find(s => s.id === student.schoolId)?.name || t('no_school')}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_student') || 'Jeni të sigurt që doni të fshini këtë nxënës?'}: ${student.name}?`, async () => {
+                  if (onDeleteStudent) await onDeleteStudent(student.id);
+                })}>
+                  <Trash2 size={18} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+            ))}
+        </ScrollView>
+
+        {navigation.view === 'students' && navigation.mode === 'assign' && (
+          <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>{t('assign')}: {navigation.data.name}</Text>
+              <Text style={styles.label}>{t('select_class')}</Text>
+              <ScrollView style={{ maxHeight: 300 }}>
+                {classes
+                  .filter(c => c.schoolId === navigation.data.schoolId)
+                  .map(cls => (
+                    <TouchableOpacity
+                      key={cls.id}
+                      style={styles.schoolSelectItem}
+                      onPress={async () => {
+                        await onAssignStudentToClass(navigation.data.id, cls.id);
+                        setNavigation({ view: 'students', data: null });
+                      }}
+                    >
+                      <Text style={styles.schoolSelectText}>{cls.name}</Text>
+                      <ChevronRight size={16} color="#94a3b8" />
+                    </TouchableOpacity>
+                  ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={[styles.cancelButton, { marginTop: 20 }]}
+                onPress={() => setNavigation({ view: 'students', data: null })}
+              >
+                <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderCodes = () => (
+    <View style={styles.viewContainer}>
+      <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
+        <ArrowLeft size={18} color="#1e293b" />
+        <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
+      </TouchableOpacity>
+      <View style={styles.viewHeader}>
+        <View></View>
+      </View>
+
+      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {schools.map(school => (
+          <View key={school.id} style={[styles.card, { paddingVertical: 20 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                {school.name}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff', width: 48, height: 48, borderRadius: 12 }]}>
+                  <Hash size={24} color="#2563eb" />
+                </View>
+                <Text style={{ fontSize: 28, fontWeight: '900', color: '#1e293b', letterSpacing: 2 }}>
+                  {school.code}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, fontWeight: '600' }}>
+                {t('municipality_label')}: {school.city}
+              </Text>
+            </View>
+          </View>
+        ))}
+        {schools.length === 0 && (
+          <Text style={styles.emptyText}>{t('no_schools_registered')}</Text>
+        )}
+        <View style={{ height: 100 }} />
+      </ScrollView>
+    </View>
+  );
+
+  const renderWizardStepper = (currentStep) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+      {[1, 2, 3].map(s => (
+        <View key={s} style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={[
+            { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
+            currentStep === s ? { borderColor: '#2563eb', backgroundColor: '#eff6ff' } :
+              currentStep > s ? { borderColor: '#10b981', backgroundColor: '#ecfdf5' } :
+                { borderColor: '#e2e8f0', backgroundColor: 'transparent' }
+          ]}>
+            {currentStep > s ? (
+              <ShieldCheck size={14} color="#10b981" />
+            ) : (
+              <Text style={[
+                { fontSize: 12, fontWeight: '700' },
+                currentStep === s ? { color: '#2563eb' } : { color: '#94a3b8' }
+              ]}>{s}</Text>
+            )}
+          </View>
+          {s < 3 && <View style={{ width: 20, height: 2, backgroundColor: currentStep > s ? '#10b981' : '#e2e8f0', marginHorizontal: 2 }} />}
+        </View>
+      ))}
+    </View>
+  );
+
+  const renderModals = () => (
+    <>
+      <Modal visible={isSchoolModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{t('add_new_school')}</Text>
+
+            <Text style={styles.label}>{t('select_city')}</Text>
+            <TouchableOpacity
+              style={[
+                styles.input,
+                { justifyContent: 'center' },
+                isCityDropdownVisible && { borderColor: '#6366f1', backgroundColor: '#f8fafc' }
+              ]}
+              onPress={() => {
+                setIsCityDropdownVisible(!isCityDropdownVisible);
+                setIsSchoolDropdownVisible(false);
+              }}
+            >
+              <Text style={{ color: newSchoolCity ? '#1e293b' : '#94a3b8', fontWeight: '700' }}>
+                {newSchoolCity || t('select_municipality_placeholder')}
+              </Text>
+              <ChevronDown
+                size={18}
+                color={isCityDropdownVisible ? '#6366f1' : '#94a3b8'}
+                style={{ position: 'absolute', right: 12, transform: [{ rotate: isCityDropdownVisible ? '180deg' : '0deg' }] }}
+              />
+            </TouchableOpacity>
+
+            {isCityDropdownVisible && (
+              <View style={styles.dropdownContainer}>
+                <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginBottom: 12, height: 44, backgroundColor: '#f1f5f9' }]}>
+                  <Search size={18} color="#64748b" />
+                  <TextInput
+                    placeholder={t('search_municipality_placeholder')}
+                    style={[styles.searchBarInput, { fontSize: 14, height: 44 }]}
+                    value={citySearchQuery}
+                    onChangeText={setCitySearchQuery}
+                    autoFocus
+                  />
+                </View>
+                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                  {Object.keys(KOSOVO_DATA)
+                    .filter(city => city.toLowerCase().includes(citySearchQuery.toLowerCase()))
+                    .map(city => (
+                      <TouchableOpacity
+                        key={city}
+                        style={[styles.dropdownItem, newSchoolCity === city && styles.activeDropdownItem]}
+                        onPress={() => {
+                          setNewSchoolCity(city);
+                          setIsCityDropdownVisible(false);
+                          setCitySearchQuery('');
+                          setNewSchoolName('');
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, newSchoolCity === city && styles.activeDropdownItemText]}>{city}</Text>
+                        {newSchoolCity === city && <Check size={16} color="#6366f1" />}
+                      </TouchableOpacity>
+                    ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {newSchoolCity && !isCityDropdownVisible ? (
+              <View style={{ marginTop: 16 }}>
+                <Text style={styles.label}>{t('select_school')}</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.input,
+                    { justifyContent: 'center' },
+                    isSchoolDropdownVisible && { borderColor: '#6366f1', backgroundColor: '#f8fafc' }
+                  ]}
+                  onPress={() => setIsSchoolDropdownVisible(!isSchoolDropdownVisible)}
+                >
+                  <Text style={{ color: newSchoolName ? '#1e293b' : '#94a3b8', fontWeight: '700' }}>
+                    {newSchoolName || t('select_school_placeholder')}
+                  </Text>
+                  <ChevronDown
+                    size={18}
+                    color={isSchoolDropdownVisible ? '#6366f1' : '#94a3b8'}
+                    style={{ position: 'absolute', right: 12, transform: [{ rotate: isSchoolDropdownVisible ? '180deg' : '0deg' }] }}
+                  />
+                </TouchableOpacity>
+
+                {isSchoolDropdownVisible && (
+                  <View style={styles.dropdownContainer}>
+                    <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginBottom: 12, height: 44, backgroundColor: '#f1f5f9' }]}>
+                      <Search size={18} color="#64748b" />
+                      <TextInput
+                        placeholder={t('search_school_placeholder')}
+                        style={[styles.searchBarInput, { fontSize: 14, height: 44 }]}
+                        value={schoolSearchQuery}
+                        onChangeText={setSchoolSearchQuery}
+                        autoFocus
+                      />
+                    </View>
+                    <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                      {KOSOVO_DATA[newSchoolCity]
+                        .filter(school => school.toLowerCase().includes(schoolSearchQuery.toLowerCase()))
+                        .map(school => (
+                          <TouchableOpacity
+                            key={school}
+                            style={[styles.dropdownItem, newSchoolName === school && styles.activeDropdownItem]}
+                            onPress={() => {
+                              setNewSchoolName(school);
+                              setIsSchoolDropdownVisible(false);
+                              setSchoolSearchQuery('');
+                            }}
+                          >
+                            <Text style={[styles.dropdownItemText, newSchoolName === school && styles.activeDropdownItemText]}>{school}</Text>
+                            {newSchoolName === school && <Check size={16} color="#6366f1" />}
+                          </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            ) : null}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.cancelButton} onPress={resetSchoolForm}>
+                <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.submitButton, (!newSchoolCity || !newSchoolName) && { opacity: 0.5 }]}
+                onPress={handleAddSchoolLocal}
+                disabled={!newSchoolCity || !newSchoolName}
+              >
+                <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isTeacherModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{t('add_teacher')}</Text>
+
+            <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false}>
+              <TextInput style={styles.input} placeholder={t('first_name')} value={teacherFirstName} onChangeText={setTeacherFirstName} />
+              <TextInput style={styles.input} placeholder={t('last_name')} value={teacherLastName} onChangeText={setTeacherLastName} />
+              <TextInput style={styles.input} placeholder={t('email')} value={teacherUsername} onChangeText={setTeacherUsername} autoCapitalize="none" keyboardType="email-address" />
+              <TextInput style={styles.input} placeholder={t('password')} value={teacherPassword} onChangeText={setTeacherPassword} secureTextEntry />
+
+              <Text style={styles.label}>{t('select_subjects')}</Text>
+              <View style={styles.subjectsGrid}>
+                {KOSOVO_SUBJECTS.map(subject => (
+                  <TouchableOpacity
+                    key={subject}
+                    style={[styles.subjectChip, teacherSubjects.includes(subject) && styles.activeSubjectChip]}
+                    onPress={() => toggleSubject(subject)}
+                  >
+                    <Text style={[styles.subjectChipText, teacherSubjects.includes(subject) && styles.activeSubjectChipText]}>{subject}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setIsTeacherModalVisible(false)}>
+                <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.submitButton} onPress={() => handleAddTeacherLocal(navigation.data?.id)}>
+                <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isClassModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{t('add_class')}</Text>
+
+            <TextInput
+              style={styles.input}
+              placeholder={t('class_name')}
+              value={newClassName}
+              onChangeText={setNewClassName}
+            />
+
+            <Text style={styles.label}>{t('select_teacher')}</Text>
+            <ScrollView style={{ maxHeight: 200 }}>
+              <TouchableOpacity
+                style={[styles.schoolSelectItem, !selectedTeacherId && styles.activeSchoolSelect]}
+                onPress={() => setSelectedTeacherId('')}
+              >
+                <Text style={[styles.schoolSelectText, !selectedTeacherId && styles.activeSchoolSelectText]}>{t('no_teachers_assigned')}</Text>
+              </TouchableOpacity>
+              {teachers.filter(t => t.schoolId === (navigation.data?.id || navigation.data?.schoolId)).map(teacher => (
+                <TouchableOpacity
+                  key={teacher.id}
+                  style={[styles.schoolSelectItem, selectedTeacherId === teacher.id && styles.activeSchoolSelect]}
+                  onPress={() => setSelectedTeacherId(teacher.id)}
+                >
+                  <Text style={[styles.schoolSelectText, selectedTeacherId === teacher.id && styles.activeSchoolSelectText]}>
+                    Mësuesi: {teacher.name}
+                  </Text>
+                  {selectedTeacherId === teacher.id && <Check size={16} color="#6366f1" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setIsClassModalVisible(false)}>
+                <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.submitButton} onPress={() => handleAddClassLocal(navigation.data?.id)}>
+                <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isStudentModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { padding: 0, overflow: 'hidden' }]}>
+            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+              <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_student')}</Text>
+              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
+                Klasa {navigation.data?.name || ''}
+              </Text>
+            </View>
+
+            <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
+              {/* Existing Unassigned Students FROM SAME SCHOOL */}
+              {(() => {
+                const schoolId = navigation.data?.schoolId || navigation.data?.id;
+                const unassignedStudents = students.filter(s => !s.classId && s.schoolId === schoolId);
+
+                if (unassignedStudents.length > 0) {
+                  return (
+                    <View style={{ marginBottom: 24 }}>
+                      <Text style={[styles.label, { color: '#2563eb', marginTop: 0 }]}>
+                        {t('add_existing_unassigned')}:
+                      </Text>
+                      <View style={{ gap: 8, marginTop: 10 }}>
+                        {unassignedStudents.map(student => (
+                          <TouchableOpacity
+                            key={student.id}
+                            style={[styles.schoolSelectItem, { borderColor: '#bfdbfe', backgroundColor: '#f0f9ff' }]}
+                            onPress={() => handleAssignStudentLocal(student.id, navigation.data.id)}
+                          >
+                            <View>
+                              <Text style={styles.schoolSelectText}>{student.name}</Text>
+                              <Text style={{ fontSize: 11, color: '#64748b' }}>{student.username}</Text>
+                            </View>
+                            <View style={{ backgroundColor: '#2563eb', padding: 6, borderRadius: 8 }}>
+                              <Plus size={16} color="white" />
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      <View style={{ height: 1, backgroundColor: '#f1f5f9', marginTop: 20 }} />
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+
+              <Text style={[styles.label, { marginTop: 0 }]}>{t('or_create_new')}:</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t('student_name')}
+                value={studentName}
+                onChangeText={setStudentName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t('username')}
+                value={studentUsername}
+                onChangeText={setStudentUsername}
+                autoCapitalize="none"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t('password')}
+                value={studentPassword}
+                onChangeText={setStudentPassword}
+                secureTextEntry
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => setIsStudentModalVisible(false)}>
+                  <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.submitButton} onPress={() => handleAddStudent(navigation.data?.id)}>
+                  <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Unified Wizard Modal */}
+      <Modal visible={isWizardVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {renderWizardStepper(wizardStep)}
+
+            {wizardStep === 1 && (
+              <View>
+                <Text style={[styles.modalTitle, { marginBottom: 8 }]}>{t('add_teacher')}</Text>
+                <Text style={[styles.label, { marginBottom: 12 }]}>{t('select_school')}:</Text>
+                <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
+                  {schools.map(s => (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[styles.chip, navigation.data?.id === s.id && styles.activeChip]}
+                      onPress={() => setNavigation({ ...navigation, data: s })}
+                    >
+                      <Text style={[styles.chipText, navigation.data?.id === s.id && styles.activeChipText]}>{s.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <TextInput style={styles.input} placeholder={t('first_name')} value={teacherFirstName} onChangeText={setTeacherFirstName} />
+                <TextInput style={styles.input} placeholder={t('last_name')} value={teacherLastName} onChangeText={setTeacherLastName} />
+                <TextInput style={styles.input} placeholder={t('email')} value={teacherUsername} onChangeText={setTeacherUsername} autoCapitalize="none" keyboardType="email-address" />
+                <TextInput style={styles.input} placeholder={t('password')} value={teacherPassword} onChangeText={setTeacherPassword} secureTextEntry />
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => { setWizardStep(0); setIsWizardVisible(false); }}>
+                    <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.submitButton} onPress={() => handleAddTeacherLocal(navigation.data?.id)}>
+                    <Text style={styles.submitButtonText}>{t('continue')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {wizardStep === 2 && (
+              <View>
+                <Text style={styles.modalTitle}>{t('link')} {wizardData.teacher?.first_name} {t('with_class')}</Text>
+
+                {classes.filter(c => c.schoolId === wizardData.teacher?.schoolId).length > 0 && (
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={styles.label}>{t('select_existing_class')}:</Text>
+                    <ScrollView style={{ maxHeight: 150 }}>
+                      {classes.filter(c => c.schoolId === wizardData.teacher?.schoolId).map(cls => (
+                        <TouchableOpacity
+                          key={cls.id}
+                          style={styles.schoolSelectItem}
+                          onPress={() => handleWizardSelectClass(cls)}
+                        >
+                          <Text style={styles.schoolSelectText}>{cls.name}</Text>
+                          <ChevronRight size={18} color="#94a3b8" />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                <Text style={[styles.label, { marginTop: 10 }]}>{t('or_create_new_class')}:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('class_name')}
+                  value={newClassName}
+                  onChangeText={setNewClassName}
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setWizardStep(1)}>
+                    <Text style={styles.cancelButtonText}>{t('back')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.submitButton} onPress={handleWizardAddClass}>
+                    <Text style={styles.submitButtonText}>{t('continue')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {wizardStep === 3 && (
+              <View>
+                <Text style={styles.modalTitle}>{wizardData.class?.name}</Text>
+                <Text style={[styles.label, { marginBottom: 16 }]}>{t('add_student')}</Text>
+
+                <View style={{ maxHeight: 400 }}>
+                  <TextInput style={styles.input} placeholder={t('full_name')} value={tempStudentName} onChangeText={setTempStudentName} />
+                  <TextInput style={styles.input} placeholder={t('email')} value={tempStudentEmail} onChangeText={setTempStudentEmail} autoCapitalize="none" keyboardType="email-address" />
+                  <TextInput style={styles.input} placeholder={t('password')} value={tempStudentPass} onChangeText={setTempStudentPass} secureTextEntry />
+
+                  <TouchableOpacity style={[styles.addButton, { backgroundColor: '#10b981', marginBottom: 20 }]} onPress={handleWizardAddStudent}>
+                    <Plus size={20} color="white" />
+                    <Text style={styles.addButtonText}>{t('add')}</Text>
+                  </TouchableOpacity>
+
+                  {wizardData.students.length > 0 && (
+                    <ScrollView style={{ maxHeight: 120 }}>
+                      <Text style={styles.label}>{t('students_added')} ({wizardData.students.length})</Text>
+                      {wizardData.students.map((s, idx) => (
+                        <View key={idx} style={[styles.addedItem, { paddingVertical: 6 }]}>
+                          <Text style={styles.addedItemText}>• {s.name}</Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setWizardStep(2)}>
+                    <Text style={styles.cancelButtonText}>{t('back')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.submitButton, wizardData.students.length === 0 && { opacity: 0.5 }]}
+                    onPress={handleWizardComplete}
+                    disabled={wizardData.students.length === 0}
+                  >
+                    <Text style={styles.submitButtonText}>{t('complete_setup')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isAddTeacherToClassModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { padding: 0, overflow: 'hidden' }]}>
+            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+              <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_teacher')}</Text>
+              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
+                Klasa {navigation.data?.name || ''}
+              </Text>
+            </View>
+
+            <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
+              <Text style={[styles.label, { marginTop: 0 }]}>{t('select_teacher')}:</Text>
+              <View style={{ gap: 8, marginTop: 10 }}>
+                {teachers
+                  .filter(t => t.schoolId === (navigation.data?.schoolId || navigation.data?.id) && !(navigation.data?.teacherIds || []).includes(t.id))
+                  .map(teacher => (
+                    <TouchableOpacity
+                      key={teacher.id}
+                      style={[styles.schoolSelectItem, { borderColor: '#e2e8f0' }]}
+                      onPress={() => handleAddTeacherToClass(teacher.id)}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                          <GraduationCap size={20} color="#2563eb" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.schoolSelectText}>{teacher.name}</Text>
+                          <Text style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>
+                            {(teacher.subjects || []).join(', ')}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ backgroundColor: '#f8fafc', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                        <Plus size={16} color="#2563eb" />
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                {teachers.filter(t => t.schoolId === (navigation.data?.schoolId || navigation.data?.id) && !(navigation.data?.teacherIds || []).includes(t.id)).length === 0 && (
+                  <View style={{ padding: 30, alignItems: 'center' }}>
+                    <Text style={[styles.emptyTextSmall, { opacity: 0.7 }]}>{t('no_other_teachers_in_school')}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={[styles.modalButtons, { marginTop: 32 }]}>
+                <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => setIsAddTeacherToClassModalVisible(false)}>
+                  <Text style={styles.cancelButtonText}>{t('close')}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerTopBar}>
+          <View style={styles.headerLogo}>
+            <View style={styles.logoIcon}>
+              <School size={18} color="white" />
+            </View>
+          </View>
+          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+            <LogOut size={20} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {navigation.view === 'home' && renderMain()}
+      {(navigation.view === 'schools' || navigation.view === 'school-detail' || navigation.view === 'class-detail' || navigation.view === 'classes') && renderSchools()}
+      {navigation.view === 'teachers' && renderTeachers()}
+      {navigation.view === 'students' && renderStudents()}
+      {navigation.view === 'codes' && renderCodes()}
+      {navigation.view === 'settings' && renderSettings()}
+
+      {renderModals()}
+
+      <Modal visible={confirmState.visible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 400, padding: 32 }]}>
+            <View style={{ alignItems: 'center', marginBottom: 20 }}>
+              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                <Trash2 size={32} color="#ef4444" />
+              </View>
+              <Text style={[styles.modalTitle, { textAlign: 'center', marginBottom: 8, fontSize: 24, paddingHorizontal: 10 }]}>{t('confirm')}</Text>
+              <Text style={{ fontSize: 16, color: '#64748b', textAlign: 'center', lineHeight: 24, fontWeight: '500' }}>
+                {confirmState.message}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.cancelButton, { flex: 1, backgroundColor: '#f1f5f9' }]}
+                onPress={() => setConfirmState({ ...confirmState, visible: false })}
+              >
+                <Text style={[styles.cancelButtonText, { color: '#64748b' }]}>{t('cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.submitButton, { flex: 1, backgroundColor: '#ef4444', shadowColor: '#ef4444' }]}
+                onPress={() => {
+                  setConfirmState({ ...confirmState, visible: false });
+                  if (confirmState.onConfirm) confirmState.onConfirm();
+                }}
+              >
+                <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <View style={styles.bottomNav}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => setNavigation({ view: 'home', data: null })}
+        >
+          <View style={[styles.navIconContainer, navigation.view === 'home' && styles.activeNavIcon]}>
+            <Home size={22} color={navigation.view === 'home' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'home' ? 2.5 : 2} />
+          </View>
+          <Text style={[styles.navText, navigation.view === 'home' && styles.activeNavText]}>{t('home')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => setNavigation({ view: 'settings', data: null })}
+        >
+          <View style={[styles.navIconContainer, navigation.view === 'settings' && styles.activeNavIcon]}>
+            <Settings size={22} color={navigation.view === 'settings' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'settings' ? 2.5 : 2} />
+          </View>
+          <Text style={[styles.navText, navigation.view === 'settings' && styles.activeNavText]}>{t('settings')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navItem} onPress={onLogout}>
+          <View style={styles.navIconContainer}>
+            <LogOut size={22} color="#94a3b8" strokeWidth={2} />
+          </View>
+          <Text style={styles.navText}>{t('logout')}</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f1f5f9', // Slightly cooler background
+  },
+  header: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingTop: Platform.OS === 'ios' ? 0 : 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    zIndex: 10,
+  },
+  headerTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+  },
+  headerLogo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoIcon: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#6366f1', // Indigo Primary
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  logoutBtn: {
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  viewContainer: {
+    flex: 1,
+    padding: 24,
+  },
+  viewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  viewTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#1e293b',
+    letterSpacing: -1,
+  },
+  viewSubtitle: {
+    fontSize: 15,
+    color: '#64748b',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: '#fff', // White border for subtle depth
+    alignItems: 'center',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  statValue: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#1e293b',
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    marginTop: 4,
+    letterSpacing: 0.5,
+  },
+  quickActions: {
+    paddingHorizontal: 24,
+    gap: 12,
+    marginBottom: 32,
+  },
+  actionTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  actionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionTileTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  wizardCard: {
+    marginHorizontal: 24,
+    borderRadius: 32,
+    overflow: 'hidden',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 8,
+    marginBottom: 40,
+  },
+  wizardGradient: {
+    padding: 28,
+    backgroundColor: '#6366f1',
+  },
+  wizardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  wizardInfo: {
+    flex: 1,
+  },
+  wizardTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: -0.5,
+  },
+  wizardDesc: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  wizardIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    color: '#2563eb',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#2563eb',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#1e293b',
+    letterSpacing: -0.5,
+  },
+  smallAddButton: {
+    backgroundColor: '#6366f1', // Secondary action also Indigo for now
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    gap: 8,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  smallAddButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  teacherListItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  teacherNameText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  inlineAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 6,
+    padding: 8,
+  },
+  inlineAddButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#2563eb',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#94a3b8',
+    marginTop: 60,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  emptyTextSmall: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    paddingTop: 14,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 14,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  navIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeNavIcon: {
+    backgroundColor: '#eff6ff',
+  },
+  navText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+  },
+  activeNavText: {
+    color: '#2563eb',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
+    justifyContent: 'center',
+    padding: 20,
+    zIndex: 1000,
+  },
+  wizardBadge: {
+    backgroundColor: '#eff6ff',
+    color: '#6366f1',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: '800',
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  schoolSelectItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  activeSchoolSelect: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#6366f1',
+  },
+  schoolSelectText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  activeSchoolSelectText: {
+    color: '#6366f1',
+  },
+  subjectsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  subjectChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  activeSubjectChip: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#6366f1',
+  },
+  subjectChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  activeSubjectChipText: {
+    color: '#6366f1',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 32,
+    padding: 24,
+    width: '92%',
+    maxWidth: 500, // Responsive for web
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.2,
+    shadowRadius: 25,
+    elevation: 24,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#1e293b',
+    marginBottom: 20,
+    letterSpacing: -0.5,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#64748b',
+    marginBottom: 10,
+    marginTop: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    fontSize: 16,
+    marginBottom: 16,
+    color: '#1e293b',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+  },
+  chipScroll: {
+    marginBottom: 16,
+  },
+  chip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
+    marginRight: 8,
+  },
+  activeChip: {
+    backgroundColor: '#2563eb',
+  },
+  chipText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '700',
+  },
+  activeChipText: {
+    color: '#fff',
+  },
+  schoolSelectItem: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: '#f8fafc',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  activeSchoolSelect: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#bfdbfe',
+  },
+  schoolSelectText: {
+    fontSize: 15,
+    color: '#1e293b',
+    fontWeight: '600',
+  },
+  activeSchoolSelectText: {
+    color: '#2563eb',
+    fontWeight: '800',
+  },
+  subjectsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 24,
+  },
+  subjectChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  activeSubjectChip: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#2563eb',
+  },
+  subjectChipText: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  activeSubjectChipText: {
+    color: '#2563eb',
+    fontWeight: '800',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  cancelButtonText: {
+    color: '#64748b',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  submitButton: {
+    flex: 1,
+    padding: 18,
+    borderRadius: 20,
+    alignItems: 'center',
+    backgroundColor: '#6366f1',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 16,
+    letterSpacing: 0.5,
+  },
+  wizardHeader: {
+    marginBottom: 20,
+  },
+  wizardBadge: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#2563eb',
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  addedList: {
+    marginTop: 16,
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  addedItem: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  addedItemText: {
+    fontSize: 14,
+    color: '#475569',
+    fontWeight: '600',
+  },
+  settingsMenu: {
+    gap: 16,
+  },
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  settingsItemLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    gap: 12,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  searchBarInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1e293b',
+    fontWeight: '500',
+  },
+  entityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  selectedEntityItem: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  entityName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  entitySub: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  actionFab: {
+    position: 'absolute',
+    bottom: 32,
+    right: 24,
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: '#ef4444', // Keep Red for Delete, but refine it
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 15,
+  },
+});
+
+export default AdminDashboard;
