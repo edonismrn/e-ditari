@@ -337,10 +337,11 @@ export const KOSOVO_DATA = {
     "SH.F.M.U. 'Bislim Halimi' - Selac"
   ],
   "Mitrovicë e Veriut": [
-    "SHML Gjimnazi 'Sveti Sava' ",
-    "SHML Shkolla e Mesme Teknike",
-    "SHFMU 'Branko Radičević'",
-    "SHFMU 'Sveti Sava'"
+    "SH.F.M.U. 'Aziz Sylejmani' - Kodra e Minatorëve",
+    "SH.F.M.U. 'Sveti Sava' - Suhadoll i epërm",
+    "SH.F.M.U. 'Sveti Sava' - Mitrovicë e Veriut",
+    "S.H.M.L. Teknike - Mitrovicë e Veriut",
+    "S.H.M.L. Mjekësisë - Mitrovicë e Veriut"
   ],
   "Podujevë": [
     "SHML Gjimnazi 'Aleksandër Xhuvani'",
@@ -397,11 +398,38 @@ export const KOSOVO_DATA = {
     "SH.F.M.U. 'Hamit Sejdiu' - Pakashticë e Epërme"
   ],
   "Vushtrri": [
-    "SHML Gjimnazi 'Eqrem Çabej'",
-    "SHML Shkolla e Mesme Teknike 'Lutfi Musiqi'",
-    "SHML Shkolla Profesionale 'Bahri Kuçi'",
-    "SHFMU 'Mustafë Venhari'",
-    "SHFMU 'Naim Frashëri'"
+    "SH.M. 'Bahri Haxha' - Vushtrri",
+    "SH.F.M.U. 'Ali Kelmendi' - Vushtrri",
+    "SH.F.M.U. 'Naim Frashëri' - Vushtrri",
+    "SH.F.M.U. 'Mustafë Venhari' - Vushtrri",
+    "SH.F.M.U. 'Andon Zako Çajupi' - Vushtrri",
+    "SH.F.M.U. 'Azem Bejta' - Dubofc",
+    "SH.F.M.U. 'Abdyl Frashëri' - Druar",
+    "SH.F.M.U. 'Bajram Curri' - Dumnicë e Llugës",
+    "SH.F.M.U. 'Nedakofc' - Nedakofc",
+    "SH.F.M.U. 'Emin Duraku' - Novolan",
+    "SH.F.M.U. 'Migjeni' - Stanofc i epërm",
+    "SH.F.M.U. 'Gj. K. Skenderbeu' - Pantinë",
+    "SH.F.M.U. 'Lumni Surdulli' - Samadrexhë",
+    "SH.F.M.U. 'Enver Hadri' - Smrekovnicë",
+    "SH.F.M.U. 'Rilindja' - Maxhunaj",
+    "SH.F.M.U. '21 Novembar' - Gojbulë",
+    "SH.F.M.U. 'Vuk Karadžić' - Prelluzhë",
+    "SH.F.M.U. 'Liria' - Strofc",
+    "SH.F.M.U. 'Ali Kelmendi' - Studime e epërme",
+    "SH.F.M.U. 'Sveti Sava' - Gracë",
+    "SH.F.M.U. '12 Qershori' - Mihaliq",
+    "SH.F.M.U. 'Martirët' - Reznik",
+    "SH.F.M.U. 'Rilindja' - Pestovë",
+    "SH.F.M.U. 'Mustafë Shyti' - Oshlan",
+    "SH.F.M.U. '21 Novembar' - Banjskë",
+    "SH.F.M.U. 'Dëshmorët' - Zhilivodë",
+    "SH.F.M.U. 'Bahri Kuqi' - Shtitaricë",
+    "SH.F.M.U. 'Lumëmadh' - Lumëmadh",
+    "SH.F.M.U. 'Nazmi Zhegrova' - Stanofc i Poshtëm",
+    "SH.F.M.U. '7 Marsi' - Bukosh",
+    "SH.F.M.U. 'Hajrullah Shala' - Akrashticë",
+    "SH.F.M.U. 'Latif Berisha' - Dobërllukë"
   ],
   "Drenas": [
     "SHML Gjimnazi 'Gjergj Kastrioti Skënderbeu' - Drenas",
@@ -565,9 +593,41 @@ export const KOSOVO_DATA = {
     "SH.F.M.U. 'Naum Veqilharxhi' - Stravuqinë"
   ],
   "Malishevë": [
-    "SHML Gjimnazi 'Hamdi Berisha'",
-    "SHML Shkolla Profesionale 'Lasgush Poradeci'",
-    "SHFMU 'Ibrahim Mazreku'"
+    "SH.M.L. 'Hamdi Berisha' - Malishevë",
+    "SH.F.M.U. 'Beqir Gashi' - Mleqan",
+    "SH.F.M.U. 'Bajram Curri' - Drenoc",
+    "SH.F.M.U. 'Hasan Prishtina' - Tërpezë",
+    "SH.F.M.U. 'Asim Vokshi' - Panorc",
+    "SH.F.M.U. 'Rifat Berisha' - Fshati i Ri",
+    "SH.F.M.U. 'Vesel Pagarusha' - Pagarushë",
+    "SH.F.M.U. 'Ganimete Terbeshi' - Astrazup",
+    "SH.F.M.U. 'Ramadan Morina' - Damanek",
+    "SH.F.M.U. 'Migjeni' - Lubizhdë",
+    "SH.F.M.U. 'Ismail Qemajli' - Bellanicë",
+    "SH.F.M.U. 'Dëshmorët e Kombit' - Guncat",
+    "SH.F.M.U. 'Gjergj Fishta' - Senik",
+    "SH.F.M.U. 'Afrim Buqaj' - Lladroc",
+    "SH.F.M.U. 'Naim Frashëri' - Banjë",
+    "SH.F.M.U. 'Salih Bytyqi' - Shkozë (Millanoviq)",
+    "SH.M.L. Profesionale 'Lasgush Poradeci' - Kijevë",
+    "SH.F.M.U. 'Gjergj Kastrioti' - Llazicë",
+    "SH.F.M.U. 'Hilmi Hoti' - Carrallukë",
+    "SH.F.M.U. 'Petro Nino Luarasi' - Lapçevë",
+    "SH.F.M.U. 'Habib Berisha' - Gurbardh (Carravranë)",
+    "SH.F.M.U. '28 Nëntori' - Kërvasari",
+    "SH.F.M.U. 'Emin Duraku' - Dragobil",
+    "SH.F.M.U. 'Ismet Jashari- Kumanova' - Temeqinë",
+    "SH.F.M.U. 'Dëshmorët e Fshatit' - Bubavec",
+    "SH.F.M.U. 'Tafil Kelmendi' - Balincë",
+    "SH.F.M.U. 'Kajtaz Ramadani' - Golluboc",
+    "SH.F.M.U. 'Afrim Krasniqi' - Lladroviq",
+    "SH.F.M.U. 'Fehmi Agani' - Turjakë",
+    "SH.F.M.U. 'Ruzhdi Xhyliqi' - Marali",
+    "SH.F.M.U. 'Nuhi Mazreku' - Guriq",
+    "SH.F.M.U. '18 Prilli' - Burim(Joviq)",
+    "SH.F.M.U. '12 Prilli' - Vërmicë",
+    "SH.F.M.U. 'Labinot Krasniqi' - Mirushë",
+    "SH.F.M.U. 'Imer Krasniqi' - Carrallukë"
   ],
   "Rahovec": [
     "SHML Gjimnazi i Rahovecit",
@@ -832,10 +892,20 @@ export const KOSOVO_DATA = {
     "SHML Shkolla Profesionale 'Feriz Guri dhe Xheladin Beqiri' - Kaçanik"
   ],
   "Graçanicë": [
-    "SHML Gjimnazi i Graçanicës",
-    "SHML Shkolla Ekonomike",
-    "SHML Shkolla e Mjekësisë",
-    "SHFMU 'Kralj Milutin'"
+    "SH.F.M.U. 'Kralj Milutin' - Graçanicë",
+    "SH.F.M.U. 'Miladin Mitić' - Llaplasellë",
+    "SH.F.M.U. 'Vuk Karadzić' - Batushë",
+    "SH.F.M.U. 'Ugljare' - Uglare",
+    "SH.F.M.U. 'Knez Lazar' - Gushtericë e Ulet",
+    "SH.F.M.U. 'Vuk Karadžić' - Lepi",
+    "SH.F.M.U. 'Shën Sava Badovc' - Shushicë - Badoc",
+    "SH.F.M.U. 'Miladin Mitić' - Preoc",
+    "SH.F.M.U. 'Knez Lazar' - Dobratin",
+    "SH.F.M.U. 'Knez Lazar' - Gushtericë e epërme",
+    "SH.F.M.U. 'Braća Aksić' - Suhodoll",
+    "SH.F.M.U. 'Miladin Mitic' - Çagllavicë",
+    "SH.F.M.U. 'Ditët e Minatorit' - Kishnicë",
+    "International School of Prishtina - Marigona Residence"
   ],
   "Shtërpcë": [
     "SH.M.L. Gjimnazi i Shtërpcës - Shtërpcë",
@@ -866,13 +936,26 @@ export const KOSOVO_DATA = {
     "SH.F.M.U. 'Kadri Bistricë' - Bistricë e Shalës"
   ],
   "Zubin Potok": [
-    "SHML Gjimnazi i Zubin Potokut",
-    "SHML Shkolla Teknike",
-    "SHFMU 'Jovan Cvijić'"
+    "Shkolla 'Jovan Cvijić' - Zubin Potok",
+    "SH.F.M.U. 'Jovan Cvijić' - Zubin Potok",
+    "SH.F.M.U. 'Jovan Cvijić' - Zubin Potok",
+    "SH.F.M.U. 'Jovan Cvijić' - Crepulë",
+    "SH.F.M.U. 'Petar Kocić' - Bubë",
+    "SH.F.M.U. 'Petar Kocić' - Lluçkarekë",
+    "SH.F.M.U. 'Petar Kočić' - Bërnjak",
+    "SH.F.M.U. 'Blagoje Radić' - Zupç",
+    "SH.F.M.U. 'Osaman Rama' - Çabër",
+    "Shtëpia e shendetit - Okllac",
+    "SH.F.M.U. 'Jovan Cvijić' - Breg i Madh",
+    "SH.F.M.U. 'Jovan Cvijić' - Çeçevë"
   ],
   "Zveçan": [
-    "SHML Shkolla e Mesme",
-    "SHFMU 'Vuk Karadžić'"
+    "SH.F.M.U. 'Vuk Karadžić' - Zveçan",
+    "SH.F.M.U. 'Isa Boletini' - Zhazhë",
+    "SH.F.M.U. 'Isa Boletini' - Lipë",
+    "SH.F.M.U. 'Banović Strahinja' - Banjskë",
+    "SH.F.M.U. 'Sveti Sava' - Zherovnicë",
+    "SH.F.M.U. 'Vuk Karadžić' - Graboc"
   ],
   "Novobërdë": [
     "SHML Gjimnazi i Novobërdës - Novobërdë",
@@ -897,27 +980,35 @@ export const KOSOVO_DATA = {
     "SH.F.M.U. 'Sheshnja' - Novobërdë"
   ],
   "Junik": [
-    "SHML Gjimnazi 'Haxhi Zeka'",
-    "SHFMU 'Edi Shukriu'"
+    "SH.F.M.U. 'Edmond Hoxha' - Junik"
   ],
   "Hani i Elezit": [
-    "SHML Gjimnazi 'Dardania'",
-    "SHFMU 'Ilaz Thaçi'"
+    "SH.F.M.U. 'Ilaz Thaçi' - Hani i Elezit",
+    "SH.F.M.U. 'Kështjella e Diturisë' - Paldenicë",
+    "SH.F.M.U. 'Veli Ballazhi' - Gorancë",
+    "SH.F.M.U. 'Ilaz Thaçi' - Seçishte"
   ],
   "Mamushë": [
-    "SHML 'Anadolu'",
-    "SHFMU 'Zëvendës' (Atatürk)"
+    "SH.F.M.U. 'Anadolu' - Mamushë"
   ],
   "Ranillug": [
-    "SHML Shkolla e Mesme",
-    "SHFMU 'Ranilug'"
+    "SH.F.M.U. 'Veljko Dugoševic' - Ranillug",
+    "SH.F.M.U. 'Trajko Perić' - Ropotovë e Madhe",
+    "SH.F.M.U. 'Veljko Dugoševic' - Domoroc",
+    "SH.F.M.U. 'Veljko Dugoševic' - Korminjan i Ultë",
+    "SH.F.M.U. 'Trajko Peric' - Hodec",
+    "SH.F.M.U. 'Trajko Peric' - Pançellë",
+    "SH.F.M.U. 'Trajko Peric' - Drenoc"
   ],
   "Partesh": [
-    "SHML Shkolla e Mesme",
-    "SHFMU 'Partesh'"
+    "SH.F.M.U. 'Dositej Obradović' - Partesh",
+    "SH.F.M.U. 'Dositej Obradović' - Budrigë e Poshtme",
+    "SH.F.M.U. 'Miladin Popović' - Pasjan"
   ],
   "Kllokot": [
-    "SHML Shkolla e Mesme",
-    "SHFMU 'Sveti Sava'"
+    "SH.F.M.U. 'Sveti Sava' - Kllokot",
+    "SH.F.M.U 'Marko Rajković' - Mogille",
+    "SH.F.M.U 'Marko Rajković' - Verboc",
+    "SH.F.M.U 'Gjon Sereçi' - Mogille"
   ]
 };

@@ -13,7 +13,6 @@ export const KOSOVO_SUBJECTS = [
   "Art Figurativ",
   "Muzikë",
   "Edukatë Qytetare",
-  "Tika",
   "Ekonomi",
   "Sociologji"
 ];
