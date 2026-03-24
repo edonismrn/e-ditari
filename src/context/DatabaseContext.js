@@ -9,14 +9,17 @@ export const DatabaseProvider = ({ children }) => {
   
   const [schools, setSchools] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [schoolAdmins, setSchoolAdmins] = useState([]);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
   const [grades, setGrades] = useState([]);
   const [lessons, setLessons] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [homework, setHomework] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [notices, setNotices] = useState([]);
   
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Fetch initial data based on role
   useEffect(() => {
@@ -26,15 +29,23 @@ export const DatabaseProvider = ({ children }) => {
       setLoading(true);
       try {
         if (user.role === 'admin') {
+          const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
           // Admin needs everything
-          const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes] = await Promise.all([
+          const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes] = await Promise.all([
             supabase.from('schools').select('*'),
             supabase.from('profiles').select('*'),
             supabase.from('classes').select('*'),
             supabase.from('teacher_classes').select('*'),
-            supabase.from('student_classes').select('*')
+            supabase.from('student_classes').select('*'),
+            supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
           ]);
           
+          if (!isSuperAdmin && user.school_id) {
+            if (schoolsRes.data) schoolsRes.data = schoolsRes.data.filter(s => s.id === user.school_id);
+            if (profilesRes.data) profilesRes.data = profilesRes.data.filter(p => p.school_id === user.school_id || p.id === user.id);
+            if (classesRes.data) classesRes.data = classesRes.data.filter(c => c.school_id === user.school_id);
+          }
+
           if (schoolsRes.data) setSchools(schoolsRes.data);
           
           if (profilesRes.data) {
@@ -51,6 +62,17 @@ export const DatabaseProvider = ({ children }) => {
                 is_active: p.is_active
               }));
             setTeachers(mappedTeachers);
+
+            // Map School Admins (for Super Admin overview)
+            const mappedAdmins = profilesRes.data
+              .filter(p => p.role === 'admin')
+              .map(p => ({
+                ...p,
+                schoolId: p.school_id,
+                name: `${p.first_name} ${p.last_name}`,
+                username: p.email
+              }));
+            setSchoolAdmins(mappedAdmins);
 
             // Map Students
             const mappedStudents = profilesRes.data
@@ -77,6 +99,7 @@ export const DatabaseProvider = ({ children }) => {
             }));
             setClasses(mappedClasses);
           }
+          if (noticesRes.data) setNotices(noticesRes.data);
           
         } else if (user.role === 'mesues') {
           // Teacher data: Fetch classes the teacher belongs to
@@ -131,17 +154,21 @@ export const DatabaseProvider = ({ children }) => {
             }
           }
 
-          const [gradesRes, lessonsRes, attendanceRes, homeworkRes] = await Promise.all([
-            classIds.length > 0 ? supabase.from('grades').select('*').in('class_id', classIds) : { data: [] },
-            classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds) : { data: [] },
-            classIds.length > 0 ? supabase.from('attendance').select('*').in('class_id', classIds) : { data: [] },
-            classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds) : { data: [] }
+          const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
+            classIds.length > 0 ? supabase.from('grades').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            classIds.length > 0 ? supabase.from('attendance').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
           ]);
           
           if (gradesRes.data) setGrades(gradesRes.data);
           if (lessonsRes.data) setLessons(lessonsRes.data);
           if (attendanceRes.data) setAttendance(attendanceRes.data);
           if (homeworkRes.data) setHomework(homeworkRes.data);
+          if (notesRes.data) setNotes(notesRes.data);
+          if (noticesRes.data) setNotices(noticesRes.data);
           
         } else if (user.role === 'nxenes') {
           // Student data: find which classes they belong to
@@ -157,17 +184,21 @@ export const DatabaseProvider = ({ children }) => {
 
           const classIds = scData ? [scData.class_id] : [];
           
-          const [gradesRes, lessonsRes, attendanceRes, homeworkRes] = await Promise.all([
-            supabase.from('grades').select('*').eq('student_id', user.id),
-            classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds) : { data: [] },
-            supabase.from('attendance').select('*').eq('student_id', user.id),
-            classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds) : { data: [] }
+          const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
+            supabase.from('grades').select('*').eq('student_id', user.id).is('academic_year', null),
+            classIds.length > 0 ? supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            supabase.from('attendance').select('*').eq('student_id', user.id).is('academic_year', null),
+            classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+            supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
           ]);
           
           if (gradesRes.data) setGrades(gradesRes.data);
           if (lessonsRes.data) setLessons(lessonsRes.data);
           if (attendanceRes.data) setAttendance(attendanceRes.data);
           if (homeworkRes.data) setHomework(homeworkRes.data);
+          if (notesRes.data) setNotes(notesRes.data);
+          if (noticesRes.data) setNotices(noticesRes.data);
         }
       } catch (error) {
         console.error("Failed to fetch data", error);
@@ -180,11 +211,68 @@ export const DatabaseProvider = ({ children }) => {
   }, [user]);
 
   // Management Actions
+  const generateRandomPassword = (length = 10) => {
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+    let retVal = "";
+    for (let i = 0, n = charset.length; i < length; ++i) {
+      retVal += charset.charAt(Math.floor(Math.random() * n));
+    }
+    return retVal;
+  };
+
   const addSchool = async (school) => {
+    // Auto-generate School Admin Credentials
+    const adminEmail = `admin@${school.code.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
+    const adminPassword = generateRandomPassword(10);
+
     // map city to address
-    const newSchool = { name: school.name, address: school.city, code: school.code };
+    const newSchool = { 
+      name: school.name, 
+      address: school.city, 
+      code: school.code, 
+      has_paralele: school.has_paralele || false,
+      admin_email: adminEmail,
+      admin_password: adminPassword
+    };
+    
     const { data, error } = await supabase.from('schools').insert([newSchool]).select().single();
-    if (!error && data) setSchools([...schools, data]);
+    if (!error && data) {
+      setSchools([...schools, data]);
+      
+      const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
+        email: adminEmail,
+        password: adminPassword,
+        options: {
+          data: {
+            full_name: 'School Admin',
+            role: 'admin'
+          }
+        }
+      });
+      
+      if (!authError && authData.user) {
+        const newAdminProfile = {
+          id: authData.user.id,
+          email: adminEmail,
+          first_name: 'Admin',
+          last_name: data.name,
+          role: 'admin',
+          school_id: data.id,
+          is_active: true
+        };
+        await supabase.from('profiles').insert([newAdminProfile]);
+        
+        const mappedAdmin = {
+          ...newAdminProfile,
+          schoolId: data.id,
+          name: `Admin ${data.name}`,
+          username: adminEmail
+        };
+        setSchoolAdmins(prev => [...prev, mappedAdmin]);
+      }
+      
+      return { data, error, credentials: { email: adminEmail, password: adminPassword } };
+    }
     if (error) console.error("Error adding school:", error);
     return { data, error };
   };
@@ -247,7 +335,7 @@ export const DatabaseProvider = ({ children }) => {
       role: 'mesues',
       school_id: teacher.schoolId,
       subjects: teacher.subjects,
-      is_active: false
+      is_active: true
     };
     const { data, error } = await supabase.from('profiles').insert([newTeacher]).select().single();
     if (!error && data) {
@@ -331,7 +419,7 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const addGrade = async (grade) => {
-    // Note: Schema has CHECK (grade >= 4 AND grade <= 10). 
+    // Note: Schema has CHECK (grade >= 1 AND grade <= 5). 
     // If Kosovo uses 1-5, we should adjust mapping or schema. 
     // For now, let's map 1-5 to 6-10 if it's 10-scale, or just use as is if schema allows.
     // Actually, let's just insert and see.
@@ -342,7 +430,8 @@ export const DatabaseProvider = ({ children }) => {
       subject: grade.subject,
       grade: grade.value,
       date: grade.date,
-      description: grade.comment
+      description: grade.comment,
+      grade_type: grade.type
     }]).select().single();
     
     if (!error && data) setGrades([...grades, data]);
@@ -376,6 +465,23 @@ export const DatabaseProvider = ({ children }) => {
     }
     if (error) console.error("Error adding lesson:", error);
     return { data, error };
+  };
+  const addNote = async (noteData) => {
+    const { data, error } = await supabase.from('notes').insert([noteData]).select();
+    if (data) setNotes(prev => [data[0], ...prev]);
+    return { data: data?.[0], error };
+  };
+
+  const addNotice = async (noticeData) => {
+    const { data, error } = await supabase.from('notices').insert([noticeData]).select();
+    if (data) setNotices(prev => [data[0], ...prev]);
+    return { data: data?.[0], error };
+  };
+
+  const deleteNotice = async (noticeId) => {
+    const { error } = await supabase.from('notices').delete().eq('id', noticeId);
+    if (!error) setNotices(prev => prev.filter(n => n.id !== noticeId));
+    return { error };
   };
 
   const addHomework = async (hw) => {
@@ -491,6 +597,7 @@ export const DatabaseProvider = ({ children }) => {
       setTeachers(prev => prev.filter(t => t.schoolId !== schoolId));
       setStudents(prev => prev.filter(s => s.schoolId !== schoolId));
       setClasses(prev => prev.filter(c => c.schoolId !== schoolId));
+      setSchoolAdmins(prev => prev.filter(a => a.schoolId !== schoolId));
       
       return { success: true };
     } catch (error) {
@@ -590,13 +697,87 @@ export const DatabaseProvider = ({ children }) => {
     return { error };
   };
 
+  const archiveCurrentYear = async (schoolId, yearName) => {
+    try {
+      // 1. Tag all active records for this school with the yearName
+      // Note: This assumes we have school_id or can filter by class_id -> school_id
+      const schoolClassIds = classes.filter(c => c.school_id === schoolId).map(c => c.id);
+      
+      if (schoolClassIds.length > 0) {
+        await Promise.all([
+          supabase.from('grades').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('attendance').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('lessons').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('homework').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('notes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+        ]);
+        
+        // Update local state by filtering out archived items (or we re-fetch)
+        setGrades(prev => prev.filter(g => !schoolClassIds.includes(g.class_id)));
+        setAttendance(prev => prev.filter(a => !schoolClassIds.includes(a.class_id)));
+        setLessons(prev => prev.filter(l => !schoolClassIds.includes(l.class_id)));
+        setHomework(prev => prev.filter(h => !schoolClassIds.includes(h.class_id)));
+        setNotes(prev => prev.filter(n => !schoolClassIds.includes(n.class_id)));
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Error archiving year:", error);
+      return { error };
+    }
+  };
+
+  const promoteStudents = async (schoolId) => {
+    try {
+      const schoolClasses = classes.filter(c => c.school_id === schoolId);
+      
+      const romanToNext = {
+        'I': 'II', 'II': 'III', 'III': 'IV', 'IV': 'V', 'V': 'VI', 
+        'VI': 'VII', 'VII': 'VIII', 'VIII': 'IX', 'IX': 'X', 'X': 'XI', 'XI': 'XII', 'XII': 'Graduated'
+      };
+
+      for (const cls of schoolClasses) {
+        const parts = cls.name.split(' ');
+        const currentGrade = parts[0]; 
+        const nextGrade = romanToNext[currentGrade];
+        
+        if (nextGrade) {
+          const newName = nextGrade === 'Graduated' ? `Graduated ${cls.name}` : cls.name.replace(currentGrade, nextGrade);
+          await supabase.from('classes').update({ name: newName }).eq('id', cls.id);
+        }
+      }
+      
+      // Re-fetch classes to update local state
+      const { data } = await supabase.from('classes').select('*').eq('school_id', schoolId);
+      if (data) {
+        const teacherClassesRes = await supabase.from('teacher_classes').select('*');
+        const mappedClasses = data.map(c => ({
+          ...c,
+          schoolId: c.school_id,
+          teacherIds: [...new Set((teacherClassesRes.data || [])
+            .filter(tc => tc.class_id === c.id)
+            .map(tc => tc.teacher_id))]
+        }));
+        setClasses(prev => {
+            const otherSchools = prev.filter(c => c.school_id !== schoolId);
+            return [...otherSchools, ...mappedClasses];
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error("Error promoting students:", error);
+      return { error };
+    }
+  };
+
   return (
     <DatabaseContext.Provider value={{ 
-      schools, teachers, classes, students, grades, lessons, attendance, homework, loading,
-      addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, toggleAttendance,
+      schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, loading,
+      addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, addNote, addNotice, toggleAttendance,
       activateProfile, updateClassTeachers, assignStudentToClass,
       deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-      deleteTeacher, deleteStudent
+      deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice
     }}>
       {children}
     </DatabaseContext.Provider>

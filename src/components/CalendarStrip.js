@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity, Dimensions, Platform } from 'react-native';
+import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { getDayName, getMonthName } from '../utils/dateUtils';
 
 const { width } = Dimensions.get('window');
@@ -92,20 +93,69 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
     );
   };
 
+  const scrollLeft = () => {
+    if (flatListRef.current) {
+      flatListRef.current.scrollToOffset({
+        offset: Math.max(0, flatListRef.current.currentOffset - TOTAL_ITEM_WIDTH * 3),
+        animated: true,
+      });
+    }
+  };
+
+  const scrollRight = () => {
+    if (flatListRef.current) {
+        const maxOffset = (dates.length * TOTAL_ITEM_WIDTH) - width;
+      flatListRef.current.scrollToOffset({
+        offset: Math.min(maxOffset, (flatListRef.current.currentOffset || 0) + TOTAL_ITEM_WIDTH * 3),
+        animated: true,
+      });
+    }
+  };
+
+  const onScroll = (event) => {
+    flatListRef.current.currentOffset = event.nativeEvent.contentOffset.x;
+  };
+
   return (
     <View style={styles.container}>
-      <FlatList
-        ref={flatListRef}
-        data={dates}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        keyExtractor={(item) => item.toDateString()}
-        renderItem={renderItem}
-        getItemLayout={getItemLayout}
-        initialScrollIndex={initialIndex > 0 ? initialIndex : undefined}
-        onLayout={() => setIsReady(true)}
-      />
+      <View style={styles.navRow}>
+        {/* Left Navigation Button */}
+        <TouchableOpacity 
+          style={styles.navButton} 
+          onPress={scrollLeft}
+          activeOpacity={0.7}
+        >
+          <ChevronLeft size={22} color="#64748b" />
+        </TouchableOpacity>
+
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            data={dates}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyExtractor={(item) => item.toDateString()}
+            renderItem={renderItem}
+            getItemLayout={getItemLayout}
+            initialScrollIndex={initialIndex > 0 ? initialIndex : undefined}
+            onLayout={() => setIsReady(true)}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            decelerationRate="fast"
+            snapToInterval={TOTAL_ITEM_WIDTH}
+          />
+        </View>
+
+        {/* Right Navigation Button */}
+        <TouchableOpacity 
+          style={styles.navButton} 
+          onPress={scrollRight}
+          activeOpacity={0.7}
+        >
+          <ChevronRight size={22} color="#64748b" />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -117,8 +167,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
   scrollContent: {
-    paddingHorizontal: width / 2 - (TOTAL_ITEM_WIDTH / 2), // Start with first item centered
+    paddingHorizontal: 8,
   },
   dateCard: {
     width: ITEM_WIDTH,
@@ -168,7 +223,22 @@ const styles = StyleSheet.create({
   },
   weekendText: {
     color: '#ef4444',
-  }
+  },
+  navButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+      android: { elevation: 2 },
+      web: { boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }
+    }),
+  },
 });
 
 export default CalendarStrip;

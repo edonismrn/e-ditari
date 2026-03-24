@@ -34,11 +34,14 @@ import {
   UserPlus,
   UserCheck,
   BarChart3,
-  Zap,
   Info,
   Calendar,
   BookOpen,
-  ChevronDown
+  ChevronDown,
+  Archive,
+  ArrowUpCircle,
+  Bell,
+  FileText,
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
 import { KOSOVO_DATA } from '../data/kosovoSchools';
@@ -52,14 +55,25 @@ const AdminDashboard = ({
   onAddSchool, onAddTeacher, onAddClass, onAddStudent,
   onActivateProfile, onRemoveTeacher, onAssignStudentToClass, onUpdateClassTeachers,
   onDeleteSchool, onDeleteClass, onRemoveTeacherFromClass, onRemoveStudentFromClass,
-  onDeleteTeacher, onDeleteStudent
+  onDeleteTeacher, onDeleteStudent, onArchiveYear, onPromoteStudents,
+  notices, onAddNotice, onDeleteNotice,
+  schoolAdmins
 }) => {
   const { t } = useLanguage();
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
+  const [academicYearName, setAcademicYearName] = useState('2024-2025');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Notice Form State
+  const [noticeTitle, setNoticeTitle] = useState('');
+  const [noticeMessage, setNoticeMessage] = useState('');
+  const [noticeAttachment, setNoticeAttachment] = useState('');
+  const isSuperAdmin = user?.email === 'admin@ditari-elektronik.com';
 
   // School Form State
   const [newSchoolCity, setNewSchoolCity] = useState('');
   const [newSchoolName, setNewSchoolName] = useState('');
+  const [newSchoolHasParalele, setNewSchoolHasParalele] = useState(false);
   const [isCityDropdownVisible, setIsCityDropdownVisible] = useState(false);
   const [isSchoolDropdownVisible, setIsSchoolDropdownVisible] = useState(false);
   const [citySearchQuery, setCitySearchQuery] = useState('');
@@ -68,6 +82,7 @@ const AdminDashboard = ({
   const resetSchoolForm = () => {
     setNewSchoolCity('');
     setNewSchoolName('');
+    setNewSchoolHasParalele(false);
     setIsCityDropdownVisible(false);
     setIsSchoolDropdownVisible(false);
     setCitySearchQuery('');
@@ -84,6 +99,7 @@ const AdminDashboard = ({
 
   // Class Form State
   const [newClassName, setNewClassName] = useState('');
+  const [newClassParalele, setNewClassParalele] = useState('');
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
 
   // Student Form State
@@ -94,17 +110,9 @@ const AdminDashboard = ({
   // Modal Visibility State
   const [isSchoolModalVisible, setIsSchoolModalVisible] = useState(false);
   const [isTeacherModalVisible, setIsTeacherModalVisible] = useState(false);
-  const [isWizardVisible, setIsWizardVisible] = useState(false); // Unified Wizard Modal
   const [isClassModalVisible, setIsClassModalVisible] = useState(false);
   const [isStudentModalVisible, setIsStudentModalVisible] = useState(false);
   const [isAddTeacherToClassModalVisible, setIsAddTeacherToClassModalVisible] = useState(false);
-
-  // Wizard State
-  const [wizardStep, setWizardStep] = useState(0); // 0=off, 1=teacher, 2=class, 3=students
-  const [wizardData, setWizardData] = useState({ teacher: null, class: null, students: [] });
-  const [tempStudentName, setTempStudentName] = useState('');
-  const [tempStudentEmail, setTempStudentEmail] = useState('');
-  const [tempStudentPass, setTempStudentPass] = useState('');
 
   // Settings Deletion States
   const [settingsSearchQuery, setSettingsSearchQuery] = useState('');
@@ -117,6 +125,13 @@ const AdminDashboard = ({
     message: '',
     onConfirm: null
   });
+
+  // Auto-select school for non-super admins if they are in a view that needs navigation.data
+  React.useEffect(() => {
+    if (!isSuperAdmin && !navigation.data && schools.length > 0) {
+      setNavigation(prev => ({ ...prev, data: schools[0] }));
+    }
+  }, [isSuperAdmin, schools, navigation.view]);
 
   const cleanSchoolName = (name) => {
     // Extract text inside single quotes if available (e.g. SHML Gjimnazi 'Sami Frashëri' -> Sami Frashëri)
@@ -152,12 +167,20 @@ const AdminDashboard = ({
     const result = await onAddSchool({
       name: newSchoolName,
       city: newSchoolCity,
-      code: generateSchoolCode(newSchoolCity, newSchoolName) // This will use the cleaned name inside
+      code: generateSchoolCode(newSchoolCity, newSchoolName), // This will use the cleaned name inside
+      has_paralele: newSchoolHasParalele
     });
     if (!result?.error) {
-      setNewSchoolCity('');
-      setNewSchoolName('');
-      setIsSchoolModalVisible(false);
+      if (result.credentials) {
+        Alert.alert(
+          t('school_created_title'),
+          t('school_credentials_msg')
+            .replace('{email}', result.credentials.email)
+            .replace('{password}', result.credentials.password),
+          [{ text: t('ok') }]
+        );
+      }
+      resetSchoolForm();
     }
   };
 
@@ -168,9 +191,9 @@ const AdminDashboard = ({
       setTeacherSubjects([...teacherSubjects, subject]);
     }
   };
-
+ 
   const handleAddTeacherLocal = async (specificSchoolId) => {
-    const schoolId = specificSchoolId || navigation.data?.id || navigation.data?.schoolId || wizardData.schoolId;
+    const schoolId = specificSchoolId || navigation.data?.id || navigation.data?.schoolId;
     if (!schoolId) {
       // console.log('Gabim', 'Asnjë shkollë e përzgjedhur.');
       return;
@@ -190,83 +213,13 @@ const AdminDashboard = ({
       email: teacherUsername
     });
 
-    if (result.data) {
-      setWizardData({ ...wizardData, teacher: result.data });
-      setWizardStep(2); // Step 2: Class
-      setIsWizardVisible(true);
-      setIsTeacherModalVisible(false);
-
+    if (!result?.error) {
       setTeacherFirstName('');
       setTeacherLastName('');
       setTeacherUsername('');
       setTeacherPassword('');
       setTeacherSubjects([]);
-    }
-  };
-
-  const handleWizardSelectClass = async (cls) => {
-    const updatedTeacherIds = [...(cls.teacherIds || []), wizardData.teacher.id];
-    await onUpdateClassTeachers(cls.id, updatedTeacherIds);
-    setWizardData({ ...wizardData, class: { ...cls, teacherIds: updatedTeacherIds } });
-    setWizardStep(3);
-  };
-
-  const handleWizardAddClass = async () => {
-    if (!newClassName) {
-      // console.log('Gabim', 'Ju lutem jepni një emër për klasën.');
-      return;
-    }
-    const result = await onAddClass({
-      name: newClassName,
-      schoolId: wizardData.teacher.school_id,
-      teacherIds: [wizardData.teacher.id]
-    });
-
-    if (result.data) {
-      setWizardData({ ...wizardData, class: result.data });
-      setWizardStep(3); // Move to Students Step
-      setNewClassName('');
-    }
-  };
-
-  const handleWizardAddStudent = async () => {
-    if (!tempStudentName || !tempStudentEmail || !tempStudentPass) {
-      // console.log('Gabim', 'Ju lutem plotësoni të gjitha fushat e nxënësit.');
-      return;
-    }
-    const result = await onAddStudent({
-      name: tempStudentName,
-      username: tempStudentEmail,
-      password: tempStudentPass,
-      classId: wizardData.class.id,
-      schoolId: wizardData.teacher.school_id
-    });
-
-    if (result.data) {
-      setWizardData({
-        ...wizardData,
-        students: [...wizardData.students, result.data]
-      });
-      // Reset temp inputs
-      setTempStudentName('');
-      setTempStudentEmail('');
-      setTempStudentPass('');
-      // console.log('Sukses', `Nxënësi ${tempStudentName} u shtua! Mund të shtoni të tjerë ose të përfundoni.`);
-    }
-  };
-
-  const handleWizardComplete = async () => {
-    if (wizardData.students.length === 0) {
-      // console.log('Kujdes', 'Duhet të shtoni të paktën një nxënës para se të aktivizoni mësuesin.');
-      return;
-    }
-
-    const result = await onActivateProfile(wizardData.teacher.id);
-    if (!result.error) {
-      // console.log('Sukses', 'Konfigurimi përfundoi! Mësuesi është aktivizuar.');
-      setIsWizardVisible(false);
-      setWizardStep(0);
-      setWizardData({ teacher: null, class: null, students: [] });
+      setIsTeacherModalVisible(false);
     }
   };
 
@@ -276,14 +229,21 @@ const AdminDashboard = ({
 
     if (!newClassName) return;
 
+    const school = schools.find(s => s.id === schoolId);
+    let finalClassName = newClassName;
+    if (school?.has_paralele && newClassParalele) {
+       finalClassName = `${newClassName}-${newClassParalele}`;
+    }
+
     const result = await onAddClass({
-      name: newClassName,
+      name: finalClassName,
       schoolId: schoolId,
       teacherIds: selectedTeacherId ? [selectedTeacherId] : []
     });
 
     if (!result?.error) {
       setNewClassName('');
+      setNewClassParalele('');
       setSelectedTeacherId('');
       setIsClassModalVisible(false);
     }
@@ -312,17 +272,8 @@ const AdminDashboard = ({
       const query = settingsSearchQuery.toLowerCase();
       switch (activeSettingsMode) {
         case 'delete_school':
-          return schools.filter(s => s.name.toLowerCase().includes(query));
-        case 'delete_class':
-          return classes.filter(c => c.name.toLowerCase().includes(query));
-        case 'dissociate_teacher':
-          return teachers.filter(t => t.name.toLowerCase().includes(query));
-        case 'delete_teacher':
-          return teachers.filter(t => t.name.toLowerCase().includes(query));
-        case 'dissociate_student':
-          return students.filter(s => s.name.toLowerCase().includes(query));
-        case 'delete_student':
-          return students.filter(s => s.name.toLowerCase().includes(query));
+          return (isSuperAdmin ? schools : schools.filter(s => s.id === user.school_id))
+            .filter(s => s.name.toLowerCase().includes(query));
         default:
           return [];
       }
@@ -339,37 +290,6 @@ const AdminDashboard = ({
             setSelectedEntityForAction(null);
           });
           break;
-        case 'delete_class':
-          confirmDelete(`${t('confirm_delete_class')}: ${entity.name}? ${t('cascade_warning_class')}`, async () => {
-            await onDeleteClass(entity.id);
-            setSelectedEntityForAction(null);
-          });
-          break;
-        case 'dissociate_teacher':
-          confirmDelete(`${t('confirm_dissociate_teacher')}: ${entity.name}?`, async () => {
-            const classId = classes.find(c => (c.teacherIds || []).includes(entity.id))?.id;
-            if (classId) await onRemoveTeacherFromClass(entity.id, classId);
-            setSelectedEntityForAction(null);
-          });
-          break;
-        case 'dissociate_student':
-          confirmDelete(`${t('confirm_dissociate_student')}: ${entity.name}?`, async () => {
-            if (entity.classId) await onRemoveStudentFromClass(entity.id, entity.classId);
-            setSelectedEntityForAction(null);
-          });
-          break;
-        case 'delete_teacher':
-          confirmDelete(`${t('confirm_delete_teacher') || 'Jeni të sigurt që doni të fshini këtë mësues?'}: ${entity.name}?`, async () => {
-            if (onDeleteTeacher) await onDeleteTeacher(entity.id);
-            setSelectedEntityForAction(null);
-          });
-          break;
-        case 'delete_student':
-          confirmDelete(`${t('confirm_delete_student') || 'Jeni të sigurt që doni të fshini këtë nxënës?'}: ${entity.name}?`, async () => {
-            if (onDeleteStudent) await onDeleteStudent(entity.id);
-            setSelectedEntityForAction(null);
-          });
-          break;
       }
     };
 
@@ -380,15 +300,19 @@ const AdminDashboard = ({
         {!activeSettingsMode ? (
           <ScrollView contentContainerStyle={styles.settingsMenu}>
             {[
+              { id: 'academic_year', label: t('academic_year_mgmt'), icon: Calendar, color: '#6366f1' },
               { id: 'delete_school', label: t('delete_school'), icon: School, color: '#ef4444' },
-              { id: 'delete_class', label: t('delete_class'), icon: Hash, color: '#f59e0b' },
-              { id: 'dissociate_teacher', label: t('dissociate_teacher'), icon: Users, color: '#3b82f6' },
-              { id: 'dissociate_student', label: t('dissociate_student'), icon: GraduationCap, color: '#10b981' },
             ].map(item => (
               <TouchableOpacity
                 key={item.id}
                 style={styles.settingsItem}
-                onPress={() => setActiveSettingsMode(item.id)}
+                onPress={() => {
+                  if (item.id === 'academic_year') {
+                    setNavigation({ view: 'academic-year', data: null });
+                  } else {
+                    setActiveSettingsMode(item.id);
+                  }
+                }}
               >
                 <item.icon size={24} color={item.color} />
                 <Text style={styles.settingsItemLabel}>{item.label}</Text>
@@ -453,15 +377,7 @@ const AdminDashboard = ({
   const handleAssignStudentLocal = async (studentId, classId) => {
     const result = await onAssignStudentToClass(studentId, classId);
     if (!result.error) {
-      if (isWizardVisible) {
-        const student = students.find(s => s.id === studentId);
-        setWizardData({
-          ...wizardData,
-          students: [...wizardData.students, { ...student, classId: classId }]
-        });
-      } else {
-        setIsStudentModalVisible(false);
-      }
+      setIsStudentModalVisible(false);
     }
   };
 
@@ -509,16 +425,19 @@ const AdminDashboard = ({
         <View style={styles.statCard}>
           <GraduationCap size={20} color="#64748b" style={{ marginBottom: 12 }} />
           <Text style={styles.statValue}>{students.length}</Text>
-          <Text style={styles.statLabel}>{t('students_label') || 'Studentët'}</Text>
+          <Text style={styles.statLabel}>{t('students_label')}</Text>
         </View>
       </View>
 
       <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'schools', data: null })}>
+        <TouchableOpacity 
+          style={styles.actionTile} 
+          onPress={() => isSuperAdmin ? setNavigation({ view: 'schools', data: null }) : setNavigation({ view: 'school-detail', data: schools[0] })}
+        >
           <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff' }]}>
             <Building2 size={24} color="#6366f1" />
           </View>
-          <Text style={styles.actionTileTitle}>{t('manage_schools')}</Text>
+          <Text style={styles.actionTileTitle}>{isSuperAdmin ? t('manage_schools') : t('my_school')}</Text>
           <ChevronRight size={18} color="#94a3b8" />
         </TouchableOpacity>
 
@@ -538,37 +457,32 @@ const AdminDashboard = ({
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'codes', data: null })}>
-          <View style={[styles.actionIconContainer, { backgroundColor: '#fff7ed' }]}>
-            <Hash size={24} color="#ea580c" />
+        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'academic-year', data: null })}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#e0f2fe' }]}>
+            <Calendar size={24} color="#0284c7" />
           </View>
-          <Text style={styles.actionTileTitle}>{t('registration_codes')}</Text>
+          <Text style={styles.actionTileTitle}>{t('academic_year_mgmt')}</Text>
+          <ChevronRight size={20} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'notices', data: null })}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#fdf2f8' }]}>
+            <Bell size={24} color="#db2777" />
+          </View>
+          <ChevronRight size={20} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.actionTile} 
+          onPress={() => setNavigation({ view: 'school-directory', data: null })}
+        >
+          <View style={[styles.actionIconContainer, { backgroundColor: '#f0f9ff' }]}>
+            <ShieldCheck size={24} color="#0ea5e9" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('school_directory')}</Text>
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
       </View>
-
-      <TouchableOpacity
-        style={styles.wizardCard}
-        onPress={() => {
-          setWizardStep(1);
-          setIsWizardVisible(true);
-        }}
-      >
-        <View style={styles.wizardGradient}>
-          <View style={styles.wizardContent}>
-            <View style={styles.wizardInfo}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <Zap size={16} color="white" />
-                <Text style={styles.wizardTitle}>{t('quick_setup')}</Text>
-              </View>
-              <Text style={styles.wizardDesc}>{t('wizard_desc')}</Text>
-            </View>
-            <View style={styles.wizardIconCircle}>
-              <Plus size={24} color="#2563eb" strokeWidth={3} />
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
     </ScrollView>
   );
 
@@ -581,11 +495,11 @@ const AdminDashboard = ({
         <View style={styles.viewContainer}>
           <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
             <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
+            <Text style={styles.backButtonText}>{t('back')}</Text>
           </TouchableOpacity>
           <View style={styles.viewHeader}>
             <View></View>
-            {!isClassesOnly && (
+            {!isClassesOnly && isSuperAdmin && (
               <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsSchoolModalVisible(true)}>
                 <Plus size={18} color="#fff" />
                 <Text style={styles.smallAddButtonText}>{t('add')}</Text>
@@ -621,7 +535,7 @@ const AdminDashboard = ({
                       <Text style={styles.cardSubtitle}>
                         {isClassesOnly
                           ? (schools.find(s => s.id === item.schoolId)?.name || t('no_school'))
-                          : (item.address || 'Kosovë')}
+                          : (item.address || t('kosovo'))}
                       </Text>
                     </View>
                   </View>
@@ -832,6 +746,247 @@ const AdminDashboard = ({
         </View>
       );
     }
+    if (navigation.view === 'academic-year') {
+      const targetSchoolId = isSuperAdmin ? null : user.school_id;
+
+      return (
+        <View style={styles.viewContainer}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back')}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.viewTitle}>{t('academic_year_mgmt')}</Text>
+          <Text style={styles.entitySub}>{t('year_transition_desc')}</Text>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+            {/* Step 1: Archive Current Data */}
+            <View style={[styles.card, { flexDirection: 'column', padding: 20, marginTop: 20 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <View style={[styles.actionIconContainer, { backgroundColor: '#fef3c7', width: 44, height: 44 }]}>
+                   <Archive size={20} color="#d97706" />
+                </View>
+                <Text style={styles.cardTitle}>{t('archive_data')}</Text>
+              </View>
+              
+              <Text style={[styles.cardSubtitle, { marginBottom: 16 }]}>
+                {t('confirm_archive')}
+              </Text>
+
+              <TextInput
+                style={[styles.input, { marginBottom: 16 }]}
+                placeholder={t('new_year_name')}
+                value={academicYearName}
+                onChangeText={setAcademicYearName}
+              />
+
+              <TouchableOpacity 
+                style={[styles.actionButton, { backgroundColor: '#d97706', borderColor: '#d97706' }]} 
+                onPress={() => {
+                   confirmDelete(t('confirm_archive'), async () => {
+                      setIsProcessing(true);
+                      await onArchiveYear(user.school_id, academicYearName);
+                      setIsProcessing(false);
+                   });
+                }}
+                disabled={isProcessing}
+              >
+                <RefreshCw size={20} color="white" style={isProcessing && { transform: [{ rotate: '45deg' }] }} />
+                <Text style={[styles.actionButtonText, { color: 'white' }]}>{t('archive_data')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Step 2: Promote Students */}
+            <View style={[styles.card, { flexDirection: 'column', padding: 20, marginTop: 16 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <View style={[styles.actionIconContainer, { backgroundColor: '#dcfce7', width: 44, height: 44 }]}>
+                   <ArrowUpCircle size={20} color="#16a34a" />
+                </View>
+                <Text style={styles.cardTitle}>{t('promote_students')}</Text>
+              </View>
+              
+              <Text style={[styles.cardSubtitle, { marginBottom: 16 }]}>
+                {t('confirm_promotion')}
+              </Text>
+
+              <TouchableOpacity 
+                style={[styles.actionButton, { backgroundColor: '#16a34a', borderColor: '#16a34a' }]} 
+                onPress={() => {
+                   confirmDelete(t('confirm_promotion'), async () => {
+                      setIsProcessing(true);
+                      await onPromoteStudents(user.school_id);
+                      setIsProcessing(false);
+                   });
+                }}
+                disabled={isProcessing}
+              >
+                <RefreshCw size={20} color="white" style={isProcessing && { transform: [{ rotate: '45deg' }] }} />
+                <Text style={[styles.actionButtonText, { color: 'white' }]}>{t('promote_students')}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      );
+    }
+    if (navigation.view === 'notices') {
+      return (
+        <View style={styles.viewContainer}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back')}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.viewHeader}>
+            <Text style={styles.viewTitle}>{t('notices')}</Text>
+          </View>
+
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {/* Post Notice Form */}
+            <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
+              <Text style={styles.label}>{t('notice_title')}</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t('notice_title')}
+                value={noticeTitle}
+                onChangeText={setNoticeTitle}
+              />
+
+              <Text style={styles.label}>{t('notice_message')}</Text>
+              <TextInput
+                style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+                placeholder={t('notice_message')}
+                value={noticeMessage}
+                onChangeText={setNoticeMessage}
+                multiline
+              />
+
+              <Text style={styles.label}>{t('attachment')}</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Link o URL dell'allegato"
+                value={noticeAttachment}
+                onChangeText={setNoticeAttachment}
+              />
+
+              <TouchableOpacity
+                style={[styles.submitButton, { marginTop: 10 }]}
+                onPress={async () => {
+                  if (!noticeTitle || !noticeMessage) return;
+                  await onAddNotice({
+                    school_id: user.school_id,
+                    title: noticeTitle,
+                    message: noticeMessage,
+                    attachment_url: noticeAttachment,
+                    attachment_type: noticeAttachment.toLowerCase().endsWith('.pdf') ? 'pdf' : (noticeAttachment.match(/\.(jpg|jpeg|png|gif)$/i) ? 'image' : 'file')
+                  });
+                  setNoticeTitle('');
+                  setNoticeMessage('');
+                  setNoticeAttachment('');
+                }}
+              >
+                <Text style={styles.submitButtonText}>{t('post_notice')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>{t('notices')} ({notices.length})</Text>
+            
+            {(notices || []).map(item => (
+              <View key={item.id} style={styles.card}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                  <Text style={[styles.entitySub, { marginTop: 4 }]}>{new Date(item.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
+                  <Text style={{ fontSize: 13, color: '#475569', marginTop: 8 }} numberOfLines={2}>
+                    {item.message}
+                  </Text>
+                  {item.attachment_url ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                      <FileText size={14} color="#6366f1" />
+                      <Text style={{ fontSize: 12, color: '#6366f1', fontWeight: 'bold' }}>{t('view_attachment')}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <TouchableOpacity onPress={() => confirmDelete(t('confirm_delete'), () => onDeleteNotice(item.id))}>
+                  <Trash2 size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            
+            {(notices || []).length === 0 && (
+              <Text style={styles.emptyTextSmall}>{t('no_notices')}</Text>
+            )}
+            
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
+      );
+    }
+
+    if (navigation.view === 'school-directory') {
+      return (
+        <View style={styles.viewContainer}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back')}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.viewHeader}>
+            <Text style={styles.viewTitle}>{t('school_directory')}</Text>
+          </View>
+
+          <View style={styles.searchBarContainer}>
+            <Search size={20} color="#94a3b8" />
+            <TextInput
+              placeholder={t('search_placeholder')}
+              style={styles.searchBarInput}
+              value={settingsSearchQuery}
+              onChangeText={setSettingsSearchQuery}
+            />
+          </View>
+
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {(isSuperAdmin ? schools : schools.filter(s => s.id === user.school_id))
+              .filter(s => (s.name || '').toLowerCase().includes(settingsSearchQuery.toLowerCase()) || (s.code || '').toLowerCase().includes(settingsSearchQuery.toLowerCase()))
+              .map(school => {
+                const schoolAdmin = (schoolAdmins || []).find(a => a.schoolId === school.id);
+                return (
+                  <View key={school.id} style={[styles.card, { padding: 16 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>{school.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                        <Hash size={14} color="#64748b" />
+                        <Text style={{ fontSize: 13, color: '#64748b', fontWeight: 'bold' }}>{school.code}</Text>
+                      </View>
+                      
+                      <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 }}>
+                        <Text style={[styles.entitySub, { fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }]}>{t('admin_credentials')}</Text>
+                        
+                        {/* Email */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                          <Users size={14} color="#6366f1" />
+                          <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '700' }}>
+                            {school.admin_email || schoolAdmin?.username || '---'}
+                          </Text>
+                        </View>
+
+                        {/* Password (if available in school record) */}
+                        {school.admin_password && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                            <ShieldCheck size={14} color="#10b981" />
+                            <Text style={{ fontSize: 13, color: '#10b981', fontWeight: '800' }}>
+                              PW: {school.admin_password}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
+      );
+    }
     return null;
   };
 
@@ -839,7 +994,7 @@ const AdminDashboard = ({
     <View style={styles.viewContainer}>
       <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
         <ArrowLeft size={18} color="#1e293b" />
-        <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
+        <Text style={styles.backButtonText}>{t('back')}</Text>
       </TouchableOpacity>
       <View style={styles.viewHeader}>
         <View></View>
@@ -876,7 +1031,7 @@ const AdminDashboard = ({
               >
                 <Plus size={16} color="#6366f1" />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_teacher') || 'Jeni të sigurt që doni të fshini këtë mësues?'}: ${teacher.name}?`, async () => {
+              <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_teacher')}: ${teacher.name}?`, async () => {
                 if (onDeleteTeacher) await onDeleteTeacher(teacher.id);
               })}>
                 <Trash2 size={18} color="#94a3b8" />
@@ -1061,6 +1216,22 @@ const AdminDashboard = ({
               <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, fontWeight: '600' }}>
                 {t('municipality_label')}: {school.city}
               </Text>
+
+              {isSuperAdmin && (
+                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' }}>
+                    {t('admin_credentials')}
+                  </Text>
+                  <View style={{ gap: 4 }}>
+                    <Text style={{ fontSize: 13, color: '#1e293b' }}>
+                      <Text style={{ fontWeight: '600' }}>{t('email_label')}</Text> {school.admin_email || t('not_available')}
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1e293b' }}>
+                      <Text style={{ fontWeight: '600' }}>{t('password')}:</Text> {school.admin_password || t('not_available')}
+                    </Text>
+                  </View>
+                </View>
+              )}
             </View>
           </View>
         ))}
@@ -1069,31 +1240,6 @@ const AdminDashboard = ({
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
-    </View>
-  );
-
-  const renderWizardStepper = (currentStep) => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-      {[1, 2, 3].map(s => (
-        <View key={s} style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={[
-            { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
-            currentStep === s ? { borderColor: '#2563eb', backgroundColor: '#eff6ff' } :
-              currentStep > s ? { borderColor: '#10b981', backgroundColor: '#ecfdf5' } :
-                { borderColor: '#e2e8f0', backgroundColor: 'transparent' }
-          ]}>
-            {currentStep > s ? (
-              <ShieldCheck size={14} color="#10b981" />
-            ) : (
-              <Text style={[
-                { fontSize: 12, fontWeight: '700' },
-                currentStep === s ? { color: '#2563eb' } : { color: '#94a3b8' }
-              ]}>{s}</Text>
-            )}
-          </View>
-          {s < 3 && <View style={{ width: 20, height: 2, backgroundColor: currentStep > s ? '#10b981' : '#e2e8f0', marginHorizontal: 2 }} />}
-        </View>
-      ))}
     </View>
   );
 
@@ -1216,6 +1362,21 @@ const AdminDashboard = ({
               </View>
             ) : null}
 
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 16 }}>
+              <TouchableOpacity
+                style={{
+                  width: 24, height: 24, borderRadius: 6, borderWidth: 2,
+                  borderColor: newSchoolHasParalele ? '#6366f1' : '#cbd5e1',
+                  backgroundColor: newSchoolHasParalele ? '#6366f1' : 'transparent',
+                  alignItems: 'center', justifyContent: 'center', marginRight: 12
+                }}
+                onPress={() => setNewSchoolHasParalele(!newSchoolHasParalele)}
+              >
+                {newSchoolHasParalele && <Check size={16} color="white" />}
+              </TouchableOpacity>
+              <Text style={{ fontSize: 15, color: '#1e293b', fontWeight: '500' }}>{t('has_paralele_q')}</Text>
+            </View>
+
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.cancelButton} onPress={resetSchoolForm}>
                 <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
@@ -1276,12 +1437,22 @@ const AdminDashboard = ({
 
             <TextInput
               style={styles.input}
-              placeholder={t('class_name')}
+              placeholder={schools.find(s => s.id === (navigation.data?.id || navigation.data?.schoolId))?.has_paralele ? t('class_number_placeholder') : t('class_name')}
               value={newClassName}
               onChangeText={setNewClassName}
             />
 
-            <Text style={styles.label}>{t('select_teacher')}</Text>
+            {schools.find(s => s.id === (navigation.data?.id || navigation.data?.schoolId))?.has_paralele && (
+              <TextInput
+                style={[styles.input, { marginTop: 12 }]}
+                placeholder={t('paralele_placeholder')}
+                value={newClassParalele}
+                onChangeText={setNewClassParalele}
+                keyboardType="numeric"
+              />
+            )}
+
+            <Text style={[styles.label, { marginTop: 12 }]}>{t('select_teacher')}</Text>
             <ScrollView style={{ maxHeight: 200 }}>
               <TouchableOpacity
                 style={[styles.schoolSelectItem, !selectedTeacherId && styles.activeSchoolSelect]}
@@ -1296,7 +1467,7 @@ const AdminDashboard = ({
                   onPress={() => setSelectedTeacherId(teacher.id)}
                 >
                   <Text style={[styles.schoolSelectText, selectedTeacherId === teacher.id && styles.activeSchoolSelectText]}>
-                    Mësuesi: {teacher.name}
+                    {t('teacher')}: {teacher.name}
                   </Text>
                   {selectedTeacherId === teacher.id && <Check size={16} color="#6366f1" />}
                 </TouchableOpacity>
@@ -1321,7 +1492,7 @@ const AdminDashboard = ({
             <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
               <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_student')}</Text>
               <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
-                Klasa {navigation.data?.name || ''}
+                {t('class_prefix')} {navigation.data?.name || ''}
               </Text>
             </View>
 
@@ -1387,135 +1558,15 @@ const AdminDashboard = ({
                 <TouchableOpacity style={styles.cancelButton} onPress={() => setIsStudentModalVisible(false)}>
                   <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.submitButton} onPress={() => handleAddStudent(navigation.data?.id)}>
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={() => handleAddStudent(navigation.data?.id)}
+                >
                   <Text style={styles.submitButtonText}>{t('confirm')}</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ height: 40 }} />
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Unified Wizard Modal */}
-      <Modal visible={isWizardVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {renderWizardStepper(wizardStep)}
-
-            {wizardStep === 1 && (
-              <View>
-                <Text style={[styles.modalTitle, { marginBottom: 8 }]}>{t('add_teacher')}</Text>
-                <Text style={[styles.label, { marginBottom: 12 }]}>{t('select_school')}:</Text>
-                <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
-                  {schools.map(s => (
-                    <TouchableOpacity
-                      key={s.id}
-                      style={[styles.chip, navigation.data?.id === s.id && styles.activeChip]}
-                      onPress={() => setNavigation({ ...navigation, data: s })}
-                    >
-                      <Text style={[styles.chipText, navigation.data?.id === s.id && styles.activeChipText]}>{s.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <TextInput style={styles.input} placeholder={t('first_name')} value={teacherFirstName} onChangeText={setTeacherFirstName} />
-                <TextInput style={styles.input} placeholder={t('last_name')} value={teacherLastName} onChangeText={setTeacherLastName} />
-                <TextInput style={styles.input} placeholder={t('email')} value={teacherUsername} onChangeText={setTeacherUsername} autoCapitalize="none" keyboardType="email-address" />
-                <TextInput style={styles.input} placeholder={t('password')} value={teacherPassword} onChangeText={setTeacherPassword} secureTextEntry />
-
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity style={styles.cancelButton} onPress={() => { setWizardStep(0); setIsWizardVisible(false); }}>
-                    <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.submitButton} onPress={() => handleAddTeacherLocal(navigation.data?.id)}>
-                    <Text style={styles.submitButtonText}>{t('continue')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {wizardStep === 2 && (
-              <View>
-                <Text style={styles.modalTitle}>{t('link')} {wizardData.teacher?.first_name} {t('with_class')}</Text>
-
-                {classes.filter(c => c.schoolId === wizardData.teacher?.schoolId).length > 0 && (
-                  <View style={{ marginBottom: 20 }}>
-                    <Text style={styles.label}>{t('select_existing_class')}:</Text>
-                    <ScrollView style={{ maxHeight: 150 }}>
-                      {classes.filter(c => c.schoolId === wizardData.teacher?.schoolId).map(cls => (
-                        <TouchableOpacity
-                          key={cls.id}
-                          style={styles.schoolSelectItem}
-                          onPress={() => handleWizardSelectClass(cls)}
-                        >
-                          <Text style={styles.schoolSelectText}>{cls.name}</Text>
-                          <ChevronRight size={18} color="#94a3b8" />
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-
-                <Text style={[styles.label, { marginTop: 10 }]}>{t('or_create_new_class')}:</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={t('class_name')}
-                  value={newClassName}
-                  onChangeText={setNewClassName}
-                />
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity style={styles.cancelButton} onPress={() => setWizardStep(1)}>
-                    <Text style={styles.cancelButtonText}>{t('back')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.submitButton} onPress={handleWizardAddClass}>
-                    <Text style={styles.submitButtonText}>{t('continue')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {wizardStep === 3 && (
-              <View>
-                <Text style={styles.modalTitle}>{wizardData.class?.name}</Text>
-                <Text style={[styles.label, { marginBottom: 16 }]}>{t('add_student')}</Text>
-
-                <View style={{ maxHeight: 400 }}>
-                  <TextInput style={styles.input} placeholder={t('full_name')} value={tempStudentName} onChangeText={setTempStudentName} />
-                  <TextInput style={styles.input} placeholder={t('email')} value={tempStudentEmail} onChangeText={setTempStudentEmail} autoCapitalize="none" keyboardType="email-address" />
-                  <TextInput style={styles.input} placeholder={t('password')} value={tempStudentPass} onChangeText={setTempStudentPass} secureTextEntry />
-
-                  <TouchableOpacity style={[styles.addButton, { backgroundColor: '#10b981', marginBottom: 20 }]} onPress={handleWizardAddStudent}>
-                    <Plus size={20} color="white" />
-                    <Text style={styles.addButtonText}>{t('add')}</Text>
-                  </TouchableOpacity>
-
-                  {wizardData.students.length > 0 && (
-                    <ScrollView style={{ maxHeight: 120 }}>
-                      <Text style={styles.label}>{t('students_added')} ({wizardData.students.length})</Text>
-                      {wizardData.students.map((s, idx) => (
-                        <View key={idx} style={[styles.addedItem, { paddingVertical: 6 }]}>
-                          <Text style={styles.addedItemText}>• {s.name}</Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  )}
-                </View>
-
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity style={styles.cancelButton} onPress={() => setWizardStep(2)}>
-                    <Text style={styles.cancelButtonText}>{t('back')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.submitButton, wizardData.students.length === 0 && { opacity: 0.5 }]}
-                    onPress={handleWizardComplete}
-                    disabled={wizardData.students.length === 0}
-                  >
-                    <Text style={styles.submitButtonText}>{t('complete_setup')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
           </View>
         </View>
       </Modal>
@@ -1526,47 +1577,128 @@ const AdminDashboard = ({
             <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
               <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_teacher')}</Text>
               <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
-                Klasa {navigation.data?.name || ''}
+                {t('class_prefix')} {navigation.data?.name || ''}
               </Text>
             </View>
 
             <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
-              <Text style={[styles.label, { marginTop: 0 }]}>{t('select_teacher')}:</Text>
-              <View style={{ gap: 8, marginTop: 10 }}>
-                {teachers
-                  .filter(t => t.schoolId === (navigation.data?.schoolId || navigation.data?.id) && !(navigation.data?.teacherIds || []).includes(t.id))
-                  .map(teacher => (
-                    <TouchableOpacity
-                      key={teacher.id}
-                      style={[styles.schoolSelectItem, { borderColor: '#e2e8f0' }]}
-                      onPress={() => handleAddTeacherToClass(teacher.id)}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
-                          <GraduationCap size={20} color="#2563eb" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.schoolSelectText}>{teacher.name}</Text>
-                          <Text style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>
-                            {(teacher.subjects || []).join(', ')}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={{ backgroundColor: '#f8fafc', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                        <Plus size={16} color="#2563eb" />
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                {teachers.filter(t => t.schoolId === (navigation.data?.schoolId || navigation.data?.id) && !(navigation.data?.teacherIds || []).includes(t.id)).length === 0 && (
-                  <View style={{ padding: 30, alignItems: 'center' }}>
-                    <Text style={[styles.emptyTextSmall, { opacity: 0.7 }]}>{t('no_other_teachers_in_school')}</Text>
-                  </View>
-                )}
-              </View>
 
-              <View style={[styles.modalButtons, { marginTop: 32 }]}>
-                <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => setIsAddTeacherToClassModalVisible(false)}>
-                  <Text style={styles.cancelButtonText}>{t('close')}</Text>
+              {/* Pick existing teacher */}
+              {teachers.filter(t => t.schoolId === (navigation.data?.schoolId || navigation.data?.id) && !(navigation.data?.teacherIds || []).includes(t.id)).length > 0 && (
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={[styles.label, { marginTop: 0, color: '#2563eb' }]}>{t('select_teacher')}:</Text>
+                  <View style={{ gap: 8, marginTop: 10 }}>
+                    {teachers
+                      .filter(t => t.schoolId === (navigation.data?.schoolId || navigation.data?.id) && !(navigation.data?.teacherIds || []).includes(t.id))
+                      .map(teacher => (
+                        <TouchableOpacity
+                          key={teacher.id}
+                          style={[styles.schoolSelectItem, { borderColor: '#e2e8f0' }]}
+                          onPress={() => handleAddTeacherToClass(teacher.id)}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                              <GraduationCap size={20} color="#2563eb" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.schoolSelectText}>{teacher.name}</Text>
+                              <Text style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>
+                                {(teacher.subjects || []).join(', ')}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={{ backgroundColor: '#f8fafc', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                            <Plus size={16} color="#2563eb" />
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                  </View>
+                  <View style={{ height: 1, backgroundColor: '#f1f5f9', marginTop: 20 }} />
+                </View>
+              )}
+
+              {/* Create new teacher and link */}
+              <Text style={[styles.label, { marginTop: 0, color: '#2563eb' }]}>{t('or_create_new')} {t('teacher')}:</Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder={t('first_name')}
+                value={teacherFirstName}
+                onChangeText={setTeacherFirstName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t('last_name')}
+                value={teacherLastName}
+                onChangeText={setTeacherLastName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t('username')}
+                value={teacherUsername}
+                onChangeText={setTeacherUsername}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t('password')}
+                value={teacherPassword}
+                onChangeText={setTeacherPassword}
+                secureTextEntry
+              />
+
+              <Text style={styles.label}>{t('select_subjects')}:</Text>
+              <ScrollView horizontal style={{ marginBottom: 16 }} showsHorizontalScrollIndicator={false}>
+                {(KOSOVO_SUBJECTS || []).slice(0, 20).map(subject => (
+                  <TouchableOpacity
+                    key={subject}
+                    style={[styles.subjectChip, teacherSubjects.includes(subject) && styles.activeSubjectChip]}
+                    onPress={() => toggleSubject(subject)}
+                  >
+                    <Text style={[styles.subjectChipText, teacherSubjects.includes(subject) && styles.activeSubjectChipText]}>
+                      {subject}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => {
+                  setIsAddTeacherToClassModalVisible(false);
+                  setTeacherFirstName(''); setTeacherLastName('');
+                  setTeacherUsername(''); setTeacherPassword('');
+                  setTeacherSubjects([]);
+                }}>
+                  <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={async () => {
+                    const schoolId = navigation.data?.schoolId || navigation.data?.id;
+                    if (!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0) return;
+                    const result = await onAddTeacher({
+                      firstName: teacherFirstName,
+                      lastName: teacherLastName,
+                      name: `${teacherFirstName} ${teacherLastName}`,
+                      username: teacherUsername,
+                      password: teacherPassword,
+                      subjects: teacherSubjects,
+                      schoolId: schoolId,
+                      email: teacherUsername
+                    });
+                    if (!result?.error && result?.data) {
+                      // Also link to the class
+                      const currentTeacherIds = navigation.data?.teacherIds || [];
+                      await onUpdateClassTeachers(navigation.data.id, [...currentTeacherIds, result.data.id]);
+                    }
+                    setTeacherFirstName(''); setTeacherLastName('');
+                    setTeacherUsername(''); setTeacherPassword('');
+                    setTeacherSubjects([]);
+                    setIsAddTeacherToClassModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.submitButtonText}>{t('confirm')}</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ height: 40 }} />
@@ -1574,6 +1706,7 @@ const AdminDashboard = ({
           </View>
         </View>
       </Modal>
+
     </>
   );
 
@@ -1814,50 +1947,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1e293b',
   },
-  wizardCard: {
-    marginHorizontal: 24,
-    borderRadius: 32,
-    overflow: 'hidden',
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 8,
-    marginBottom: 40,
-  },
-  wizardGradient: {
-    padding: 28,
-    backgroundColor: '#6366f1',
-  },
-  wizardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
-  },
-  wizardInfo: {
-    flex: 1,
-  },
-  wizardTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: -0.5,
-  },
-  wizardDesc: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  wizardIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   card: {
     backgroundColor: '#fff',
     padding: 20,
@@ -2045,18 +2134,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
     zIndex: 1000,
-  },
-  wizardBadge: {
-    backgroundColor: '#eff6ff',
-    color: '#6366f1',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    fontSize: 12,
-    fontWeight: '800',
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-    textTransform: 'uppercase',
   },
   schoolSelectItem: {
     flexDirection: 'row',
@@ -2257,39 +2334,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 16,
     letterSpacing: 0.5,
-  },
-  wizardHeader: {
-    marginBottom: 20,
-  },
-  wizardBadge: {
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#2563eb',
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  addedList: {
-    marginTop: 16,
-    backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  addedItem: {
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  addedItemText: {
-    fontSize: 14,
-    color: '#475569',
-    fontWeight: '600',
   },
   settingsMenu: {
     gap: 16,

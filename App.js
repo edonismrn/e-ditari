@@ -12,12 +12,12 @@ import StudentDashboard from './src/screens/StudentDashboard';
 function AppContent() {
   const { user, loading: authLoading, login, logout, isPasswordRecovery } = useAuth();
   const { 
-    schools, teachers, classes, students, grades, lessons, attendance, homework,
+    schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices,
     addSchool, addClass, addTeacher, addStudent,
-    addGrade, addLesson, toggleAttendance, addHomework,
+    addGrade, addLesson, toggleAttendance, addHomework, addNote, addNotice,
     activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent,
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice,
     loading: dataLoading
   } = useDatabase();
 
@@ -79,6 +79,12 @@ function AppContent() {
           onDeleteClass={deleteClass}
           onRemoveTeacherFromClass={removeTeacherFromClass}
           onRemoveStudentFromClass={removeStudentFromClass}
+          onArchiveYear={archiveCurrentYear}
+          onPromoteStudents={promoteStudents}
+          notices={notices}
+          onAddNotice={addNotice}
+          onDeleteNotice={deleteNotice}
+          schoolAdmins={schoolAdmins}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -97,10 +103,12 @@ function AppContent() {
           lessons={lessons}
           attendance={attendance}
           homework={homework}
+          notes={notes}
           onAddGrade={addGrade}
           onAddLesson={addLesson}
           onToggleAttendance={toggleAttendance}
           onAddHomework={addHomework}
+          onAddNote={addNote}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -118,6 +126,8 @@ function AppContent() {
           lessons={lessons}
           attendance={attendance}
           homework={homework}
+          notes={notes}
+          notices={notices}
         />
         <StatusBar barStyle="dark-content" />
       </View>

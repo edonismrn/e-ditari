@@ -37,8 +37,8 @@ import { useLanguage } from '../context/LanguageContext';
 const { width } = Dimensions.get('window');
 
 const TeacherDashboard = ({ 
-  user, onLogout, classes, students, grades, lessons, attendance, homework,
-  onAddGrade, onAddLesson, onToggleAttendance, onAddHomework 
+  user, onLogout, classes, students, grades, lessons, attendance, homework, notes,
+  onAddGrade, onAddLesson, onToggleAttendance, onAddHomework, onAddNote
 }) => {
   const { t } = useLanguage();
   const [activeView, setActiveView] = useState('home'); 
@@ -57,6 +57,7 @@ const TeacherDashboard = ({
   const [gradeComment, setGradeComment] = useState('');
   const [gradeType, setGradeType] = useState('Me Shkrim');
   const [selectedStudentForGrade, setSelectedStudentForGrade] = useState(null);
+  const [gradeCustomDate, setGradeCustomDate] = useState(null); // null = use selectedDate
 
   // Modal State
   const [isLessonModalVisible, setIsLessonModalVisible] = useState(false);
@@ -65,6 +66,7 @@ const TeacherDashboard = ({
   const [selectedActionStudent, setSelectedActionStudent] = useState(null);
   const [activeActionTab, setActiveActionTab] = useState('grade'); // grade, attendance, note
   const [attendanceTime, setAttendanceTime] = useState('');
+  const [absenceType, setAbsenceType] = useState('unjustified');
   const [noteText, setNoteText] = useState('');
   const [isClassNote, setIsClassNote] = useState(false);
   const [isSelectionModalVisible, setIsSelectionModalVisible] = useState(false);
@@ -201,21 +203,38 @@ const TeacherDashboard = ({
   const renderActionModal = () => {
     if (!selectedActionStudent) return null;
     
-    const dateStr = formatDate(selectedDate);
+    const dateStr = gradeCustomDate || formatDate(selectedDate);
     const tabs = [
       { id: 'grade', label: t('student_grades'), icon: ClipboardList },
       { id: 'attendance', label: t('attendance'), icon: UserCheck },
       { id: 'note', label: t('disciplinary_note'), icon: ShieldCheck },
     ];
 
+    const getDateLabel = (d) => {
+      const today = formatDate(new Date());
+      const yesterday = formatDate(new Date(Date.now() - 86400000));
+      if (d === today) return t('today');
+      if (d === yesterday) return t('yesterday');
+      return d;
+    };
+
+    // Quick date options
+    const quickDates = [
+      formatDate(new Date()),
+      formatDate(new Date(Date.now() - 86400000)),
+      formatDate(new Date(Date.now() - 2 * 86400000)),
+      formatDate(new Date(Date.now() - 3 * 86400000)),
+      formatDate(new Date(Date.now() - 4 * 86400000)),
+    ];
+
     return (
-      <Modal visible={isActionModalVisible} animationType="fade" transparent>
+      <Modal visible={isActionModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.premiumActionModal}>
+          <View style={[styles.premiumActionModal, { maxHeight: '90%' }]}>
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitleEmphasized}>{selectedActionStudent.name}</Text>
-                <Text style={styles.modalSubtitle}>{t('back')}: {dateStr}</Text>
+                <Text style={styles.modalSubtitle}>{dateStr}</Text>
               </View>
               <TouchableOpacity onPress={() => setIsActionModalVisible(false)} style={styles.closeModalBtn}>
                 <Plus size={24} color="#64748b" style={{ transform: [{ rotate: '45deg' }] }} />
@@ -243,6 +262,20 @@ const TeacherDashboard = ({
             <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
               {activeActionTab === 'grade' && (
                 <View style={styles.tabContent}>
+                  {/* Date picker */}
+                  <Text style={styles.label}>{t('date_of_grade')}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                    {quickDates.map(d => (
+                      <TouchableOpacity
+                        key={d}
+                        style={[styles.dateChip, (gradeCustomDate || formatDate(selectedDate)) === d && styles.activeDateChip]}
+                        onPress={() => setGradeCustomDate(d)}
+                      >
+                        <Text style={[(gradeCustomDate || formatDate(selectedDate)) === d ? styles.activeDateChipText : styles.dateChipText]}>{getDateLabel(d)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
                   <Text style={styles.label}>{t('lesson_subject')}</Text>
                   <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
                     {(navigation.data?.subjects || user.subjects || []).map(subject => (
@@ -291,18 +324,20 @@ const TeacherDashboard = ({
                   />
 
                   <TouchableOpacity 
-                    style={styles.premiumSubmitButton} 
+                    style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]} 
+                    disabled={!gradeValue}
                     onPress={() => {
                       onAddGrade({
                         studentId: selectedActionStudent.id,
                         subject: selectedSubject,
                         value: parseInt(gradeValue),
                         comment: `[${gradeType}] ${gradeComment}`.trim(),
-                        date: dateStr
+                        date: gradeCustomDate || dateStr
                       });
                       setIsActionModalVisible(false);
                       setGradeValue('');
                       setGradeComment('');
+                      setGradeCustomDate(null);
                     }}
                   >
                     <Text style={styles.premiumSubmitButtonText}>{t('save_grade')}</Text>
@@ -327,25 +362,44 @@ const TeacherDashboard = ({
                       return (
                         <TouchableOpacity 
                           key={status.id} 
-                          style={[styles.squareAttTile, isActive && { borderColor: status.color, backgroundColor: status.color + '10' }]}
+                          style={[styles.squareAttTile, isActive && { borderColor: status.color, backgroundColor: status.color + '15' }]}
                           onPress={() => onToggleAttendance(selectedActionStudent.id, dateStr, status.id)}
                         >
-                          <Icon size={24} color={isActive ? status.color : '#94a3b8'} />
-                          <Text style={[styles.squareAttTileText, isActive && { color: status.color, fontWeight: '600' }]}>{status.label}</Text>
+                          <Icon size={26} color={isActive ? status.color : '#94a3b8'} />
+                          <Text style={[styles.squareAttTileText, isActive && { color: status.color, fontWeight: '700' }]}>{status.label}</Text>
                         </TouchableOpacity>
                       );
                     })}
                   </View>
 
+                  {/* Absence type toggle */}
+                  {attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'absent' && (
+                    <View style={{ marginTop: 8, marginBottom: 16 }}>
+                      <Text style={styles.label}>{t('absence_type')}</Text>
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                        {[{id: 'justified', key: 'justified'}, {id: 'unjustified', key: 'unjustified'}].map(opt => (
+                          <TouchableOpacity
+                            key={opt.id}
+                            style={[styles.subjectChip, { flex: 1, alignItems: 'center' }, absenceType === opt.id && styles.activeSubjectChip]}
+                            onPress={() => setAbsenceType(opt.id)}
+                          >
+                            <Text style={[styles.subjectChipText, absenceType === opt.id && styles.activeSubjectChipText]}>{t(opt.key)}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
                   {(attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'late' || 
                     attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'early_exit') && (
-                    <View style={{ marginTop: 16 }}>
+                    <View style={{ marginTop: 8 }}>
                       <Text style={styles.label}>{t('entry_exit_time')}</Text>
                       <TextInput 
                         style={styles.premiumInput} 
                         placeholder="HH:MM" 
                         value={attendanceTime}
                         onChangeText={setAttendanceTime}
+                        keyboardType="numeric"
                       />
                     </View>
                   )}
@@ -356,7 +410,7 @@ const TeacherDashboard = ({
                 <View style={styles.tabContent}>
                   <Text style={styles.label}>{t('disciplinary_note')}</Text>
                   <TextInput 
-                    style={[styles.premiumInput, { height: 100 }]} 
+                    style={[styles.premiumInput, { height: 120, textAlignVertical: 'top' }]} 
                     placeholder={t('note_placeholder')}
                     multiline
                     value={noteText}
@@ -370,25 +424,38 @@ const TeacherDashboard = ({
                     <View style={[styles.checkbox, isClassNote && styles.checkedBox]}>
                       {isClassNote && <CheckCircle size={14} color="white" />}
                     </View>
-                    <Text style={styles.checkboxLabel}>{t('apply_to_all_class')}</Text>
+                    <Text style={styles.checkboxLabel}>{t('vlen_per_klase')}</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity 
-                    style={styles.premiumSubmitButton} 
+                    style={[styles.premiumSubmitButton, { backgroundColor: '#dc2626' }, !noteText && { opacity: 0.5 }]} 
+                    disabled={!noteText}
                     onPress={() => {
-                      const marker = isClassNote ? '[CLASS_NOTE]' : '[NOTE]';
-                      onAddLesson({
-                        classId: selectedActionStudent.classId,
-                        subject: user.subjects?.[0] || 'Sjellja',
-                        topic: `${marker} ${noteText}`,
-                        date: dateStr,
-                        teacherId: user.id
-                      });
+                      if (onAddNote) {
+                        onAddNote({
+                          studentId: isClassNote ? null : selectedActionStudent.id,
+                          classId: selectedActionStudent.classId,
+                          content: noteText,
+                          isClassNote: isClassNote,
+                          date: dateStr
+                        });
+                      } else {
+                        // Fallback: use lesson hack
+                        const marker = isClassNote ? '[CLASS_NOTE]' : '[NOTE]';
+                        onAddLesson({
+                          classId: selectedActionStudent.classId,
+                          subject: user.subjects?.[0] || 'Sjellja',
+                          topic: `${marker} ${noteText}`,
+                          date: dateStr,
+                          teacherId: user.id
+                        });
+                      }
                       setIsActionModalVisible(false);
                       setNoteText('');
+                      setIsClassNote(false);
                     }}
                   >
-                    <Text style={styles.premiumSubmitButtonText}>{t('save_note')}</Text>
+                    <Text style={styles.premiumSubmitButtonText}>{t('ruaj_njoftimin')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -633,7 +700,8 @@ const TeacherDashboard = ({
                   studentId: selectedStudentForGrade.id,
                   subject: selectedSubject,
                   value: parseInt(gradeValue),
-                  comment: `[${gradeType}] ${gradeComment}`.trim(),
+                  type: gradeType,
+                  comment: gradeComment,
                   date: formatDate(selectedDate)
                 });
                 setIsGradeModalVisible(false);
@@ -1980,7 +2048,90 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
     lineHeight: 20,
-  }
+  },
+  dateChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  activeDateChip: {
+    backgroundColor: '#1e40af',
+    borderColor: '#1e40af',
+  },
+  dateChipText: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  activeDateChipText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  emptyTextSmall: {
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginTop: 16,
+    fontSize: 14,
+  },
+  gradeCard: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  gradeCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+  },
+  gradeValue: {
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  gradeHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  gradeDate: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  gradeComment: {
+    fontSize: 12,
+    color: '#64748b',
+    fontStyle: 'italic',
+  },
+  emptyStateContainer: {
+    padding: 24,
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
 });
 
 export default TeacherDashboard;
