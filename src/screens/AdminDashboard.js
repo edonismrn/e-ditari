@@ -44,6 +44,7 @@ import {
   FileText,
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
+import { useAlert } from '../context/AlertContext';
 import { KOSOVO_DATA } from '../data/kosovoSchools';
 import { KOSOVO_SUBJECTS } from '../data/kosovoSubjects';
 import { Modal, Alert } from 'react-native';
@@ -60,6 +61,7 @@ const AdminDashboard = ({
   schoolAdmins
 }) => {
   const { t } = useLanguage();
+  const { showAlert } = useAlert();
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
   const [academicYearName, setAcademicYearName] = useState('2024-2025');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -172,12 +174,12 @@ const AdminDashboard = ({
     });
     if (!result?.error) {
       if (result.credentials) {
-        Alert.alert(
-          t('school_created_title'),
+        showAlert(
           t('school_credentials_msg')
             .replace('{email}', result.credentials.email)
             .replace('{password}', result.credentials.password),
-          [{ text: t('ok') }]
+          'success',
+          t('school_created_title')
         );
       }
       resetSchoolForm();

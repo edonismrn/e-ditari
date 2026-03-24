@@ -419,10 +419,6 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const addGrade = async (grade) => {
-    // Note: Schema has CHECK (grade >= 1 AND grade <= 5). 
-    // If Kosovo uses 1-5, we should adjust mapping or schema. 
-    // For now, let's map 1-5 to 6-10 if it's 10-scale, or just use as is if schema allows.
-    // Actually, let's just insert and see.
     const { data, error } = await supabase.from('grades').insert([{
       student_id: grade.studentId,
       teacher_id: user.id,
@@ -431,13 +427,40 @@ export const DatabaseProvider = ({ children }) => {
       grade: grade.value,
       date: grade.date,
       description: grade.comment,
-      grade_type: grade.type
+      grade_type: grade.type,
+      modification_count: 0
     }]).select().single();
     
     if (!error && data) setGrades([...grades, data]);
     if (error) {
       console.error("Error adding grade:", error);
-      // console.log("Gabim gjatë vendosjes së notës: " + error.message);
+    }
+    return { data, error };
+  };
+
+  const updateGrade = async (gradeId, newValue, newComment, newType) => {
+    // 1. Get current grade to check modification_count
+    const currentGrade = grades.find(g => g.id === gradeId);
+    if (!currentGrade) return { error: { message: "Grade not found" } };
+    
+    // Safety check: teachers can only edit once
+    if (user.role === 'mesues' && (currentGrade.modification_count || 0) >= 1) {
+      return { error: { message: "Mundësia për ndryshim është përdorur tashmë." } };
+    }
+
+    const { data, error } = await supabase.from('grades')
+      .update({
+        grade: newValue,
+        description: newComment,
+        grade_type: newType,
+        modification_count: (currentGrade.modification_count || 0) + 1
+      })
+      .eq('id', gradeId)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setGrades(prev => prev.map(g => g.id === gradeId ? data : g));
     }
     return { data, error };
   };
@@ -777,7 +800,7 @@ export const DatabaseProvider = ({ children }) => {
       addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, addNote, addNotice, toggleAttendance,
       activateProfile, updateClassTeachers, assignStudentToClass,
       deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-      deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice
+      deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice, updateGrade
     }}>
       {children}
     </DatabaseContext.Provider>

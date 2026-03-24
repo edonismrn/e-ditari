@@ -28,6 +28,7 @@ import {
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { useLanguage } from '../context/LanguageContext';
+import { useAlert } from '../context/AlertContext';
 
 const { width } = Dimensions.get('window');
 
@@ -50,6 +51,7 @@ const getSemester = (dateStr) => {
 
 const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homework, notes, notices }) => {
   const { t } = useLanguage();
+  const { showAlert } = useAlert();
   const [activeTab, setActiveTab] = React.useState('overview');
   const [selectedDate, setSelectedDate] = React.useState(new Date());
   const [gradeSemester, setGradeSemester] = React.useState(0); // 0=all, 1=first, 2=second
@@ -127,6 +129,7 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
   ).filter(l => !l.topic?.includes('[NOTE]') && !l.topic?.includes('[CLASS_NOTE]'));
   
   const selectedDateGrades = userGrades.filter(g => g.date === formatDateString(selectedDate));
+  const selectedDateNotes = userNotes.filter(n => n.date === formatDateString(selectedDate));
 
   // ─── Grade Ring Component (SVG-less, CSS-style) ───
   const GradeRing = ({ value, size = 64, showProgress = false }) => {
@@ -335,11 +338,11 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
         })()}
 
         {/* Notification badges */}
-        {userNotes.length > 0 && (
+        {selectedDateNotes.length > 0 && (
           <View style={[styles.notifBanner, { backgroundColor: '#ef4444' }]}>
             <AlertTriangle size={18} color="#fff" />
             <Text style={styles.notifBannerText}>
-              {userNotes.length} {t('njoftim_disiplinor')}
+              {selectedDateNotes.length} {t('njoftim_disiplinor')}
             </Text>
           </View>
         )}
@@ -436,20 +439,20 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
           </>
         )}
 
-        {/* Disciplinary Notifications */}
-        {userNotes.length > 0 && (
+        {/* Disciplinary Notifications for selected date */}
+        {selectedDateNotes.length > 0 && (
           <View>
             <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
               <Text style={[styles.sectionTitle, { color: '#991b1b' }]}>{t('njoftim_disiplinor')}</Text>
               <Bell size={20} color="#ef4444" />
             </View>
-            {userNotes.map((note, idx) => {
+            {selectedDateNotes.map((note, idx) => {
               const isClassNote = note.is_class_note || (note.comment || note.topic || '').includes('[CLASS_NOTE]');
               const cleanNote = note.content 
                 || (note.comment || note.topic || '').replace('[NOTE]', '').replace('[CLASS_NOTE]', '').trim();
 
               return (
-                <View key={idx} style={[styles.premiumCard, styles.notifCard]}>
+                <View key={idx} style={[styles.premiumCard, styles.notifCard, { borderColor: '#ef4444' }]}>
                   <View style={[styles.cardAccent, { backgroundColor: '#ef4444' }]} />
                   <View style={styles.cardContent}>
                     <View style={styles.lessonHeader}>
@@ -461,7 +464,7 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
                       </View>
                       <Text style={styles.lessonDate}>{note.date}</Text>
                     </View>
-                    <Text style={[styles.lessonTopic, { color: '#7f1d1d' }]}>{cleanNote}</Text>
+                    <Text style={[styles.lessonTopic, { color: '#ef4444', fontWeight: '800' }]}>{cleanNote}</Text>
                   </View>
                 </View>
               );
@@ -728,7 +731,7 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
             {selectedNotice.attachment_url && (
               <TouchableOpacity 
                 style={modalStyles.attachmentBtn}
-                onPress={() => window.open ? window.open(selectedNotice.attachment_url, '_blank') : alert("Opening: " + selectedNotice.attachment_url)}
+                onPress={() => window.open ? window.open(selectedNotice.attachment_url, '_blank') : showAlert("Po hapet: " + selectedNotice.attachment_url, 'info')}
               >
                 <Download size={20} color="#fff" />
                 <Text style={modalStyles.attachmentBtnText}>{t('download')}</Text>

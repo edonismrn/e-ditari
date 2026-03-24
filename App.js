@@ -3,6 +3,8 @@ import { StyleSheet, View, Text, StatusBar, SafeAreaView } from 'react-native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { DatabaseProvider, useDatabase } from './src/context/DatabaseContext';
 import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
+import { AlertProvider, useAlert } from './src/context/AlertContext';
+import StylishAlert from './src/components/StylishAlert';
 
 import LoginScreen from './src/screens/LoginScreen';
 import AdminDashboard from './src/screens/AdminDashboard';
@@ -20,6 +22,7 @@ function AppContent() {
     deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice,
     loading: dataLoading
   } = useDatabase();
+  const { showAlert } = useAlert();
 
   const handleLogin = async (data) => {
     try {
@@ -28,7 +31,7 @@ function AppContent() {
       
       await login(email, data.password);
     } catch (err) {
-      alert(`Gabim gjatë kyçjes! Arsyeja: ${err.message || err}`);
+      showAlert(`Gabim gjatë kyçjes! Arsyeja: ${err.message || err}`, 'error');
       console.error("Login error:", err);
     }
   };
@@ -105,6 +108,7 @@ function AppContent() {
           homework={homework}
           notes={notes}
           onAddGrade={addGrade}
+          onUpdateGrade={updateGrade}
           onAddLesson={addLesson}
           onToggleAttendance={toggleAttendance}
           onAddHomework={addHomework}
@@ -147,14 +151,27 @@ function AppContent() {
 export default function App() {
   return (
     <LanguageProvider>
-      <AuthProvider>
-        <DatabaseProvider>
-          <AppContent />
-        </DatabaseProvider>
-      </AuthProvider>
+      <AlertProvider>
+        <AuthProvider>
+          <DatabaseProvider>
+            <AppWrapper />
+          </DatabaseProvider>
+        </AuthProvider>
+      </AlertProvider>
     </LanguageProvider>
   );
 }
+
+function AppWrapper() {
+  return (
+    <>
+      <AppContent />
+      <StylishAlert />
+    </>
+  );
+}
+
+
 
 const styles = StyleSheet.create({
   container: {

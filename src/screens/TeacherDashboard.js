@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
   SafeAreaView,
   FlatList,
   Platform,
@@ -12,7 +12,7 @@ import {
   Modal,
   TextInput
 } from 'react-native';
-import { 
+import {
   ChevronRight,
   Bell,
   Plus,
@@ -28,23 +28,26 @@ import {
   Calendar,
   Home,
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  Pencil
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { formatDate } from '../utils/dateUtils';
 import { useLanguage } from '../context/LanguageContext';
+import { useAlert } from '../context/AlertContext';
 
 const { width } = Dimensions.get('window');
 
-const TeacherDashboard = ({ 
+const TeacherDashboard = ({
   user, onLogout, classes, students, grades, lessons, attendance, homework, notes,
-  onAddGrade, onAddLesson, onToggleAttendance, onAddHomework, onAddNote
+  onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onAddHomework, onAddNote
 }) => {
   const { t } = useLanguage();
-  const [activeView, setActiveView] = useState('home'); 
+  const { showAlert } = useAlert();
+  const [activeView, setActiveView] = useState('home');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
-  
+
   // Registration Form State
   const [lessonTopic, setLessonTopic] = useState('');
   const [lessonHomework, setLessonHomework] = useState('');
@@ -76,20 +79,26 @@ const TeacherDashboard = ({
   const [selectedNotatSubject, setSelectedNotatSubject] = useState(null);
   const [lessonDate, setLessonDate] = useState(new Date());
   const [selectedHomeClassId, setSelectedHomeClassId] = useState(null);
-  
+
+  // Edit Grade State
+  const [editingGrade, setEditingGrade] = useState(null);
+  const [editGradeValue, setEditGradeValue] = useState('');
+  const [editGradeComment, setEditGradeComment] = useState('');
+  const [editGradeType, setEditGradeType] = useState('Me Shkrim');
+
   const teacherClasses = classes.filter(c => (c.teacherIds || []).includes(user.id));
 
   const renderHome = () => {
     const dateStr = formatDate(selectedDate);
-    
+
     if (!selectedHomeClassId) {
       return (
         <View style={styles.viewContainer}>
-          <FlatList 
+          <FlatList
             data={teacherClasses}
             keyExtractor={item => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.card}
                 onPress={() => setSelectedHomeClassId(item.id)}
               >
@@ -105,7 +114,7 @@ const TeacherDashboard = ({
       );
     }
 
-    const currentLessons = lessons.filter(l => 
+    const currentLessons = lessons.filter(l =>
       l.class_id === selectedHomeClassId && l.date === dateStr
     );
 
@@ -114,8 +123,8 @@ const TeacherDashboard = ({
     return (
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.homeContent}>
-          <TouchableOpacity 
-            style={styles.changeClassLink} 
+          <TouchableOpacity
+            style={styles.changeClassLink}
             onPress={() => setSelectedHomeClassId(null)}
           >
             <ArrowLeft size={16} color="#2563eb" />
@@ -140,7 +149,7 @@ const TeacherDashboard = ({
                     </Text>
                     <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
                     <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
-                    
+
                     {lesson.homework && (
                       <View style={styles.homeworkContainer}>
                         <Clock size={12} color="#64748b" />
@@ -164,7 +173,7 @@ const TeacherDashboard = ({
               {currentLessons.filter(l => l.is_test).map(l => (
                 <View key={`test-${l.id}`} style={styles.alertCard}>
                   <View style={[styles.alertIndicator, { backgroundColor: '#ef4444' }]} />
-                  <Text style={styles.alertText}><Text style={{fontWeight: 'bold'}}>TEST:</Text> {l.subject} - {l.topic}</Text>
+                  <Text style={styles.alertText}><Text style={{ fontWeight: 'bold' }}>TEST:</Text> {l.subject} - {l.topic}</Text>
                 </View>
               ))}
             </View>
@@ -176,11 +185,11 @@ const TeacherDashboard = ({
 
   const renderClassList = (targetView, title) => (
     <View style={styles.viewContainer}>
-      <FlatList 
+      <FlatList
         data={teacherClasses}
         keyExtractor={item => item.id}
         renderItem={({ item }) => (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.card}
             onPress={() => {
               setNavigation({ view: targetView, data: item });
@@ -202,7 +211,7 @@ const TeacherDashboard = ({
 
   const renderActionModal = () => {
     if (!selectedActionStudent) return null;
-    
+
     const dateStr = gradeCustomDate || formatDate(selectedDate);
     const tabs = [
       { id: 'grade', label: t('student_grades'), icon: ClipboardList },
@@ -210,22 +219,6 @@ const TeacherDashboard = ({
       { id: 'note', label: t('disciplinary_note'), icon: ShieldCheck },
     ];
 
-    const getDateLabel = (d) => {
-      const today = formatDate(new Date());
-      const yesterday = formatDate(new Date(Date.now() - 86400000));
-      if (d === today) return t('today');
-      if (d === yesterday) return t('yesterday');
-      return d;
-    };
-
-    // Quick date options
-    const quickDates = [
-      formatDate(new Date()),
-      formatDate(new Date(Date.now() - 86400000)),
-      formatDate(new Date(Date.now() - 2 * 86400000)),
-      formatDate(new Date(Date.now() - 3 * 86400000)),
-      formatDate(new Date(Date.now() - 4 * 86400000)),
-    ];
 
     return (
       <Modal visible={isActionModalVisible} animationType="slide" transparent>
@@ -241,14 +234,62 @@ const TeacherDashboard = ({
               </TouchableOpacity>
             </View>
 
+            {/* Date selection - apply to all actions */}
+            <View style={{ paddingHorizontal: 24, marginBottom: 16 }}>
+              <Text style={styles.label}>{t('date_of_grade')}</Text>
+              <TouchableOpacity
+                style={styles.premiumDatePickerField}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    document.getElementById('hidden-date-input').showPicker();
+                  }
+                }}
+              >
+                <View style={styles.premiumDatePickerContent}>
+                  <Calendar size={18} color="#2563eb" />
+                  <Text style={styles.premiumDatePickerText}>
+                    {gradeCustomDate || formatDate(selectedDate)}
+                  </Text>
+                </View>
+                {Platform.OS === 'web' && (
+                  <input
+                    id="hidden-date-input"
+                    type="date"
+                    style={{
+                      position: 'absolute',
+                      opacity: 0,
+                      width: '100%',
+                      height: '100%',
+                      cursor: 'pointer'
+                    }}
+                    value={gradeCustomDate || formatDate(selectedDate)}
+                    max={formatDate(new Date())}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      const picked = new Date(text);
+                      const today = new Date();
+                      today.setHours(23, 59, 59, 999);
+                      
+                      if (picked <= today) {
+                        setGradeCustomDate(text);
+                      } else {
+                        showAlert("Data nuk mund të jetë në të ardhmen!", 'error');
+                        setGradeCustomDate(formatDate(new Date()));
+                      }
+                    }}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+
             {/* Tab Navigation */}
             <View style={styles.modalTabs}>
               {tabs.map(tab => {
                 const Icon = tab.icon;
                 const isActive = activeActionTab === tab.id;
                 return (
-                  <TouchableOpacity 
-                    key={tab.id} 
+                  <TouchableOpacity
+                    key={tab.id}
                     style={[styles.modalTab, isActive && styles.activeModalTab]}
                     onPress={() => setActiveActionTab(tab.id)}
                   >
@@ -262,25 +303,11 @@ const TeacherDashboard = ({
             <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
               {activeActionTab === 'grade' && (
                 <View style={styles.tabContent}>
-                  {/* Date picker */}
-                  <Text style={styles.label}>{t('date_of_grade')}</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                    {quickDates.map(d => (
-                      <TouchableOpacity
-                        key={d}
-                        style={[styles.dateChip, (gradeCustomDate || formatDate(selectedDate)) === d && styles.activeDateChip]}
-                        onPress={() => setGradeCustomDate(d)}
-                      >
-                        <Text style={[(gradeCustomDate || formatDate(selectedDate)) === d ? styles.activeDateChipText : styles.dateChipText]}>{getDateLabel(d)}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-
                   <Text style={styles.label}>{t('lesson_subject')}</Text>
                   <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
                     {(navigation.data?.subjects || user.subjects || []).map(subject => (
-                      <TouchableOpacity 
-                        key={subject} 
+                      <TouchableOpacity
+                        key={subject}
                         style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
                         onPress={() => setSelectedSubject(subject)}
                       >
@@ -292,8 +319,8 @@ const TeacherDashboard = ({
                   <Text style={styles.label}>{t('grade_value')}</Text>
                   <View style={styles.gradeButtonGrid}>
                     {[1, 2, 3, 4, 5].map(val => (
-                      <TouchableOpacity 
-                        key={val} 
+                      <TouchableOpacity
+                        key={val}
                         style={[styles.gradeButton, gradeValue === val.toString() && styles.activeGradeButton]}
                         onPress={() => setGradeValue(val.toString())}
                       >
@@ -304,9 +331,9 @@ const TeacherDashboard = ({
 
                   <Text style={styles.label}>{t('grade_type')}</Text>
                   <View style={styles.chipGrid}>
-                    {[{id: 'Me Shkrim', key: 'written'}, {id: 'Me Gojë', key: 'oral'}, {id: 'Praktikë', key: 'practical'}].map(type => (
-                      <TouchableOpacity 
-                        key={type.id} 
+                    {[{ id: 'Me Shkrim', key: 'written' }, { id: 'Me Gojë', key: 'oral' }, { id: 'Praktikë', key: 'practical' }].map(type => (
+                      <TouchableOpacity
+                        key={type.id}
                         style={[styles.subjectChip, gradeType === type.id && styles.activeSubjectChip]}
                         onPress={() => setGradeType(type.id)}
                       >
@@ -316,15 +343,15 @@ const TeacherDashboard = ({
                   </View>
 
                   <Text style={styles.label}>{t('comment')}</Text>
-                  <TextInput 
-                    style={styles.premiumInput} 
-                    placeholder={t('comment_placeholder')} 
+                  <TextInput
+                    style={styles.premiumInput}
+                    placeholder={t('comment_placeholder')}
                     value={gradeComment}
                     onChangeText={setGradeComment}
                   />
 
-                  <TouchableOpacity 
-                    style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]} 
+                  <TouchableOpacity
+                    style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]}
                     disabled={!gradeValue}
                     onPress={() => {
                       onAddGrade({
@@ -360,8 +387,8 @@ const TeacherDashboard = ({
                       const isActive = (attRecord?.status || 'present') === status.id;
 
                       return (
-                        <TouchableOpacity 
-                          key={status.id} 
+                        <TouchableOpacity
+                          key={status.id}
                           style={[styles.squareAttTile, isActive && { borderColor: status.color, backgroundColor: status.color + '15' }]}
                           onPress={() => onToggleAttendance(selectedActionStudent.id, dateStr, status.id)}
                         >
@@ -377,7 +404,7 @@ const TeacherDashboard = ({
                     <View style={{ marginTop: 8, marginBottom: 16 }}>
                       <Text style={styles.label}>{t('absence_type')}</Text>
                       <View style={{ flexDirection: 'row', gap: 10 }}>
-                        {[{id: 'justified', key: 'justified'}, {id: 'unjustified', key: 'unjustified'}].map(opt => (
+                        {[{ id: 'justified', key: 'justified' }, { id: 'unjustified', key: 'unjustified' }].map(opt => (
                           <TouchableOpacity
                             key={opt.id}
                             style={[styles.subjectChip, { flex: 1, alignItems: 'center' }, absenceType === opt.id && styles.activeSubjectChip]}
@@ -390,34 +417,34 @@ const TeacherDashboard = ({
                     </View>
                   )}
 
-                  {(attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'late' || 
+                  {(attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'late' ||
                     attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'early_exit') && (
-                    <View style={{ marginTop: 8 }}>
-                      <Text style={styles.label}>{t('entry_exit_time')}</Text>
-                      <TextInput 
-                        style={styles.premiumInput} 
-                        placeholder="HH:MM" 
-                        value={attendanceTime}
-                        onChangeText={setAttendanceTime}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                  )}
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={styles.label}>{t('entry_exit_time')}</Text>
+                        <TextInput
+                          style={styles.premiumInput}
+                          placeholder="HH:MM"
+                          value={attendanceTime}
+                          onChangeText={setAttendanceTime}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    )}
                 </View>
               )}
 
               {activeActionTab === 'note' && (
                 <View style={styles.tabContent}>
                   <Text style={styles.label}>{t('disciplinary_note')}</Text>
-                  <TextInput 
-                    style={[styles.premiumInput, { height: 120, textAlignVertical: 'top' }]} 
+                  <TextInput
+                    style={[styles.premiumInput, { height: 120, textAlignVertical: 'top' }]}
                     placeholder={t('note_placeholder')}
                     multiline
                     value={noteText}
                     onChangeText={setNoteText}
                   />
-                  
-                  <TouchableOpacity 
+
+                  <TouchableOpacity
                     style={styles.checkboxContainer}
                     onPress={() => setIsClassNote(!isClassNote)}
                   >
@@ -427,8 +454,8 @@ const TeacherDashboard = ({
                     <Text style={styles.checkboxLabel}>{t('vlen_per_klase')}</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
-                    style={[styles.premiumSubmitButton, { backgroundColor: '#dc2626' }, !noteText && { opacity: 0.5 }]} 
+                  <TouchableOpacity
+                    style={[styles.premiumSubmitButton, { backgroundColor: '#dc2626' }, !noteText && { opacity: 0.5 }]}
                     disabled={!noteText}
                     onPress={() => {
                       if (onAddNote) {
@@ -483,8 +510,8 @@ const TeacherDashboard = ({
           <View style={styles.premiumCard}>
             <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
               {(currentClass.subjects || user.subjects || []).map(subject => (
-                <TouchableOpacity 
-                  key={subject} 
+                <TouchableOpacity
+                  key={subject}
                   style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
                   onPress={() => setSelectedSubject(subject)}
                 >
@@ -495,8 +522,8 @@ const TeacherDashboard = ({
 
             <View style={styles.gradeButtonGrid}>
               {['1', '2', '3', '4', '5', '6', '7'].map(hour => (
-                <TouchableOpacity 
-                  key={hour} 
+                <TouchableOpacity
+                  key={hour}
                   style={[styles.gradeButton, { width: 40 }, lessonHour === hour && styles.activeGradeButton]}
                   onPress={() => setLessonHour(hour)}
                 >
@@ -505,22 +532,22 @@ const TeacherDashboard = ({
               ))}
             </View>
 
-            <TextInput 
-              style={styles.input} 
-              placeholder={t('lesson_topic_placeholder')} 
+            <TextInput
+              style={styles.input}
+              placeholder={t('lesson_topic_placeholder')}
               value={lessonTopic}
               onChangeText={setLessonTopic}
             />
 
-            <TextInput 
-              style={styles.input} 
-              placeholder={t('homework_placeholder')} 
+            <TextInput
+              style={styles.input}
+              placeholder={t('homework_placeholder')}
               value={lessonHomework}
               onChangeText={setLessonHomework}
             />
 
-            <TouchableOpacity 
-              style={styles.submitButton} 
+            <TouchableOpacity
+              style={styles.submitButton}
               onPress={() => {
                 onAddLesson({
                   classId: currentClass.id,
@@ -557,11 +584,11 @@ const TeacherDashboard = ({
           <Text style={styles.viewTitleHeader}>{currentClass.name}</Text>
         </View>
 
-        <FlatList 
+        <FlatList
           data={classStudents}
           keyExtractor={item => item.id}
           renderItem={({ item, index }) => (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.studentListItem}
               onPress={() => setNavigation({ view: 'notat-subjects', data: { student: item, class: currentClass } })}
             >
@@ -586,13 +613,13 @@ const TeacherDashboard = ({
           </TouchableOpacity>
           <Text style={styles.viewTitleHeader}>{data.student.name}</Text>
         </View>
-        
+
         <Text style={styles.label}>Zgjidh Lëndën</Text>
-        <FlatList 
+        <FlatList
           data={data.class.subjects || user.subjects || []}
           keyExtractor={item => item}
           renderItem={({ item }) => (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.card}
               onPress={() => setNavigation({ view: 'notat-history', data: { ...data, subject: item } })}
             >
@@ -602,6 +629,105 @@ const TeacherDashboard = ({
           )}
         />
       </View>
+    );
+  };
+
+  const handleEditGradeClick = (grade) => {
+    if ((grade.modification_count || 0) >= 1) {
+      showAlert("Keni shfrytëzuar mundësinë tuaj të vetme për të ndryshuar këtë notë. Për ndryshime të tjera, kontaktoni administratorin e shkollës.", "info");
+      return;
+    }
+    
+    // Parse grade type from description if necessary
+    const legacyParts = grade.description?.match(/^\[(.*?)\] (.*)/);
+    const rawType = grade.grade_type || (legacyParts ? legacyParts[1] : 'Me Shkrim');
+    const cleanComment = legacyParts ? legacyParts[2] : (grade.description || '');
+
+    setEditingGrade(grade);
+    setEditGradeValue(grade.grade.toString());
+    setEditGradeComment(cleanComment);
+    setEditGradeType(rawType);
+  };
+
+  const renderEditGradeModal = () => {
+    if (!editingGrade) return null;
+
+    return (
+      <Modal visible={!!editingGrade} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.premiumActionModal}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitleEmphasized}>{t('edit_grade') || 'Ndrysho Notën'}</Text>
+                <Text style={styles.modalSubtitle}>{editingGrade.date}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setEditingGrade(null)} style={styles.closeModalBtn}>
+                <Plus size={24} color="#64748b" style={{ transform: [{ rotate: '45deg' }] }} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <View style={styles.tabContent}>
+                <Text style={styles.label}>{t('grade_value')}</Text>
+                <View style={styles.gradeButtonGrid}>
+                  {[1, 2, 3, 4, 5].map(val => (
+                    <TouchableOpacity
+                      key={val}
+                      style={[styles.gradeButton, editGradeValue === val.toString() && styles.activeGradeButton]}
+                      onPress={() => setEditGradeValue(val.toString())}
+                    >
+                      <Text style={[styles.gradeButtonText, editGradeValue === val.toString() && styles.activeGradeButtonText]}>{val}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.label}>{t('grade_type')}</Text>
+                <View style={styles.chipGrid}>
+                  {[{ id: 'Me Shkrim', key: 'written' }, { id: 'Me Gojë', key: 'oral' }, { id: 'Praktikë', key: 'practical' }].map(type => (
+                    <TouchableOpacity
+                      key={type.id}
+                      style={[styles.subjectChip, editGradeType === type.id && styles.activeSubjectChip]}
+                      onPress={() => setEditGradeType(type.id)}
+                    >
+                      <Text style={[styles.subjectChipText, editGradeType === type.id && styles.activeSubjectChipText]}>{t(type.key)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.label}>{t('comment')}</Text>
+                <TextInput
+                  style={styles.premiumInput}
+                  placeholder={t('comment_placeholder')}
+                  value={editGradeComment}
+                  onChangeText={setEditGradeComment}
+                />
+
+                <TouchableOpacity
+                  style={[styles.premiumSubmitButton, !editGradeValue && { opacity: 0.5 }]}
+                  disabled={!editGradeValue}
+                  onPress={async () => {
+                    const result = await onUpdateGrade(
+                      editingGrade.id,
+                      parseInt(editGradeValue),
+                      `[${editGradeType}] ${editGradeComment}`.trim(),
+                      editGradeType
+                    );
+                    
+                    if (result.error) {
+                      showAlert(result.error.message, 'error');
+                    } else {
+                      showAlert(t('grade_updated_success') || "Nota u përditësua me sukses!", 'success');
+                      setEditingGrade(null);
+                    }
+                  }}
+                >
+                  <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     );
   };
 
@@ -627,7 +753,7 @@ const TeacherDashboard = ({
           </View>
         </View>
 
-        <FlatList 
+        <FlatList
           data={history.reverse()}
           keyExtractor={item => item.id}
           renderItem={({ item }) => {
@@ -638,12 +764,15 @@ const TeacherDashboard = ({
                   <Text style={[styles.gradeValue, { color: gradeColors.text }]}>{item.grade}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                <View style={styles.gradeHeaderRow}>
-                  <Text style={styles.gradeDate}>{item.date}</Text>
+                  <View style={styles.gradeHeaderRow}>
+                    <Text style={styles.gradeDate}>{item.date}</Text>
+                    <TouchableOpacity onPress={() => handleEditGradeClick(item)}>
+                      <Pencil size={16} color={(item.modification_count || 0) >= 1 ? '#cbd5e1' : '#64748b'} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.gradeComment}>{item.comment}</Text>
                 </View>
-                <Text style={styles.gradeComment}>{item.comment}</Text>
               </View>
-            </View>
             );
           }}
           ListEmptyComponent={<Text style={styles.emptyText}>Asnjë notë për këtë lëndë.</Text>}
@@ -657,10 +786,10 @@ const TeacherDashboard = ({
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Vendos Notën: {selectedStudentForGrade?.name}</Text>
-          <TextInput 
-            style={styles.input} 
+          <TextInput
+            style={styles.input}
             placeholder={t('grade_value')}
-            keyboardType="numeric" 
+            keyboardType="numeric"
             value={gradeValue}
             onChangeText={setGradeValue}
           />
@@ -671,8 +800,8 @@ const TeacherDashboard = ({
               { id: 'Me Gojë', label: t('oral') },
               { id: 'Praktikë', label: t('practical') }
             ].map(type => (
-              <TouchableOpacity 
-                key={type.id} 
+              <TouchableOpacity
+                key={type.id}
                 style={[styles.chip, gradeType === type.id && styles.activeChip]}
                 onPress={() => setGradeType(type.id)}
               >
@@ -683,8 +812,8 @@ const TeacherDashboard = ({
             ))}
           </ScrollView>
 
-          <TextInput 
-            style={styles.input} 
+          <TextInput
+            style={styles.input}
             placeholder={t('comment_placeholder')}
             value={gradeComment}
             onChangeText={setGradeComment}
@@ -693,8 +822,8 @@ const TeacherDashboard = ({
             <TouchableOpacity style={styles.cancelButton} onPress={() => setIsGradeModalVisible(false)}>
               <Text style={styles.cancelButtonText}>Anulo</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.submitButton} 
+            <TouchableOpacity
+              style={styles.submitButton}
               onPress={() => {
                 onAddGrade({
                   studentId: selectedStudentForGrade.id,
@@ -723,72 +852,102 @@ const TeacherDashboard = ({
 
     return (
       <Modal visible={isSelectionModalVisible} animationType="fade" transparent>
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
           onPress={() => setIsSelectionModalVisible(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.premiumSelectionModal}>
+          <View style={[styles.premiumSelectionModal, { maxHeight: '85%', width: '95%' }]}>
             <View style={styles.pixelHeader}>
               <View style={styles.pixelLine} />
             </View>
-            
-            <Text style={styles.modalTitleEmphasized}>
-              {selectedActionStudent.name}
-            </Text>
-            <Text style={styles.modalSubtitleCenter}>{t('select_action')}</Text>
-            
-            <View style={styles.squareGrid}>
-              <TouchableOpacity 
-                style={[styles.squareActionCard, { backgroundColor: '#eff6ff' }]} 
-                onPress={() => {
-                  setIsSelectionModalVisible(false);
-                  setIsActionModalVisible(true);
-                  setActiveActionTab('grade');
-                }}
-              >
-                <View style={[styles.squareIconContainer, { backgroundColor: '#dbeafe' }]}>
-                  <ClipboardList size={28} color="#2563eb" />
-                </View>
-                <Text style={styles.squareActionText}>{t('student_grades')}</Text>
-              </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={[styles.squareActionCard, { backgroundColor: '#f0fdf4' }]} 
-                onPress={() => {
-                  setIsSelectionModalVisible(false);
-                  setIsActionModalVisible(true);
-                  setActiveActionTab('attendance');
-                }}
-              >
-                <View style={[styles.squareIconContainer, { backgroundColor: '#dcfce7' }]}>
-                  <UserCheck size={28} color="#22c55e" />
-                </View>
-                <Text style={styles.squareActionText}>{t('attendance')}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.squareActionCard, { backgroundColor: '#fff7ed' }]} 
-                onPress={() => {
-                  setIsSelectionModalVisible(false);
-                  setIsActionModalVisible(true);
-                  setActiveActionTab('note');
-                }}
-              >
-                <View style={[styles.squareIconContainer, { backgroundColor: '#ffedd5' }]}>
-                  <ShieldCheck size={28} color="#f59e0b" />
-                </View>
-                <Text style={styles.squareActionText}>{t('disciplinary_note')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity 
-              style={styles.premiumCancelButton} 
-              onPress={() => setIsSelectionModalVisible(false)}
+            <ScrollView 
+              style={{ width: '100%' }} 
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 20 }}
             >
-              <Text style={styles.premiumCancelButtonText}>{t('cancel')}</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
+              <Text style={styles.modalTitleEmphasized}>
+                {selectedActionStudent.name}
+              </Text>
+              <Text style={styles.modalSubtitleCenter}>
+                {t('select_action')}
+              </Text>
+
+              <View style={styles.squareGrid}>
+                {/* Grades Button */}
+                <TouchableOpacity
+                  style={[styles.squareActionCard, { backgroundColor: '#eff6ff' }]}
+                  onPress={() => {
+                    setIsSelectionModalVisible(false);
+                    setIsActionModalVisible(true);
+                    setActiveActionTab('grade');
+                  }}
+                >
+                  <View style={[styles.squareIconContainer, { backgroundColor: '#dbeafe' }]}>
+                    <ClipboardList size={26} color="#2563eb" />
+                  </View>
+                  <Text style={styles.squareActionText}>Regjistro Notën</Text>
+                </TouchableOpacity>
+
+                {/* Attendance Button */}
+                <TouchableOpacity
+                  style={[styles.squareActionCard, { backgroundColor: '#f0fdf4' }]}
+                  onPress={() => {
+                    setIsSelectionModalVisible(false);
+                    setIsActionModalVisible(true);
+                    setActiveActionTab('attendance');
+                  }}
+                >
+                  <View style={[styles.squareIconContainer, { backgroundColor: '#dcfce7' }]}>
+                    <UserCheck size={26} color="#22c55e" />
+                  </View>
+                  <Text style={styles.squareActionText}>Regjistro Prezencën</Text>
+                </TouchableOpacity>
+
+                {/* Disciplinary Note Button */}
+                <TouchableOpacity
+                  style={[styles.squareActionCard, { backgroundColor: '#fff7ed' }]}
+                  onPress={() => {
+                    setIsSelectionModalVisible(false);
+                    setIsActionModalVisible(true);
+                    setActiveActionTab('note');
+                  }}
+                >
+                  <View style={[styles.squareIconContainer, { backgroundColor: '#ffedd5' }]}>
+                    <ShieldCheck size={26} color="#f59e0b" />
+                  </View>
+                  <Text style={styles.squareActionText}>Regjistro Njoftim Disiplinor</Text>
+                </TouchableOpacity>
+
+                {/* Lesson Registration Button */}
+                <TouchableOpacity
+                  style={[styles.squareActionCard, { backgroundColor: '#f5f3ff' }]}
+                  onPress={() => {
+                    setIsSelectionModalVisible(false);
+                    const classId = selectedActionStudent.classId;
+                    const studentClass = classes.find(c => c.id === classId);
+                    setNavigation({ view: 'lesson-form', data: studentClass });
+                    if (studentClass?.subjects && studentClass.subjects.length > 0) {
+                      setSelectedSubject(studentClass.subjects[0]);
+                    }
+                  }}
+                >
+                  <View style={[styles.squareIconContainer, { backgroundColor: '#ede9fe' }]}>
+                    <BookIcon size={26} color="#7c3aed" />
+                  </View>
+                  <Text style={styles.squareActionText}>Regjistro Orën</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={styles.premiumCancelButton}
+                onPress={() => setIsSelectionModalVisible(false)}
+              >
+                <Text style={styles.premiumCancelButtonText}>{t('cancel')}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
         </TouchableOpacity>
       </Modal>
     );
@@ -798,7 +957,7 @@ const TeacherDashboard = ({
     const classStudents = [...students]
       .filter(s => s.classId === currentClass.id)
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    
+
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
@@ -811,12 +970,12 @@ const TeacherDashboard = ({
           </View>
         </View>
 
-        <FlatList 
+        <FlatList
           data={classStudents}
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16 }}
           renderItem={({ item, index }) => (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.studentListItem}
               onPress={() => {
                 setSelectedActionStudent(item);
@@ -863,27 +1022,27 @@ const TeacherDashboard = ({
             const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
 
             return (
-                <View key={lesson.id} style={styles.nuvolaLessonCard}>
-                  <View style={[styles.lessonColorBar, { backgroundColor: lesson.is_test ? '#ef4444' : '#2563eb' }]} />
-                  <View style={styles.premiumHourContainer}>
-                    <Text style={styles.premiumHourNumber}>{topicParts ? topicParts[1] : idx + 1}</Text>
-                    <Text style={styles.premiumHourLabel}>{t('hour')}</Text>
-                  </View>
-                  <View style={styles.lessonContent}>
-                    <Text style={styles.professorName}>
-                      {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.first_name || user.first_name} {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.last_name || user.last_name}
-                    </Text>
-                    <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
-                    <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
-                    {lesson.homework && (
-                      <View style={styles.homeworkContainer}>
-                        <Clock size={12} color="#64748b" />
-                        <Text style={styles.homeworkText}>{lesson.homework}</Text>
-                      </View>
-                    )}
-                  </View>
+              <View key={lesson.id} style={styles.nuvolaLessonCard}>
+                <View style={[styles.lessonColorBar, { backgroundColor: lesson.is_test ? '#ef4444' : '#2563eb' }]} />
+                <View style={styles.premiumHourContainer}>
+                  <Text style={styles.premiumHourNumber}>{topicParts ? topicParts[1] : idx + 1}</Text>
+                  <Text style={styles.premiumHourLabel}>{t('hour')}</Text>
                 </View>
-              );
+                <View style={styles.lessonContent}>
+                  <Text style={styles.professorName}>
+                    {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.first_name || user.first_name} {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.last_name || user.last_name}
+                  </Text>
+                  <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
+                  <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
+                  {lesson.homework && (
+                    <View style={styles.homeworkContainer}>
+                      <Clock size={12} color="#64748b" />
+                      <Text style={styles.homeworkText}>{lesson.homework}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
           }) : (
             <View style={styles.emptyStateContainer}>
               <BookIcon size={40} color="#e2e8f0" />
@@ -913,7 +1072,7 @@ const TeacherDashboard = ({
 
       {activeView === 'home' && navigation.view === 'home' && renderHome()}
       {activeView === 'registry' && navigation.view === 'home' && renderClassList('class-detail', t('class_registry'))}
-      
+
       {activeView === 'lessons' && navigation.view === 'home' && renderClassList('lesson-form', t('select_class_lesson'))}
       {activeView === 'notat' && navigation.view === 'home' && renderClassList('notat-students', t('select_class_grades'))}
 
@@ -923,20 +1082,20 @@ const TeacherDashboard = ({
       {navigation.view === 'notat-subjects' && renderSubjectSelection(navigation.data)}
       {navigation.view === 'notat-history' && renderGradeHistory(navigation.data)}
 
-      {renderSelectionModal()}
+      {renderGradeModal()}
       {renderActionModal()}
-      
-      {/* Lesson Modal */}
+      {renderSelectionModal()}
+      {renderEditGradeModal()}
       <Modal visible={isLessonModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Regjistro Orën: {navigation.data?.name}</Text>
-            
+
             <Text style={styles.label}>Lënda</Text>
             <ScrollView horizontal style={styles.chipScroll}>
               {(navigation.data?.subjects || user.subjects || []).map(subject => (
-                <TouchableOpacity 
-                  key={subject} 
+                <TouchableOpacity
+                  key={subject}
                   style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
                   onPress={() => setSelectedSubject(subject)}
                 >
@@ -948,8 +1107,8 @@ const TeacherDashboard = ({
             <Text style={styles.label}>Ora e Mësimit</Text>
             <ScrollView horizontal style={styles.chipScroll}>
               {['1', '2', '3', '4', '5', '6', '7'].map(hour => (
-                <TouchableOpacity 
-                  key={hour} 
+                <TouchableOpacity
+                  key={hour}
                   style={[styles.subjectChip, lessonHour === hour && styles.activeSubjectChip]}
                   onPress={() => setLessonHour(hour)}
                 >
@@ -958,22 +1117,22 @@ const TeacherDashboard = ({
               ))}
             </ScrollView>
 
-            <TextInput 
-              style={styles.input} 
+            <TextInput
+              style={styles.input}
               placeholder={t('lesson_topic_placeholder')}
               multiline
               numberOfLines={3}
               value={lessonTopic}
               onChangeText={setLessonTopic}
             />
-            <TextInput 
-              style={styles.input} 
+            <TextInput
+              style={styles.input}
               placeholder={t('homework_placeholder')}
               value={lessonHomework}
               onChangeText={setLessonHomework}
             />
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.checkboxContainer}
               onPress={() => setIsTest(!isTest)}
             >
@@ -987,8 +1146,8 @@ const TeacherDashboard = ({
               <TouchableOpacity style={styles.cancelButton} onPress={() => setIsLessonModalVisible(false)}>
                 <Text style={styles.cancelButtonText}>Anulo</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.submitButton} 
+              <TouchableOpacity
+                style={styles.submitButton}
                 onPress={() => {
                   onAddLesson({
                     classId: navigation.data.id,
@@ -1020,10 +1179,6 @@ const TeacherDashboard = ({
         <TouchableOpacity style={styles.navItem} onPress={() => { setActiveView('registry'); setNavigation({ view: 'home', data: null }); }}>
           <ClipboardList size={24} color={activeView === 'registry' ? '#2563eb' : '#94a3b8'} />
           <Text style={[styles.navText, activeView === 'registry' && styles.activeNavText]}>{t('class_registry')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => { setActiveView('lessons'); setNavigation({ view: 'home', data: null }); }}>
-          <BookIcon size={24} color={activeView === 'lessons' ? '#2563eb' : '#94a3b8'} />
-          <Text style={[styles.navText, activeView === 'lessons' && styles.activeNavText]}>{t('register_lesson')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => { setActiveView('notat'); setNavigation({ view: 'home', data: null }); }}>
           <ShieldCheck size={24} color={activeView === 'notat' ? '#2563eb' : '#94a3b8'} />
@@ -1822,49 +1977,6 @@ const styles = StyleSheet.create({
     borderColor: '#f1f5f9',
     borderStyle: 'dashed',
   },
-  gradeCard: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-    marginHorizontal: 16,
-  },
-  gradeCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#eff6ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#2563eb',
-  },
-  gradeValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#2563eb',
-  },
-  gradeHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  gradeDate: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#94a3b8',
-  },
-  gradeComment: {
-    fontSize: 14,
-    color: '#475569',
-    lineHeight: 18,
-  },
   selectionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1893,7 +2005,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 32,
     padding: 24,
-    width: '100%',
+    paddingBottom: 16,
+    width: '90%',
     maxWidth: 400,
     alignItems: 'center',
     shadowColor: '#000',
@@ -1928,19 +2041,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   squareGrid: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
+    flexDirection: 'column',
+    gap: 10,
     width: '100%',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   squareActionCard: {
-    width: (width - 80) / 3,
+    width: '100%',
     borderRadius: 20,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 10,
-    gap: 8,
+    padding: 16,
+    gap: 16,
   },
   squareIconContainer: {
     width: 48,
@@ -1950,10 +2062,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   squareActionText: {
-    fontSize: 10,
+    fontSize: 16,
     fontWeight: '800',
     color: '#1e293b',
-    textAlign: 'center',
   },
   premiumCancelButton: {
     width: '100%',
@@ -2078,61 +2189,30 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 14,
   },
-  gradeCard: {
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
+  premiumDatePickerField: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#f1f5f9',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 5,
-    elevation: 1,
-  },
-  gradeCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-  },
-  gradeValue: {
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  gradeHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    justifyContent: 'space-between',
+    position: 'relative',
   },
-  gradeDate: {
-    fontSize: 11,
-    color: '#94a3b8',
+  premiumDatePickerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  premiumDatePickerText: {
+    fontSize: 15,
+    color: '#1e293b',
     fontWeight: '600',
   },
-  gradeComment: {
-    fontSize: 12,
-    color: '#64748b',
-    fontStyle: 'italic',
-  },
-  emptyStateContainer: {
-    padding: 24,
-    backgroundColor: '#f8fafc',
-    borderRadius: 16,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#e2e8f0',
-    alignItems: 'center',
-    marginVertical: 8,
-  },
 });
+
 
 export default TeacherDashboard;
 
