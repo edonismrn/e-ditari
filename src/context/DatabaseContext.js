@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase, supabaseAdmin } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { formatDate } from '../utils/dateUtils';
 
 const DatabaseContext = createContext({});
 
@@ -18,197 +19,246 @@ export const DatabaseProvider = ({ children }) => {
   const [homework, setHomework] = useState([]);
   const [notes, setNotes] = useState([]);
   const [notices, setNotices] = useState([]);
+  const [noticeReads, setNoticeReads] = useState([]);
+  const [migrationRun, setMigrationRun] = useState(false);
   
   const [loading, setLoading] = useState(true);
 
-  // Fetch initial data based on role
-  useEffect(() => {
-    if (!user) return;
-    
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        if (user.role === 'admin') {
-          const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
-          // Admin needs everything
-          const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes] = await Promise.all([
-            supabase.from('schools').select('*'),
-            supabase.from('profiles').select('*'),
-            supabase.from('classes').select('*'),
-            supabase.from('teacher_classes').select('*'),
-            supabase.from('student_classes').select('*'),
-            supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
-          ]);
-          
-          if (!isSuperAdmin && user.school_id) {
-            if (schoolsRes.data) schoolsRes.data = schoolsRes.data.filter(s => s.id === user.school_id);
-            if (profilesRes.data) profilesRes.data = profilesRes.data.filter(p => p.school_id === user.school_id || p.id === user.id);
-            if (classesRes.data) classesRes.data = classesRes.data.filter(c => c.school_id === user.school_id);
-          }
+  const fetchData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      if (!user) return;
+      
+      if (user.role === 'admin') {
+        const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
+        // Admin needs everything
+        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes] = await Promise.all([
+          supabase.from('schools').select('*'),
+          supabase.from('profiles').select('*'),
+          supabase.from('classes').select('*'),
+          supabase.from('teacher_classes').select('*'),
+          supabase.from('student_classes').select('*'),
+          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
+        ]);
+        
+        if (!isSuperAdmin && user.school_id) {
+          if (schoolsRes.data) schoolsRes.data = schoolsRes.data.filter(s => s.id === user.school_id);
+          if (profilesRes.data) profilesRes.data = profilesRes.data.filter(p => p.school_id === user.school_id || p.id === user.id);
+          if (classesRes.data) classesRes.data = classesRes.data.filter(c => c.school_id === user.school_id);
+        }
 
-          if (schoolsRes.data) setSchools(schoolsRes.data);
-          
-          if (profilesRes.data) {
-            // Map Teachers
-            const mappedTeachers = profilesRes.data
-              .filter(p => p.role === 'mesues')
-              .map(p => ({
-                ...p,
-                schoolId: p.school_id,
-                firstName: p.first_name,
-                lastName: p.last_name,
-                name: `${p.first_name} ${p.last_name}`,
-                username: p.email,
-                is_active: p.is_active
-              }));
-            setTeachers(mappedTeachers);
-
-            // Map School Admins (for Super Admin overview)
-            const mappedAdmins = profilesRes.data
-              .filter(p => p.role === 'admin')
-              .map(p => ({
-                ...p,
-                schoolId: p.school_id,
-                name: `${p.first_name} ${p.last_name}`,
-                username: p.email
-              }));
-            setSchoolAdmins(mappedAdmins);
-
-            // Map Students
-            const mappedStudents = profilesRes.data
-              .filter(p => p.role === 'nxenes')
-              .map(p => ({
-                ...p,
-                schoolId: p.school_id,
-                firstName: p.first_name,
-                lastName: p.last_name,
-                name: `${p.first_name} ${p.last_name}`,
-                username: p.email,
-                classId: studentClassesRes.data?.find(sc => sc.student_id === p.id)?.class_id
-              }));
-            setStudents(mappedStudents);
-          }
-
-          if (classesRes.data) {
-            const mappedClasses = classesRes.data.map(c => ({
-              ...c,
-              schoolId: c.school_id,
-              teacherIds: [...new Set((teacherClassesRes.data || [])
-                .filter(tc => tc.class_id === c.id)
-                .map(tc => tc.teacher_id))]
+        if (schoolsRes.data) setSchools(schoolsRes.data);
+        
+        if (profilesRes.data) {
+          // Map Teachers
+          const mappedTeachers = profilesRes.data
+            .filter(p => p.role === 'mesues')
+            .map(p => ({
+              ...p,
+              schoolId: p.school_id,
+              firstName: p.first_name,
+              lastName: p.last_name,
+              name: `${p.first_name} ${p.last_name}`,
+              username: p.email,
+              is_active: p.is_active
             }));
-            setClasses(mappedClasses);
-          }
-          if (noticesRes.data) setNotices(noticesRes.data);
+          setTeachers(mappedTeachers);
+
+          // Map School Admins (for Super Admin overview)
+          const mappedAdmins = profilesRes.data
+            .filter(p => p.role === 'admin')
+            .map(p => ({
+              ...p,
+              schoolId: p.school_id,
+              name: `${p.first_name} ${p.last_name}`,
+              username: p.email
+            }));
+          setSchoolAdmins(mappedAdmins);
+
+          // Map Students
+          const mappedStudents = profilesRes.data
+            .filter(p => p.role === 'nxenes')
+            .map(p => ({
+              ...p,
+              schoolId: p.school_id,
+              firstName: p.first_name,
+              lastName: p.last_name,
+              name: `${p.first_name} ${p.last_name}`,
+              username: p.email,
+              classId: studentClassesRes.data?.find(sc => sc.student_id === p.id)?.class_id
+            }));
+          setStudents(mappedStudents);
+          runAttendanceMigration(mappedStudents);
+        }
+
+        if (classesRes.data) {
+          const mappedClasses = classesRes.data.map(c => ({
+            ...c,
+            schoolId: c.school_id,
+            teacherIds: [...new Set((teacherClassesRes.data || [])
+              .filter(tc => tc.class_id === c.id)
+              .map(tc => tc.teacher_id))]
+          }));
+          setClasses(mappedClasses);
+        }
+        if (noticesRes.data) setNotices(noticesRes.data);
+        
+      } else if (user.role === 'mesues') {
+        // Teacher data: Fetch classes the teacher belongs to
+        const { data: tcData } = await supabase.from('teacher_classes').select('*, classes(*)').eq('teacher_id', user.id);
+        
+        let classIds = [];
+        
+        if (tcData) {
+          const uniqueClassIds = [...new Set(tcData.map(tc => tc.class_id))];
+          const mappedClasses = uniqueClassIds.map(cid => {
+            const tcItems = tcData.filter(item => item.class_id === cid);
+            return {
+              ...tcItems[0].classes,
+              teacherIds: [tcItems[0].teacher_id],
+              subjects: tcItems.map(tc => tc.subject)
+            };
+          });
+          setClasses(mappedClasses);
           
-        } else if (user.role === 'mesues') {
-          // Teacher data: Fetch classes the teacher belongs to
-          const { data: tcData } = await supabase.from('teacher_classes').select('*, classes(*)').eq('teacher_id', user.id);
+          // Get teacher's subjects for the dashboard
+          const uniqueSubjects = [...new Set(tcData.map(tc => tc.subject))];
+          user.teachingSubjects = uniqueSubjects; // Use teachingSubjects instead of overwriting subjects
           
-          let classIds = [];
-          
-          if (tcData) {
-            const uniqueClassIds = [...new Set(tcData.map(tc => tc.class_id))];
-            const mappedClasses = uniqueClassIds.map(cid => {
-              const tcItems = tcData.filter(item => item.class_id === cid);
-              return {
-                ...tcItems[0].classes,
-                teacherIds: [tcItems[0].teacher_id],
-                subjects: tcItems.map(tc => tc.subject)
-              };
-            });
-            setClasses(mappedClasses);
-            
-            // Get teacher's subjects for the dashboard
-            const uniqueSubjects = [...new Set(tcData.map(tc => tc.subject))];
-            user.subjects = uniqueSubjects;
-            
-            classIds = mappedClasses.map(c => c.id);
-            if (classIds.length > 0) {
-              const { data: scData } = await supabase.from('student_classes').select('student_id, class_id').in('class_id', classIds);
-              if (scData) {
-                const studentIds = scData.map(sc => sc.student_id);
-                // Also get ALL teachers for these classes
-                const { data: allTcData } = await supabase.from('teacher_classes').select('teacher_id, class_id').in('class_id', classIds);
-                const profIds = [...new Set([...studentIds, ...(allTcData || []).map(tc => tc.teacher_id)])];
+          classIds = mappedClasses.map(c => c.id);
+          if (classIds.length > 0) {
+            const { data: scData } = await supabase.from('student_classes').select('student_id, class_id').in('class_id', classIds);
+            if (scData) {
+              const studentIds = scData.map(sc => sc.student_id);
+              // Also get ALL teachers for these classes
+              const { data: allTcData } = await supabase.from('teacher_classes').select('teacher_id, class_id').in('class_id', classIds);
+              const profIds = [...new Set([...studentIds, ...(allTcData || []).map(tc => tc.teacher_id)])];
+              
+              if (allTcData) {
+                setClasses(prev => prev.map(c => ({
+                  ...c,
+                  teacherIds: [...new Set(allTcData.filter(tc => tc.class_id === c.id).map(tc => tc.teacher_id))]
+                })));
+              }
+              
+              const { data: profilesData } = await supabase.from('profiles').select('*').in('id', profIds);
+              if (profilesData) {
+                setStudents(profilesData.filter(p => studentIds.includes(p.id)).map(s => ({
+                  ...s,
+                  name: `${s.first_name} ${s.last_name}`,
+                  classId: scData.find(sc => sc.student_id === s.id)?.class_id
+                })));
                 
-                if (allTcData) {
-                  setClasses(prev => prev.map(c => ({
-                    ...c,
-                    teacherIds: [...new Set(allTcData.filter(tc => tc.class_id === c.id).map(tc => tc.teacher_id))]
-                  })));
-                }
-                
-                const { data: profilesData } = await supabase.from('profiles').select('*').in('id', profIds);
-                if (profilesData) {
-                  setStudents(profilesData.filter(p => studentIds.includes(p.id)).map(s => ({
-                    ...s,
-                    name: `${s.first_name} ${s.last_name}`,
-                    classId: scData.find(sc => sc.student_id === s.id)?.class_id
-                  })));
-                  
-                  // Store teacher profiles globally to show co-teacher names
-                  user.teacherProfiles = profilesData.filter(p => p.role === 'mesues');
-                }
+                // Store teacher profiles globally to show co-teacher names
+                user.teacherProfiles = profilesData.filter(p => p.role === 'mesues');
               }
             }
           }
-
-          const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
-            classIds.length > 0 ? supabase.from('grades').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            classIds.length > 0 ? supabase.from('attendance').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
-          ]);
-          
-          if (gradesRes.data) setGrades(gradesRes.data);
-          if (lessonsRes.data) setLessons(lessonsRes.data);
-          if (attendanceRes.data) setAttendance(attendanceRes.data);
-          if (homeworkRes.data) setHomework(homeworkRes.data);
-          if (notesRes.data) setNotes(notesRes.data);
-          if (noticesRes.data) setNotices(noticesRes.data);
-          
-        } else if (user.role === 'nxenes') {
-          // Student data: find which classes they belong to
-          const { data: scData } = await supabase.from('student_classes').select('*, classes(*)').eq('student_id', user.id).single();
-          
-          if (scData) {
-            user.classId = scData.class_id;
-            setClasses([{
-              ...scData.classes,
-              schoolId: scData.classes.school_id
-            }]);
-          }
-
-          const classIds = scData ? [scData.class_id] : [];
-          
-          const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
-            supabase.from('grades').select('*').eq('student_id', user.id).is('academic_year', null),
-            classIds.length > 0 ? supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            supabase.from('attendance').select('*').eq('student_id', user.id).is('academic_year', null),
-            classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-            supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
-          ]);
-          
-          if (gradesRes.data) setGrades(gradesRes.data);
-          if (lessonsRes.data) setLessons(lessonsRes.data);
-          if (attendanceRes.data) setAttendance(attendanceRes.data);
-          if (homeworkRes.data) setHomework(homeworkRes.data);
-          if (notesRes.data) setNotes(notesRes.data);
-          if (noticesRes.data) setNotices(noticesRes.data);
         }
-      } catch (error) {
-        console.error("Failed to fetch data", error);
-      } finally {
-        setLoading(false);
-      }
-    };
 
-    fetchData();
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
+          classIds.length > 0 ? supabase.from('grades').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          classIds.length > 0 ? supabase.from('attendance').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
+        ]);
+        
+        if (gradesRes.data) setGrades(gradesRes.data);
+        if (lessonsRes.data) setLessons(lessonsRes.data);
+        if (attendanceRes.data) setAttendance(attendanceRes.data);
+        if (homeworkRes.data) setHomework(homeworkRes.data);
+        if (notesRes.data) setNotes(notesRes.data);
+        if (noticesRes.data) setNotices(noticesRes.data);
+        
+      } else if (user.role === 'nxenes') {
+        // Student data: find which classes they belong to
+        const { data: scData } = await supabase.from('student_classes').select('*, classes(*)').eq('student_id', user.id).single();
+        
+        if (scData) {
+          user.classId = scData.class_id;
+          setClasses([{
+            ...scData.classes,
+            schoolId: scData.classes.school_id
+          }]);
+        }
+
+        const classIds = scData ? [scData.class_id] : [];
+        
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes] = await Promise.all([
+          supabase.from('grades').select('*').eq('student_id', user.id).is('academic_year', null),
+          classIds.length > 0 ? supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          supabase.from('attendance').select('*').eq('student_id', user.id).is('academic_year', null),
+          classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
+          supabase.from('notice_reads').select('notice_id').eq('student_id', user.id)
+        ]);
+        
+        if (gradesRes.data) setGrades(gradesRes.data);
+        if (lessonsRes.data) setLessons(lessonsRes.data);
+        if (attendanceRes.data) setAttendance(attendanceRes.data);
+        if (homeworkRes.data) setHomework(homeworkRes.data);
+        if (notesRes.data) setNotes(notesRes.data);
+        if (noticesRes.data) setNotices(noticesRes.data);
+        if (noticeReadsRes.data) setNoticeReads(noticeReadsRes.data.map(r => r.notice_id));
+        runAttendanceMigration([{ ...user, id: user.id, classId: user.classId }]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch data", error);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  const refreshData = () => fetchData(false);
+
+  // Fetch initial data based on role
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
   }, [user]);
+
+  // Migration logic consolidated within a separate function called after data fetch
+  const runAttendanceMigration = async (currentStudents) => {
+    if (migrationRun || !user) return;
+    try {
+      const migrationThreshold = '2026-03-25';
+      const march20 = '2026-03-20';
+
+      // 1. Clear the slate for all past records (set to present)
+      await supabase.from('attendance').update({ status: 'present' }).lt('date', migrationThreshold);
+
+      // 2. Exception: Ensure March 20th is recorded as 'absent'
+      await supabase.from('attendance').update({ status: 'absent' }).eq('date', march20);
+
+      // 3. Seeding March 20th for everyone if no record exists
+      if (currentStudents && currentStudents.length > 0) {
+        const { data: existing20 } = await supabase.from('attendance').select('student_id').eq('date', march20);
+        const studentIdsWithRecord = new Set(existing20?.map(a => a.student_id) || []);
+        
+        const missingStudents = currentStudents.filter(s => !studentIdsWithRecord.has(s.id));
+        if (missingStudents.length > 0) {
+           const seedRecords = missingStudents.map(s => ({
+             student_id: s.id,
+             class_id: s.classId || user.classId,
+             date: march20,
+             status: 'absent'
+           }));
+           await supabase.from('attendance').insert(seedRecords);
+        }
+      }
+
+      setMigrationRun(true);
+      // Refresh local attendance state
+      const { data } = await supabase.from('attendance').select('*').is('academic_year', null);
+      if (data) setAttendance(data);
+    } catch (err) {
+      console.error("Migration failed:", err);
+    }
+  };
 
   // Management Actions
   const generateRandomPassword = (length = 10) => {
@@ -288,9 +338,12 @@ export const DatabaseProvider = ({ children }) => {
       setClasses([...classes, mappedClass]);
       // Also insert teacher_classes if teacherIds provided
       if (cls.teacherIds && cls.teacherIds.length > 0) {
+        // Fetch latest teacher data to avoid state sync issues
+        const { data: latestTeachers } = await supabase.from('profiles').select('id, subjects').in('id', cls.teacherIds);
+        
         const newLinks = [];
         cls.teacherIds.forEach(tid => {
-          const teacher = teachers.find(t => t.id === tid);
+          const teacher = latestTeachers?.find(t => t.id === tid);
           const subjects = (teacher?.subjects && teacher.subjects.length > 0) ? teacher.subjects : ['Mësues'];
           subjects.forEach(subject => {
             newLinks.push({ teacher_id: tid, class_id: data.id, subject: subject });
@@ -438,14 +491,14 @@ export const DatabaseProvider = ({ children }) => {
     return { data, error };
   };
 
-  const updateGrade = async (gradeId, newValue, newComment, newType) => {
+  const updateGrade = async (gradeId, newValue, newComment, newType, newDate) => {
     // 1. Get current grade to check modification_count
-    const currentGrade = grades.find(g => g.id === gradeId);
+    const currentGrade = (grades || []).find(g => g.id === gradeId);
     if (!currentGrade) return { error: { message: "Grade not found" } };
     
     // Safety check: teachers can only edit once
     if (user.role === 'mesues' && (currentGrade.modification_count || 0) >= 1) {
-      return { error: { message: "Mundësia për ndryshim është përdorur tashmë." } };
+      return { error: { message: t('edit_grade_limit_reached') || "Nuk është më e mundur të ndryshohet nota, e keni ndryshuar tashmë një herë." } };
     }
 
     const { data, error } = await supabase.from('grades')
@@ -453,6 +506,7 @@ export const DatabaseProvider = ({ children }) => {
         grade: newValue,
         description: newComment,
         grade_type: newType,
+        date: newDate || currentGrade.date,
         modification_count: (currentGrade.modification_count || 0) + 1
       })
       .eq('id', gradeId)
@@ -495,18 +549,6 @@ export const DatabaseProvider = ({ children }) => {
     return { data: data?.[0], error };
   };
 
-  const addNotice = async (noticeData) => {
-    const { data, error } = await supabase.from('notices').insert([noticeData]).select();
-    if (data) setNotices(prev => [data[0], ...prev]);
-    return { data: data?.[0], error };
-  };
-
-  const deleteNotice = async (noticeId) => {
-    const { error } = await supabase.from('notices').delete().eq('id', noticeId);
-    if (!error) setNotices(prev => prev.filter(n => n.id !== noticeId));
-    return { error };
-  };
-
   const addHomework = async (hw) => {
     const { data, error } = await supabase.from('homework').insert([{
       teacher_id: user.id,
@@ -528,9 +570,12 @@ export const DatabaseProvider = ({ children }) => {
       
       // 2. Insert new links
       // Each teacher should be linked with ALL their subjects
+      // Fetch latest teacher data to avoid state sync issues
+      const { data: latestTeachers } = await supabase.from('profiles').select('id, subjects').in('id', teacherIds);
+
       const newLinks = [];
       teacherIds.forEach(tId => {
-        const teacher = teachers.find(t => t.id === tId);
+        const teacher = latestTeachers?.find(t => t.id === tId);
         const subjects = (teacher?.subjects && teacher.subjects.length > 0) ? teacher.subjects : ['Mësues'];
         subjects.forEach(subject => {
           newLinks.push({ class_id: classId, teacher_id: tId, subject: subject });
@@ -565,6 +610,33 @@ export const DatabaseProvider = ({ children }) => {
       });
     }
     return { data, error };
+  };
+
+  const justifyAttendance = async (attendanceId, reason) => {
+    // Format: type:justified:reason (or type:time:justified:reason)
+    const record = attendance.find(a => a.id === attendanceId);
+    if (!record) return { error: { message: "Record not found" } };
+
+    const currentStatus = record.status || 'absent';
+    const typePart = currentStatus.split(':')[0];
+    const timePart = (currentStatus.includes(':') && !['justified', 'unjustified'].includes(currentStatus.split(':')[1])) 
+      ? currentStatus.split(':')[1] 
+      : '';
+    
+    let newStatus = `${typePart}:justified:${reason}`;
+    if (timePart) newStatus = `${typePart}:${timePart}:justified:${reason}`;
+    
+    const { error } = await supabase.from('attendance')
+      .update({ 
+        status: newStatus
+      })
+      .eq('id', attendanceId);
+
+    if (!error) {
+      setAttendance(prev => prev.map(a => a.id === attendanceId ? { ...a, status: newStatus } : a));
+      return { success: true };
+    }
+    return { error };
   };
 
   const assignStudentToClass = async (studentId, classId) => {
@@ -794,14 +866,140 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
+  // ─── Notice Board Functions ───
+  const uploadFile = async (uri, name, type) => {
+    try {
+      // For web, uri might be a blob or file already if handled correctly,
+      // but expo-document-picker returns an object.
+      let fileToUpload;
+      
+      if (Platform.OS === 'web') {
+        // On web, document picker returns a file/blob compatible uri or the file itself
+        const response = await fetch(uri);
+        fileToUpload = await response.blob();
+      } else {
+        // On native, we might need a different approach, but blob often works
+        const response = await fetch(uri);
+        fileToUpload = await response.blob();
+      }
+
+      const fileExt = name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `notices/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('notices')
+        .upload(filePath, fileToUpload, {
+          contentType: type,
+          upsert: true
+        });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('notices')
+        .getPublicUrl(filePath);
+
+      return { publicUrl };
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      return { error };
+    }
+  };
+
+  const addNotice = async ({ title, message, attachmentUrl, schoolId }) => {
+    try {
+      const targetSchoolId = schoolId || user.school_id;
+      const { data, error } = await supabase
+        .from('notices')
+        .insert([{ 
+          title, 
+          message, 
+          attachment_url: attachmentUrl || null, 
+          school_id: targetSchoolId 
+        }])
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) setNotices(prev => [data, ...prev]);
+      return { data };
+    } catch (error) {
+      console.error('Error adding notice:', error);
+      return { error };
+    }
+  };
+
+  const deleteNotice = async (id) => {
+    try {
+      const { error } = await supabase.from('notices').delete().eq('id', id);
+      if (error) throw error;
+      setNotices(prev => prev.filter(n => n.id !== id));
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting notice:', error);
+      return { error };
+    }
+  };
+
+  const markNoticeRead = async (noticeId) => {
+    if (noticeReads.includes(noticeId)) return;
+    try {
+      await supabase.from('notice_reads').upsert({ notice_id: noticeId, student_id: user.id }, { onConflict: 'notice_id,student_id' });
+      setNoticeReads(prev => [...prev, noticeId]);
+    } catch (error) {
+      console.error('Error marking notice read:', error);
+    }
+  };
+
+  const initializeDailyAttendance = async (classId, dateStr) => {
+    try {
+      // 1. Get all students in this class
+      const classStudents = students.filter(s => s.classId === classId);
+      if (classStudents.length === 0) return { success: true };
+
+      // 2. Check which students ALREADY have a record for this date
+      // We check the local 'attendance' state first for performance
+      const existingAtt = attendance.filter(a => a.class_id === classId && a.date === dateStr);
+      const studentIdsWithRecord = new Set(existingAtt.map(a => a.student_id));
+
+      const missingStudents = classStudents.filter(s => !studentIdsWithRecord.has(s.id));
+      
+      if (missingStudents.length === 0) return { success: true };
+
+      // 3. Create 'absent' records for missing students
+      const newRecords = missingStudents.map(s => ({
+        student_id: s.id,
+        class_id: classId,
+        date: dateStr,
+        status: 'absent'
+      }));
+
+      const { data, error } = await supabase.from('attendance').insert(newRecords).select();
+      
+      if (error) throw error;
+      
+      if (data) {
+        setAttendance(prev => [...prev, ...data]);
+      }
+      return { success: true };
+    } catch (error) {
+      console.error("Error initializing attendance:", error);
+      return { error };
+    }
+  };
+
+  const value = { 
+    schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, loading,
+    addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, addNote, addNotice, toggleAttendance, justifyAttendance,
+    activateProfile, updateClassTeachers, assignStudentToClass, initializeDailyAttendance,
+    deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice, markNoticeRead, updateGrade,
+    uploadFile,
+    refreshData
+  };
+
   return (
-    <DatabaseContext.Provider value={{ 
-      schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, loading,
-      addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, addNote, addNotice, toggleAttendance,
-      activateProfile, updateClassTeachers, assignStudentToClass,
-      deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-      deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice, updateGrade
-    }}>
+    <DatabaseContext.Provider value={value}>
       {children}
     </DatabaseContext.Provider>
   );

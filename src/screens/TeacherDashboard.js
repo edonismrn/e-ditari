@@ -10,8 +10,11 @@ import {
   Platform,
   Dimensions,
   Modal,
-  TextInput
+  TextInput,
+  RefreshControl
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Svg, { Circle } from 'react-native-svg';
 import {
   ChevronRight,
   Bell,
@@ -29,24 +32,112 @@ import {
   Home,
   LogOut,
   ShieldCheck,
-  Pencil
+  Pencil,
+  X,
+  Award,
+  TrendingUp,
+  GraduationCap,
+  Globe,
+  Activity,
+  FlaskConical,
+  Palette,
+  Music,
+  Divide
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
-import { formatDate } from '../utils/dateUtils';
+import { formatDate, formatDisplayDate } from '../utils/dateUtils';
+import { formatClassName } from '../utils/stringUtils';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
 
 const { width } = Dimensions.get('window');
 
+// ==== Grade Color Helper (1-5 scale) ====
+const getGradeColor = (val) => {
+  const num = parseFloat(val);
+  if (num >= 5) return { bg: '#dcfce7', text: '#15803d', border: '#22c55e', ring: '#22c55e', fill: 1.0 };
+  if (num >= 4) return { bg: '#d1fae5', text: '#065f46', border: '#10b981', ring: '#10b981', fill: 0.8 };
+  if (num >= 3) return { bg: '#fef9c3', text: '#854d0e', border: '#eab308', ring: '#eab308', fill: 0.7 };
+  if (num >= 2) return { bg: '#ffedd5', text: '#c2410c', border: '#f97316', ring: '#f97316', fill: 0.6 };
+  return { bg: '#fee2e2', text: '#991b1b', border: '#ef4444', ring: '#ef4444', fill: 0.4 };
+};
+
+const GradeRing = ({ value, size = 64, showProgress = false }) => {
+  const colors = getGradeColor(value);
+  const fillPct = (parseFloat(value) || 0) / 5; // 0 to 1
+  const borderWidth = 5;
+
+  if (showProgress) {
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg width={size} height={size}>
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={(size - borderWidth) / 2}
+            stroke="#e2e8f0"
+            strokeWidth={borderWidth}
+            fill="none"
+          />
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={(size - borderWidth) / 2}
+            stroke={colors.ring}
+            strokeWidth={borderWidth}
+            strokeDasharray={`${Math.PI * (size - borderWidth) * fillPct} ${Math.PI * (size - borderWidth)}`}
+            strokeLinecap="round"
+            fill="none"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        </Svg>
+        <View style={{ position: 'absolute' }}>
+          <Text style={{ fontSize: size * 0.28, fontWeight: '900', color: colors.text }}>{value}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      borderWidth: borderWidth,
+      borderColor: colors.ring,
+      backgroundColor: colors.bg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      opacity: 0.6 + colors.fill * 0.4,
+    }}>
+      <Text style={{ fontSize: size * 0.36, fontWeight: '900', color: colors.text }}>{value}</Text>
+    </View>
+  );
+};
+
 const TeacherDashboard = ({
   user, onLogout, classes, students, grades, lessons, attendance, homework, notes,
-  onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onAddHomework, onAddNote
+  onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onJustifyAttendance, 
+  onInitializeAttendance, onAddHomework, onAddNote, onRefresh
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const [activeView, setActiveView] = useState('home');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (onRefresh) await onRefresh();
+    setRefreshing(false);
+  };
+
+  const reformatDate = (isoDate) => {
+    if (!isoDate) return '';
+    const [y, m, d] = isoDate.split('-');
+    return `${d}/${m}`;
+  };
 
   // Registration Form State
   const [lessonTopic, setLessonTopic] = useState('');
@@ -70,23 +161,115 @@ const TeacherDashboard = ({
   const [activeActionTab, setActiveActionTab] = useState('grade'); // grade, attendance, note
   const [attendanceTime, setAttendanceTime] = useState('');
   const [absenceType, setAbsenceType] = useState('unjustified');
+  const [justifyReason, setJustifyReason] = useState('');
+  const [selectedAttendanceToJustify, setSelectedAttendanceToJustify] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [isClassNote, setIsClassNote] = useState(false);
   const [isSelectionModalVisible, setIsSelectionModalVisible] = useState(false);
+  const [tempAttendanceStatus, setTempAttendanceStatus] = useState(null);
+  const [isAttendanceSaving, setIsAttendanceSaving] = useState(false);
 
   // New Menu States
   const [selectedNotatStudent, setSelectedNotatStudent] = useState(null);
   const [selectedNotatSubject, setSelectedNotatSubject] = useState(null);
   const [lessonDate, setLessonDate] = useState(new Date());
+
+  // Auto-initialize attendance for today when viewing class detail
+  React.useEffect(() => {
+    if (navigation.view === 'class-detail' && navigation.data?.id) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const selectedDateStr = formatDate(selectedDate);
+
+      // Only auto-initialize for today's date
+      if (selectedDateStr === todayStr) {
+        onInitializeAttendance(navigation.data.id, selectedDateStr);
+      }
+    }
+  }, [navigation, selectedDate]);
   const [selectedHomeClassId, setSelectedHomeClassId] = useState(null);
 
   // Edit Grade State
   const [editingGrade, setEditingGrade] = useState(null);
+
+  // Persist Navigation State
+  React.useEffect(() => {
+    const loadNavState = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(`nav_state_${user.id}`);
+        if (saved) {
+          const { activeView: savedView, navigation: savedNav } = JSON.parse(saved);
+          if (savedView) setActiveView(savedView);
+          if (savedNav) setNavigation(savedNav);
+        }
+      } catch (e) {
+        console.error("Scale load error", e);
+      }
+    };
+    loadNavState();
+  }, []);
+
+  React.useEffect(() => {
+    const saveNavState = async () => {
+      try {
+        await AsyncStorage.setItem(`nav_state_${user.id}`, JSON.stringify({ activeView, navigation }));
+      } catch (e) {
+        console.error("State save error", e);
+      }
+    };
+    saveNavState();
+  }, [activeView, navigation]);
   const [editGradeValue, setEditGradeValue] = useState('');
   const [editGradeComment, setEditGradeComment] = useState('');
   const [editGradeType, setEditGradeType] = useState('Me Shkrim');
+  const [editGradeDate, setEditGradeDate] = useState(null);
 
   const teacherClasses = classes.filter(c => (c.teacherIds || []).includes(user.id));
+
+  // Helper to get merged subjects (from class link + teacher profile)
+  const getAvailableSubjects = (currentClass) => {
+    const classSubjects = currentClass?.subjects || [];
+    const profileSubjects = user.subjects || [];
+    let merged = [...new Set([...classSubjects, ...profileSubjects])];
+    // Filter out generic 'Mësues' if more specific subjects exist
+    if (merged.length > 1) merged = merged.filter(s => s !== 'Mësues');
+    return merged.length > 0 ? merged : ['Mësues'];
+  };
+
+  const getSubjectAverage = (studentId, subject) => {
+    const subjectGrades = grades.filter(g => g.student_id === studentId && g.subject === subject);
+    if (subjectGrades.length === 0) return null;
+    const sum = subjectGrades.reduce((acc, curr) => acc + curr.grade, 0);
+    return (sum / subjectGrades.length).toFixed(1);
+  };
+
+  const getTotalAverage = (studentId) => {
+    const studentGrades = grades.filter(g => g.student_id === studentId);
+    if (studentGrades.length === 0) return null;
+    const sum = studentGrades.reduce((acc, curr) => acc + curr.grade, 0);
+    return (sum / studentGrades.length).toFixed(1);
+  };
+
+  const getSubjectIcon = (subjectName) => {
+    const name = subjectName.toLowerCase();
+    if (name.includes('matematik')) return <Divide size={24} color="#0d9488" />;
+    if (name.includes('fizik')) return <Activity size={24} color="#7c3aed" />;
+    if (name.includes('kimi')) return <FlaskConical size={24} color="#db2777" />;
+    if (name.includes('biologji')) return <Activity size={24} color="#059669" />;
+    if (name.includes('histori')) return <Globe size={24} color="#92400e" />;
+    if (name.includes('gjeografi')) return <Globe size={24} color="#0369a1" />;
+    if (name.includes('gjuhë')) return <BookIcon size={24} color="#2563eb" />;
+    if (name.includes('art')) return <Palette size={24} color="#ea580c" />;
+    if (name.includes('muzik')) return <Music size={24} color="#8b5cf6" />;
+    if (name.includes('sport')) return <Activity size={24} color="#dc2626" />;
+    if (name.includes('informatik')) return <BookIcon size={24} color="#0f172a" />;
+    return <GraduationCap size={24} color="#64748b" />;
+  };
+
+  const isWeekend = (dateString) => {
+    const date = new Date(dateString);
+    const day = date.getDay();
+    return day === 0 || day === 6; // 0 is Sunday, 6 is Saturday
+  };
 
   const renderHome = () => {
     const dateStr = formatDate(selectedDate);
@@ -94,6 +277,10 @@ const TeacherDashboard = ({
     if (!selectedHomeClassId) {
       return (
         <View style={styles.viewContainer}>
+          <View style={{ paddingHorizontal: 20, paddingVertical: 15 }}>
+            <Text style={{ fontSize: 28, fontWeight: '900', color: '#1e293b' }}>{t('agenda') || 'Agenda'}</Text>
+            <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>{t('select_class_instruction') || 'Zgjidh klasën për të parë agjendën'}</Text>
+          </View>
           <FlatList
             data={teacherClasses}
             keyExtractor={item => item.id}
@@ -102,8 +289,8 @@ const TeacherDashboard = ({
                 style={styles.card}
                 onPress={() => setSelectedHomeClassId(item.id)}
               >
-                <View>
-                  <Text style={styles.cardTitle}>{item.name}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{formatClassName(item)}</Text>
                   <Text style={styles.cardSubtitle}>{students.filter(s => s.classId === item.id).length} {t('students_count')}</Text>
                 </View>
                 <ChevronRight size={20} color="#94a3b8" />
@@ -121,7 +308,14 @@ const TeacherDashboard = ({
     const selectedClassName = classes.find(c => c.id === selectedHomeClassId)?.name || '';
 
     return (
-      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
         <View style={styles.homeContent}>
           <TouchableOpacity
             style={styles.changeClassLink}
@@ -185,9 +379,17 @@ const TeacherDashboard = ({
 
   const renderClassList = (targetView, title) => (
     <View style={styles.viewContainer}>
+      <View style={{ paddingHorizontal: 20, paddingVertical: 15 }}>
+        <Text style={{ fontSize: 28, fontWeight: '900', color: '#1e293b' }}>{title || t('class_register')}</Text>
+        <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>{t('select_class_instruction') || 'Zgjidh klasën'}</Text>
+      </View>
       <FlatList
         data={teacherClasses}
         keyExtractor={item => item.id}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.card}
@@ -198,8 +400,8 @@ const TeacherDashboard = ({
               }
             }}
           >
-            <View>
-              <Text style={styles.cardTitle}>{item.name}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{formatClassName(item)}</Text>
               <Text style={styles.cardSubtitle}>{students.filter(s => s.classId === item.id).length} {t('students_count')}</Text>
             </View>
             <ChevronRight size={20} color="#94a3b8" />
@@ -213,10 +415,14 @@ const TeacherDashboard = ({
     if (!selectedActionStudent) return null;
 
     const dateStr = gradeCustomDate || formatDate(selectedDate);
+    const isWeekendDate = isWeekend(dateStr);
+    const displayDateStr = formatDisplayDate(gradeCustomDate || selectedDate);
     const tabs = [
       { id: 'grade', label: t('student_grades'), icon: ClipboardList },
       { id: 'attendance', label: t('attendance'), icon: UserCheck },
+      { id: 'justify', label: t('giustifica'), icon: Pencil },
       { id: 'note', label: t('disciplinary_note'), icon: ShieldCheck },
+      { id: 'lesson', label: t('register_lesson'), icon: BookIcon },
     ];
 
 
@@ -227,58 +433,13 @@ const TeacherDashboard = ({
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitleEmphasized}>{selectedActionStudent.name}</Text>
-                <Text style={styles.modalSubtitle}>{dateStr}</Text>
+                <Text style={styles.modalSubtitle}>{displayDateStr}</Text>
               </View>
-              <TouchableOpacity onPress={() => setIsActionModalVisible(false)} style={styles.closeModalBtn}>
-                <Plus size={24} color="#64748b" style={{ transform: [{ rotate: '45deg' }] }} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Date selection - apply to all actions */}
-            <View style={{ paddingHorizontal: 24, marginBottom: 16 }}>
-              <Text style={styles.label}>{t('date_of_grade')}</Text>
-              <TouchableOpacity
-                style={styles.premiumDatePickerField}
-                onPress={() => {
-                  if (Platform.OS === 'web') {
-                    document.getElementById('hidden-date-input').showPicker();
-                  }
-                }}
-              >
-                <View style={styles.premiumDatePickerContent}>
-                  <Calendar size={18} color="#2563eb" />
-                  <Text style={styles.premiumDatePickerText}>
-                    {gradeCustomDate || formatDate(selectedDate)}
-                  </Text>
-                </View>
-                {Platform.OS === 'web' && (
-                  <input
-                    id="hidden-date-input"
-                    type="date"
-                    style={{
-                      position: 'absolute',
-                      opacity: 0,
-                      width: '100%',
-                      height: '100%',
-                      cursor: 'pointer'
-                    }}
-                    value={gradeCustomDate || formatDate(selectedDate)}
-                    max={formatDate(new Date())}
-                    onChange={(e) => {
-                      const text = e.target.value;
-                      const picked = new Date(text);
-                      const today = new Date();
-                      today.setHours(23, 59, 59, 999);
-                      
-                      if (picked <= today) {
-                        setGradeCustomDate(text);
-                      } else {
-                        showAlert("Data nuk mund të jetë në të ardhmen!", 'error');
-                        setGradeCustomDate(formatDate(new Date()));
-                      }
-                    }}
-                  />
-                )}
+              <TouchableOpacity onPress={() => {
+                setIsActionModalVisible(false);
+                setTempAttendanceStatus(null);
+              }} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
 
@@ -300,12 +461,60 @@ const TeacherDashboard = ({
               })}
             </View>
 
+            {/* Date selection - moved below tabs */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.label}>{t('registration_date')}</Text>
+              <TouchableOpacity
+                style={styles.premiumDatePickerField}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    document.getElementById('hidden-date-input').showPicker();
+                  }
+                }}
+              >
+                <View style={styles.premiumDatePickerContent}>
+                  <Calendar size={18} color="#2563eb" />
+                  <Text style={styles.premiumDatePickerText}>
+                    {displayDateStr}
+                  </Text>
+                </View>
+                {Platform.OS === 'web' && (
+                  <input
+                    id="hidden-date-input"
+                    type="date"
+                    style={{
+                      position: 'absolute',
+                      opacity: 0,
+                      width: '100%',
+                      height: '100%',
+                      cursor: 'pointer'
+                    }}
+                    value={gradeCustomDate || formatDate(selectedDate)}
+                    max={formatDate(new Date())}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      const picked = new Date(text);
+                      const today = new Date();
+                      today.setHours(23, 59, 59, 999);
+
+                      if (picked <= today) {
+                        setGradeCustomDate(text);
+                      } else {
+                        showAlert("Data nuk mund të jetë në të ardhmen!", 'error');
+                        setGradeCustomDate(formatDate(new Date()));
+                      }
+                    }}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+
             <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
               {activeActionTab === 'grade' && (
                 <View style={styles.tabContent}>
                   <Text style={styles.label}>{t('lesson_subject')}</Text>
-                  <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
-                    {(navigation.data?.subjects || user.subjects || []).map(subject => (
+                  <View style={styles.chipGrid}>
+                    {getAvailableSubjects(navigation.data).map(subject => (
                       <TouchableOpacity
                         key={subject}
                         style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
@@ -314,7 +523,7 @@ const TeacherDashboard = ({
                         <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{subject}</Text>
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
+                  </View>
 
                   <Text style={styles.label}>{t('grade_value')}</Text>
                   <View style={styles.gradeButtonGrid}>
@@ -376,28 +585,56 @@ const TeacherDashboard = ({
                 <View style={styles.tabContent}>
                   <Text style={styles.label}>{t('select_status')}</Text>
                   <View style={styles.attendanceGrid}>
-                    {[
-                      { id: 'present', label: t('present'), icon: CheckCircle, color: '#22c55e' },
-                      { id: 'absent', label: t('absent'), icon: XCircle, color: '#ef4444' },
-                      { id: 'late', label: t('late'), icon: Clock, color: '#f59e0b' },
-                      { id: 'early_exit', label: t('early_exit'), icon: LogOut, color: '#3b82f6' },
-                    ].map(status => {
-                      const Icon = status.icon;
-                      const attRecord = attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr);
-                      const isActive = (attRecord?.status || 'present') === status.id;
+                    {isWeekendDate ? (
+                      <View style={styles.weekendEmptyState}>
+                        <Clock size={40} color="#94a3b8" />
+                        <Text style={styles.weekendEmptyText}>{t('weekend_no_attendance')}</Text>
+                      </View>
+                    ) : (
+                      [
+                        { id: 'present', label: t('present'), icon: CheckCircle, color: '#22c55e' },
+                        { id: 'absent', label: t('absent'), icon: XCircle, color: '#ef4444' },
+                        { id: 'late', label: t('late'), icon: Clock, color: '#f59e0b' },
+                        { id: 'early_exit', label: t('early_exit'), icon: LogOut, color: '#3b82f6' },
+                      ].map(status => {
+                        const Icon = status.icon;
+                        const attRecord = attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr);
+                        const defaultStatus = 'absent';
+                        const currentStatus = tempAttendanceStatus || attRecord?.status || defaultStatus;
+                        const isActive = currentStatus === status.id;
 
-                      return (
-                        <TouchableOpacity
-                          key={status.id}
-                          style={[styles.squareAttTile, isActive && { borderColor: status.color, backgroundColor: status.color + '15' }]}
-                          onPress={() => onToggleAttendance(selectedActionStudent.id, dateStr, status.id)}
-                        >
-                          <Icon size={26} color={isActive ? status.color : '#94a3b8'} />
-                          <Text style={[styles.squareAttTileText, isActive && { color: status.color, fontWeight: '700' }]}>{status.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                        return (
+                          <TouchableOpacity
+                            key={status.id}
+                            style={[styles.squareAttTile, isActive && { borderColor: status.color, backgroundColor: status.color + '15' }]}
+                            onPress={() => {
+                              setTempAttendanceStatus(status.id);
+                            }}
+                          >
+                            <Icon size={26} color={isActive ? status.color : '#94a3b8'} />
+                            <Text style={[styles.squareAttTileText, isActive && { color: status.color, fontWeight: '700' }]}>{status.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
                   </View>
+
+                  <TouchableOpacity
+                    style={[styles.premiumSubmitButton, { marginTop: 20 }, isAttendanceSaving && { opacity: 0.7 }]}
+                    disabled={isAttendanceSaving}
+                    onPress={async () => {
+                      setIsAttendanceSaving(true);
+                      const statusToSave = tempAttendanceStatus ||
+                        attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status ||
+                        'absent';
+
+                      await onToggleAttendance(selectedActionStudent.id, dateStr, statusToSave, attendanceTime);
+                      setIsAttendanceSaving(false);
+                      showAlert(t('attendance_saved_success') || "Prezenca u ruajt me sukses!", 'success');
+                    }}
+                  >
+                    <Text style={styles.premiumSubmitButtonText}>{isWeekendDate ? t('weekend_no_attendance') || 'Fundjavë - S’ka prezencë' : t('save')}</Text>
+                  </TouchableOpacity>
 
                   {/* Absence type toggle */}
                   {attendance.find(a => a.student_id === selectedActionStudent.id && a.date === dateStr)?.status === 'absent' && (
@@ -471,7 +708,7 @@ const TeacherDashboard = ({
                         const marker = isClassNote ? '[CLASS_NOTE]' : '[NOTE]';
                         onAddLesson({
                           classId: selectedActionStudent.classId,
-                          subject: user.subjects?.[0] || 'Sjellja',
+                          subject: getAvailableSubjects(navigation.data)[0] || 'Sjellja',
                           topic: `${marker} ${noteText}`,
                           date: dateStr,
                           teacherId: user.id
@@ -482,7 +719,164 @@ const TeacherDashboard = ({
                       setIsClassNote(false);
                     }}
                   >
-                    <Text style={styles.premiumSubmitButtonText}>{t('ruaj_njoftimin')}</Text>
+                    <Text style={styles.premiumSubmitButtonText}>{t('save_note')}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {activeActionTab === 'justify' && (
+                <View style={styles.tabContent}>
+                  <Text style={styles.label}>{t('attendance_to_justify')}</Text>
+
+                  {attendance
+                    .filter(a => a.student_id === selectedActionStudent.id && !a.status.includes('present') && !a.status.includes('justified'))
+                    .reverse()
+                    .slice(0, 10) // Limit to last 10 for performance in modal
+                    .map(att => {
+                      const isSelected = selectedAttendanceToJustify?.id === att.id;
+                      return (
+                        <TouchableOpacity
+                          key={att.id}
+                          style={[
+                            styles.premiumActionCard,
+                            { paddingVertical: 12, marginBottom: 8, borderColor: isSelected ? '#2563eb' : '#f1f5f9', backgroundColor: isSelected ? '#eff6ff' : 'white' }
+                          ]}
+                          onPress={() => {
+                            setSelectedAttendanceToJustify(att);
+                            setJustifyReason('');
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 15 }}>{reformatDate(att.date)}</Text>
+                              <View style={[styles.statusInitialCircle, { width: 24, height: 24, backgroundColor: att.status.startsWith('absent') ? '#ef444410' : '#f59e0b10' }]}>
+                                <Text style={{ fontSize: 12, fontWeight: '800', color: att.status.startsWith('absent') ? '#ef4444' : '#f59e0b' }}>
+                                  {att.status.startsWith('absent') ? 'M' : att.status.startsWith('late') ? 'V' : 'D'}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                              {t(att.status.split(':')[0]) || att.status.split(':')[0]}
+                              {att.status.includes(':') && att.status.split(':').length > 2 ? ` (${att.status.split(':')[2]})` : ''}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                  {selectedAttendanceToJustify && (
+                    <View style={{ marginTop: 20, padding: 16, backgroundColor: '#f8fafc', borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                        <Pencil size={18} color="#2563eb" />
+                        <Text style={[styles.label, { marginTop: 0, marginBottom: 0 }]}>{t('justification_reason')}</Text>
+                      </View>
+                      <TextInput
+                        style={[styles.premiumInput, { height: 100, textAlignVertical: 'top', paddingTop: 12 }]}
+                        placeholder={t('enter_reason_placeholder')}
+                        value={justifyReason}
+                        onChangeText={setJustifyReason}
+                        multiline
+                      />
+                      <TouchableOpacity
+                        style={[styles.premiumSubmitButton, !justifyReason && { opacity: 0.5 }, { marginTop: 16 }]}
+                        disabled={!justifyReason}
+                        onPress={async () => {
+                          const result = await onJustifyAttendance(selectedAttendanceToJustify.id, justifyReason);
+                          if (!result.error) {
+                            showAlert(t('attendance_justified_success') + " ✔", 'success');
+                            setSelectedAttendanceToJustify(null);
+                            setJustifyReason('');
+                          }
+                        }}
+                      >
+                        <Text style={styles.premiumSubmitButtonText}>{t('confirm')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {attendance.filter(a => a.student_id === selectedActionStudent.id && !a.status.includes('present') && !a.status.includes('justified')).length === 0 && (
+                    <View style={{ alignItems: 'center', paddingVertical: 40, opacity: 0.5 }}>
+                      <CheckCircle size={48} color="#10b981" />
+                      <Text style={{ color: '#64748b', marginTop: 16, fontWeight: '600' }}>{t('no_unjustified_absences')}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {activeActionTab === 'lesson' && (
+                <View style={styles.tabContent}>
+                  <Text style={styles.label}>{t('lesson_subject')}</Text>
+                  <View style={styles.chipGrid}>
+                    {getAvailableSubjects(navigation.data).map(subject => (
+                      <TouchableOpacity
+                        key={subject}
+                        style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
+                        onPress={() => setSelectedSubject(subject)}
+                      >
+                        <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{subject}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={styles.label}>{t('hour')}</Text>
+                  <View style={styles.gradeButtonGrid}>
+                    {['1', '2', '3', '4', '5', '6', '7'].map(hour => (
+                      <TouchableOpacity
+                        key={hour}
+                        style={[styles.gradeButton, { width: 40 }, lessonHour === hour && styles.activeGradeButton]}
+                        onPress={() => setLessonHour(hour)}
+                      >
+                        <Text style={[styles.gradeButtonText, lessonHour === hour && styles.activeGradeButtonText]}>{hour}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={styles.label}>{t('lesson_topic')}</Text>
+                  <TextInput
+                    style={styles.premiumInput}
+                    placeholder={t('lesson_topic_placeholder')}
+                    value={lessonTopic}
+                    onChangeText={setLessonTopic}
+                  />
+
+                  <Text style={styles.label}>{t('homework')}</Text>
+                  <TextInput
+                    style={styles.premiumInput}
+                    placeholder={t('homework_placeholder')}
+                    value={lessonHomework}
+                    onChangeText={setLessonHomework}
+                  />
+
+                  <TouchableOpacity
+                    style={styles.checkboxContainer}
+                    onPress={() => setIsTest(!isTest)}
+                  >
+                    <View style={[styles.checkbox, isTest && styles.checkedBox]}>
+                      {isTest && <CheckCircle size={14} color="white" />}
+                    </View>
+                    <Text style={styles.checkboxLabel}>{t('test_exam')}</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }]}
+                    disabled={!lessonTopic}
+                    onPress={() => {
+                      onAddLesson({
+                        classId: selectedActionStudent.classId,
+                        subject: selectedSubject,
+                        topic: `[Ora ${lessonHour}] ${lessonTopic}`.trim(),
+                        homework: lessonHomework,
+                        isTest: isTest,
+                        date: gradeCustomDate || dateStr,
+                        teacherId: user.id
+                      });
+                      setIsActionModalVisible(false);
+                      setLessonTopic('');
+                      setLessonHomework('');
+                      setIsTest(false);
+                      setGradeCustomDate(null);
+                    }}
+                  >
+                    <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -497,28 +891,29 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'class-detail', data: currentClass })}>
             <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{formatClassName(currentClass)}</Text>
           </TouchableOpacity>
-          <View>
-            <Text style={styles.viewTitleHeader}>{t('register_lesson')}: {currentClass.name}</Text>
-            <Text style={styles.dateTextHeader}>{formatDate(selectedDate)}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.viewTitleHeader}>{t('register_lesson')}: {formatClassName(currentClass)}</Text>
+            <Text style={styles.dateTextHeader}>{formatDisplayDate(selectedDate)}</Text>
           </View>
         </View>
 
         <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
           <View style={styles.premiumCard}>
-            <ScrollView horizontal style={styles.chipScroll} showsHorizontalScrollIndicator={false}>
-              {(currentClass.subjects || user.subjects || []).map(subject => (
+            <View style={styles.chipGrid}>
+              {getAvailableSubjects(currentClass).map(subject => (
                 <TouchableOpacity
                   key={subject}
-                  style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
+                  style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, { marginBottom: 8 }]}
                   onPress={() => setSelectedSubject(subject)}
                 >
                   <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{subject}</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </View>
 
             <View style={styles.gradeButtonGrid}>
               {['1', '2', '3', '4', '5', '6', '7'].map(hour => (
@@ -580,13 +975,18 @@ const TeacherDashboard = ({
         <View style={styles.navigationHeader}>
           <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
             <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back') || 'Mbrapsht'}</Text>
           </TouchableOpacity>
-          <Text style={styles.viewTitleHeader}>{currentClass.name}</Text>
+          <Text style={styles.viewTitleHeader}>{formatClassName(currentClass)}</Text>
         </View>
 
         <FlatList
           data={classStudents}
           keyExtractor={item => item.id}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
           renderItem={({ item, index }) => (
             <TouchableOpacity
               style={styles.studentListItem}
@@ -605,28 +1005,147 @@ const TeacherDashboard = ({
   };
 
   const renderSubjectSelection = (data) => {
+    const totalAvg = getTotalAverage(data.student.id);
+    const overallColors = totalAvg ? getGradeColor(totalAvg) : { bg: '#f8fafc', text: '#64748b', border: '#f1f5f9' };
+
     return (
       <View style={styles.viewContainer}>
-        <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'notat-students', data: data.class })}>
+        {/* Navigation Header */}
+        <View style={[styles.navigationHeader, { paddingBottom: 10 }]}>
+          <TouchableOpacity 
+            style={styles.glassBackButton} 
+            onPress={() => setNavigation({ view: 'notat-students', data: data.class })}
+          >
             <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{formatClassName(data.class)}</Text>
           </TouchableOpacity>
-          <Text style={styles.viewTitleHeader}>{data.student.name}</Text>
         </View>
 
-        <Text style={styles.label}>Zgjidh Lëndën</Text>
+        {/* Premium Student Profile Header */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 20 }}>
+          <View style={{ 
+            backgroundColor: '#fff', 
+            borderRadius: 24, 
+            padding: 20,
+            flexDirection: 'row', 
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.05,
+            shadowRadius: 10,
+            elevation: 3,
+            borderWidth: 1,
+            borderColor: '#f1f5f9'
+          }}>
+            <View style={{ 
+              width: 60, 
+              height: 60, 
+              borderRadius: 30, 
+              backgroundColor: '#eff6ff', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              borderWidth: 2,
+              borderColor: '#dbeafe'
+            }}>
+              <Text style={{ fontSize: 24, fontWeight: '900', color: '#2563eb' }}>
+                {data.student.name.charAt(0)}
+              </Text>
+            </View>
+            <View style={{ flex: 1, marginLeft: 16 }}>
+              <Text style={{ fontSize: 20, fontWeight: '900', color: '#1e293b' }}>{data.student.name}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <TrendingUp size={14} color="#64748b" style={{ marginRight: 4 }} />
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#64748b' }}>{t('student_average')}</Text>
+              </View>
+            </View>
+            {totalAvg && (
+              <View style={{ alignItems: 'center' }}>
+                <GradeRing value={totalAvg} size={65} showProgress={true} strokeWidth={6} />
+                <Text style={{ fontSize: 10, fontWeight: '800', color: '#64748b', marginTop: 4 }}>{t('total_avg')}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={{ paddingHorizontal: 20 }}>
+          <Text style={[styles.label, { marginBottom: 12 }]}>{t('select_subject')}</Text>
+        </View>
+
         <FlatList
-          data={data.class.subjects || user.subjects || []}
+          data={getAvailableSubjects(data.class)}
           keyExtractor={item => item}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() => setNavigation({ view: 'notat-history', data: { ...data, subject: item } })}
-            >
-              <Text style={styles.cardTitle}>{item}</Text>
-              <ChevronRight size={18} color="#94a3b8" />
-            </TouchableOpacity>
-          )}
+          numColumns={2}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 120 }}
+          columnWrapperStyle={{ justifyContent: 'space-between' }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+          renderItem={({ item }) => {
+            const avg = getSubjectAverage(data.student.id, item);
+            const grading = avg ? getGradeColor(avg) : null;
+            
+            return (
+              <TouchableOpacity
+                style={{
+                  width: (width - 48) / 2,
+                  backgroundColor: '#fff',
+                  borderRadius: 20,
+                  padding: 16,
+                  margin: 6,
+                  borderWidth: 1,
+                  borderColor: grading ? grading.border + '30' : '#f1f5f9',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.03,
+                  shadowRadius: 4,
+                  elevation: 2,
+                }}
+                onPress={() => setNavigation({ view: 'notat-history', data: { ...data, subject: item } })}
+              >
+                <View style={{ 
+                  width: 44, 
+                  height: 44, 
+                  borderRadius: 14, 
+                  backgroundColor: grading ? grading.bg : '#f8fafc',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 12,
+                }}>
+                  {getSubjectIcon(item)}
+                </View>
+                
+                <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: '#334155', marginBottom: 12 }}>
+                  {item}
+                </Text>
+
+                <View style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  borderTopWidth: 1,
+                  borderTopColor: '#f8fafc',
+                  paddingTop: 8
+                }}>
+                  <View>
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>{t('average')}</Text>
+                    <Text style={{ fontSize: 16, fontWeight: '900', color: grading ? grading.text : '#cbd5e1' }}>
+                      {avg || '-.-'}
+                    </Text>
+                  </View>
+                  <View style={{ 
+                    width: 24, 
+                    height: 24, 
+                    borderRadius: 12, 
+                    backgroundColor: '#f8fafc',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <ChevronRight size={14} color="#94a3b8" />
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
         />
       </View>
     );
@@ -637,16 +1156,12 @@ const TeacherDashboard = ({
       showAlert("Keni shfrytëzuar mundësinë tuaj të vetme për të ndryshuar këtë notë. Për ndryshime të tjera, kontaktoni administratorin e shkollës.", "info");
       return;
     }
-    
-    // Parse grade type from description if necessary
-    const legacyParts = grade.description?.match(/^\[(.*?)\] (.*)/);
-    const rawType = grade.grade_type || (legacyParts ? legacyParts[1] : 'Me Shkrim');
-    const cleanComment = legacyParts ? legacyParts[2] : (grade.description || '');
 
     setEditingGrade(grade);
     setEditGradeValue(grade.grade.toString());
-    setEditGradeComment(cleanComment);
-    setEditGradeType(rawType);
+    setEditGradeComment((grade.description || '').replace(/^\[.*?\]\s*/, ''));
+    setEditGradeType(grade.grade_type || (grade.description?.match(/^\[(.*?)\]/)?.[1] || 'Me Shkrim'));
+    setEditGradeDate(grade.date);
   };
 
   const renderEditGradeModal = () => {
@@ -658,11 +1173,47 @@ const TeacherDashboard = ({
           <View style={styles.premiumActionModal}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitleEmphasized}>{t('edit_grade') || 'Ndrysho Notën'}</Text>
-                <Text style={styles.modalSubtitle}>{editingGrade.date}</Text>
+                <Text style={styles.modalTitleEmphasized}>{t('edit_grade')}</Text>
+                <Text style={styles.modalSubtitle}>{t('nota_e_sotme')}</Text>
               </View>
               <TouchableOpacity onPress={() => setEditingGrade(null)} style={styles.closeModalBtn}>
-                <Plus size={24} color="#64748b" style={{ transform: [{ rotate: '45deg' }] }} />
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Date selection for editing */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.label}>{t('date_of_grade')}</Text>
+              <TouchableOpacity
+                style={styles.premiumDatePickerField}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    document.getElementById('edit-grade-date-input').showPicker();
+                  }
+                }}
+              >
+                <View style={styles.premiumDatePickerContent}>
+                  <Calendar size={18} color="#2563eb" />
+                  <Text style={styles.premiumDatePickerText}>
+                    {formatDisplayDate(editGradeDate)}
+                  </Text>
+                </View>
+                {Platform.OS === 'web' && (
+                  <input
+                    id="edit-grade-date-input"
+                    type="date"
+                    style={{
+                      position: 'absolute',
+                      opacity: 0,
+                      width: '100%',
+                      height: '100%',
+                      cursor: 'pointer'
+                    }}
+                    value={editGradeDate}
+                    max={formatDate(new Date())}
+                    onChange={(e) => setEditGradeDate(e.target.value)}
+                  />
+                )}
               </TouchableOpacity>
             </View>
 
@@ -710,9 +1261,10 @@ const TeacherDashboard = ({
                       editingGrade.id,
                       parseInt(editGradeValue),
                       `[${editGradeType}] ${editGradeComment}`.trim(),
-                      editGradeType
+                      editGradeType,
+                      editGradeDate
                     );
-                    
+
                     if (result.error) {
                       showAlert(result.error.message, 'error');
                     } else {
@@ -734,48 +1286,63 @@ const TeacherDashboard = ({
   const renderGradeHistory = (data) => {
     const history = grades.filter(g => g.student_id === data.student.id && g.subject === data.subject);
 
-    const getGradeColor = (val) => {
-      const num = parseFloat(val);
-      if (num >= 3) return { bg: '#dcfce7', text: '#166534', border: '#22c55e' };
-      if (num >= 2) return { bg: '#fef3c7', text: '#92400e', border: '#f59e0b' };
-      return { bg: '#fee2e2', text: '#991b1b', border: '#ef4444' };
-    };
+    const average = history.length > 0
+      ? (history.reduce((acc, curr) => acc + curr.grade, 0) / history.length).toFixed(1)
+      : '0.0';
 
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
           <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'notat-subjects', data: data })}>
             <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{data.student.name}</Text>
           </TouchableOpacity>
-          <View>
-            <Text style={styles.viewTitleHeader}>{data.subject}</Text>
-            <Text style={styles.dateTextHeader}>{data.student.name}</Text>
+          <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View>
+              <Text style={styles.viewTitleHeader}>{data.subject}</Text>
+            </View>
           </View>
         </View>
 
         <FlatList
-          data={history.reverse()}
+          data={[...history].reverse()}
           keyExtractor={item => item.id}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
           renderItem={({ item }) => {
             const gradeColors = getGradeColor(item.grade);
+            const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
+            const gradeType = item.grade_type || (legacyParts ? legacyParts[1] : '');
+            const cleanComment = legacyParts ? legacyParts[2] : (item.description || '');
+            const displayDate = reformatDate(item.date);
+
             return (
-              <View style={[styles.gradeCard, { borderColor: gradeColors.border }]}>
-                <View style={[styles.gradeCircle, { backgroundColor: gradeColors.bg, borderColor: gradeColors.border }]}>
-                  <Text style={[styles.gradeValue, { color: gradeColors.text }]}>{item.grade}</Text>
+              <View style={[styles.gradeCardHorizontal, { borderColor: gradeColors.border }]}>
+                <View style={styles.dateColumn}>
+                  <Text style={styles.gradeDateSmall}>{displayDate}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.gradeHeaderRow}>
-                    <Text style={styles.gradeDate}>{item.date}</Text>
-                    <TouchableOpacity onPress={() => handleEditGradeClick(item)}>
-                      <Pencil size={16} color={(item.modification_count || 0) >= 1 ? '#cbd5e1' : '#64748b'} />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.gradeComment}>{item.comment}</Text>
+
+                <View style={styles.gradeCircleContainer}>
+                  <GradeRing value={item.grade} size={46} />
                 </View>
+
+                <View style={styles.gradeInfoMain}>
+                  {gradeType ? <Text style={styles.typeLabelSmall}>{gradeType}</Text> : null}
+                  {cleanComment ? <Text style={styles.gradeCommentSmall} numberOfLines={2}>{cleanComment}</Text> : null}
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => handleEditGradeClick(item)}
+                  style={styles.editIconContainer}
+                >
+                  <Pencil size={22} color={(item.modification_count || 0) >= 1 ? '#cbd5e1' : '#2563eb'} />
+                </TouchableOpacity>
               </View>
             );
           }}
-          ListEmptyComponent={<Text style={styles.emptyText}>Asnjë notë për këtë lëndë.</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>{t('nuk_ka_nota')}</Text>}
         />
       </View>
     );
@@ -785,7 +1352,12 @@ const TeacherDashboard = ({
     <Modal visible={isGradeModalVisible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Vendos Notën: {selectedStudentForGrade?.name}</Text>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{t('register_grade')}: {selectedStudentForGrade?.name}</Text>
+            <TouchableOpacity onPress={() => setIsGradeModalVisible(false)} style={styles.closeModalBtn}>
+              <X size={24} color="#64748b" />
+            </TouchableOpacity>
+          </View>
           <TextInput
             style={styles.input}
             placeholder={t('grade_value')}
@@ -794,7 +1366,7 @@ const TeacherDashboard = ({
             onChangeText={setGradeValue}
           />
           <Text style={styles.label}>{t('grade_type')}</Text>
-          <ScrollView horizontal style={styles.chipScroll}>
+          <View style={styles.chipGrid}>
             {[
               { id: 'Me Shkrim', label: t('written') },
               { id: 'Me Gojë', label: t('oral') },
@@ -810,7 +1382,7 @@ const TeacherDashboard = ({
                 </Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          </View>
 
           <TextInput
             style={styles.input}
@@ -820,7 +1392,7 @@ const TeacherDashboard = ({
           />
           <View style={styles.modalButtons}>
             <TouchableOpacity style={styles.cancelButton} onPress={() => setIsGradeModalVisible(false)}>
-              <Text style={styles.cancelButtonText}>Anulo</Text>
+              <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.submitButton}
@@ -839,7 +1411,7 @@ const TeacherDashboard = ({
                 setGradeType('Me Shkrim');
               }}
             >
-              <Text style={styles.submitButtonText}>Ruaj</Text>
+              <Text style={styles.submitButtonText}>{t('save')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -862,17 +1434,24 @@ const TeacherDashboard = ({
               <View style={styles.pixelLine} />
             </View>
 
-            <ScrollView 
-              style={{ width: '100%' }} 
+            <ScrollView
+              style={{ width: '100%' }}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 20 }}
             >
-              <Text style={styles.modalTitleEmphasized}>
-                {selectedActionStudent.name}
-              </Text>
-              <Text style={styles.modalSubtitleCenter}>
-                {t('select_action')}
-              </Text>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalTitleEmphasized}>
+                    {selectedActionStudent.name}
+                  </Text>
+                  <Text style={styles.modalSubtitle}>
+                    {t('select_action')}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsSelectionModalVisible(false)} style={styles.closeModalBtn}>
+                  <X size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
 
               <View style={styles.squareGrid}>
                 {/* Grades Button */}
@@ -887,7 +1466,7 @@ const TeacherDashboard = ({
                   <View style={[styles.squareIconContainer, { backgroundColor: '#dbeafe' }]}>
                     <ClipboardList size={26} color="#2563eb" />
                   </View>
-                  <Text style={styles.squareActionText}>Regjistro Notën</Text>
+                  <Text style={styles.squareActionText}>{t('register_grade')}</Text>
                 </TouchableOpacity>
 
                 {/* Attendance Button */}
@@ -902,22 +1481,37 @@ const TeacherDashboard = ({
                   <View style={[styles.squareIconContainer, { backgroundColor: '#dcfce7' }]}>
                     <UserCheck size={26} color="#22c55e" />
                   </View>
-                  <Text style={styles.squareActionText}>Regjistro Prezencën</Text>
+                  <Text style={styles.squareActionText}>{t('register_attendance')}</Text>
+                </TouchableOpacity>
+
+                {/* Justification Button */}
+                <TouchableOpacity
+                  style={[styles.squareActionCard, { backgroundColor: '#fff7ed' }]}
+                  onPress={() => {
+                    setIsSelectionModalVisible(false);
+                    setIsActionModalVisible(true);
+                    setActiveActionTab('justify');
+                  }}
+                >
+                  <View style={[styles.squareIconContainer, { backgroundColor: '#ffedd5' }]}>
+                    <Pencil size={26} color="#f59e0b" />
+                  </View>
+                  <Text style={styles.squareActionText}>{t('register_justification')}</Text>
                 </TouchableOpacity>
 
                 {/* Disciplinary Note Button */}
                 <TouchableOpacity
-                  style={[styles.squareActionCard, { backgroundColor: '#fff7ed' }]}
+                  style={[styles.squareActionCard, { backgroundColor: '#fef2f2' }]}
                   onPress={() => {
                     setIsSelectionModalVisible(false);
                     setIsActionModalVisible(true);
                     setActiveActionTab('note');
                   }}
                 >
-                  <View style={[styles.squareIconContainer, { backgroundColor: '#ffedd5' }]}>
-                    <ShieldCheck size={26} color="#f59e0b" />
+                  <View style={[styles.squareIconContainer, { backgroundColor: '#fee2e2' }]}>
+                    <ShieldCheck size={26} color="#dc2626" />
                   </View>
-                  <Text style={styles.squareActionText}>Regjistro Njoftim Disiplinor</Text>
+                  <Text style={styles.squareActionText}>{t('register_disciplinary_note')}</Text>
                 </TouchableOpacity>
 
                 {/* Lesson Registration Button */}
@@ -925,24 +1519,26 @@ const TeacherDashboard = ({
                   style={[styles.squareActionCard, { backgroundColor: '#f5f3ff' }]}
                   onPress={() => {
                     setIsSelectionModalVisible(false);
-                    const classId = selectedActionStudent.classId;
-                    const studentClass = classes.find(c => c.id === classId);
-                    setNavigation({ view: 'lesson-form', data: studentClass });
-                    if (studentClass?.subjects && studentClass.subjects.length > 0) {
-                      setSelectedSubject(studentClass.subjects[0]);
+                    setIsActionModalVisible(true);
+                    setActiveActionTab('lesson');
+                    if (navigation.data?.subjects && navigation.data.subjects.length > 0) {
+                      setSelectedSubject(navigation.data.subjects[0]);
                     }
                   }}
                 >
                   <View style={[styles.squareIconContainer, { backgroundColor: '#ede9fe' }]}>
                     <BookIcon size={26} color="#7c3aed" />
                   </View>
-                  <Text style={styles.squareActionText}>Regjistro Orën</Text>
+                  <Text style={styles.squareActionText}>{t('register_lesson')}</Text>
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity
                 style={styles.premiumCancelButton}
-                onPress={() => setIsSelectionModalVisible(false)}
+                onPress={() => {
+                  setIsSelectionModalVisible(false);
+                  setTempAttendanceStatus(null);
+                }}
               >
                 <Text style={styles.premiumCancelButtonText}>{t('cancel')}</Text>
               </TouchableOpacity>
@@ -963,9 +1559,10 @@ const TeacherDashboard = ({
         <View style={styles.navigationHeader}>
           <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
             <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back') || 'Mbrapsht'}</Text>
           </TouchableOpacity>
-          <View>
-            <Text style={styles.viewTitleHeader}>{currentClass.name}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.viewTitleHeader}>{formatClassName(currentClass)}</Text>
             <Text style={styles.dateTextHeader}>{classStudents.length} {t('students_count')} • {formatDate(selectedDate)}</Text>
           </View>
         </View>
@@ -980,6 +1577,7 @@ const TeacherDashboard = ({
               onPress={() => {
                 setSelectedActionStudent(item);
                 setIsSelectionModalVisible(true);
+                setTempAttendanceStatus(null);
                 if (navigation.data?.subjects && navigation.data.subjects.length > 0) {
                   setSelectedSubject(navigation.data.subjects[0]);
                 }
@@ -1006,12 +1604,13 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'class-detail', data: currentClass })}>
             <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{formatClassName(currentClass)}</Text>
           </TouchableOpacity>
           <View>
-            <Text style={styles.viewTitleHeader}>{currentClass?.name}</Text>
-            <Text style={styles.dateTextHeader}>{dateStr}</Text>
+            <Text style={styles.viewTitleHeader}>{formatClassName(currentClass)}</Text>
+            <Text style={styles.dateTextHeader}>{formatDisplayDate(selectedDate)}</Text>
           </View>
         </View>
 
@@ -1089,23 +1688,28 @@ const TeacherDashboard = ({
       <Modal visible={isLessonModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Regjistro Orën: {navigation.data?.name}</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('register_lesson')}: {formatClassName(navigation.data)}</Text>
+              <TouchableOpacity onPress={() => setIsLessonModalVisible(false)} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
 
-            <Text style={styles.label}>Lënda</Text>
-            <ScrollView horizontal style={styles.chipScroll}>
-              {(navigation.data?.subjects || user.subjects || []).map(subject => (
+            <Text style={styles.label}>{t('lesson_subject')}</Text>
+            <View style={styles.chipGrid}>
+              {getAvailableSubjects(navigation.data).map(subject => (
                 <TouchableOpacity
                   key={subject}
-                  style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip]}
+                  style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, { marginBottom: 8 }]}
                   onPress={() => setSelectedSubject(subject)}
                 >
                   <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{subject}</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </View>
 
-            <Text style={styles.label}>Ora e Mësimit</Text>
-            <ScrollView horizontal style={styles.chipScroll}>
+            <Text style={styles.label}>{t('lesson_hour')}</Text>
+            <View style={styles.chipGrid}>
               {['1', '2', '3', '4', '5', '6', '7'].map(hour => (
                 <TouchableOpacity
                   key={hour}
@@ -1115,7 +1719,7 @@ const TeacherDashboard = ({
                   <Text style={[styles.subjectChipText, lessonHour === hour && styles.activeSubjectChipText]}>{hour}</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </View>
 
             <TextInput
               style={styles.input}
@@ -1144,7 +1748,7 @@ const TeacherDashboard = ({
 
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.cancelButton} onPress={() => setIsLessonModalVisible(false)}>
-                <Text style={styles.cancelButtonText}>Anulo</Text>
+                <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.submitButton}
@@ -1164,7 +1768,7 @@ const TeacherDashboard = ({
                   setIsTest(false);
                 }}
               >
-                <Text style={styles.submitButtonText}>Ruaj</Text>
+                <Text style={styles.submitButtonText}>{t('save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1174,7 +1778,7 @@ const TeacherDashboard = ({
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.navItem} onPress={() => { setActiveView('home'); setNavigation({ view: 'home', data: null }); }}>
           <Home size={24} color={activeView === 'home' ? '#2563eb' : '#94a3b8'} />
-          <Text style={[styles.navText, activeView === 'home' && styles.activeNavText]}>{t('home')}</Text>
+          <Text style={[styles.navText, activeView === 'home' && styles.activeNavText]}>{t('agenda')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => { setActiveView('registry'); setNavigation({ view: 'home', data: null }); }}>
           <ClipboardList size={24} color={activeView === 'registry' ? '#2563eb' : '#94a3b8'} />
@@ -1313,8 +1917,8 @@ const styles = StyleSheet.create({
   },
   cardSubtitle: {
     fontSize: 13,
-    color: '#2563eb',
-    fontWeight: '600',
+    color: '#1e40af', // Darker blue
+    fontWeight: '800',
     marginTop: 4,
   },
   emptyText: {
@@ -1731,18 +2335,21 @@ const styles = StyleSheet.create({
   },
   attTile: {
     width: '47%',
-    aspectRatio: 1.2,
+    minHeight: 80,
     backgroundColor: 'white',
     borderRadius: 16,
     borderWidth: 2,
     borderColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 8,
     gap: 8,
   },
   attTileText: {
     fontSize: 13,
     color: '#64748b',
+    textAlign: 'center',
+    flexWrap: 'wrap',
   },
   hourBadge: {
     backgroundColor: '#eff6ff',
@@ -1758,6 +2365,25 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: 'white',
     fontWeight: '700',
+  },
+  weekendEmptyState: {
+    flex: 1,
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#e2e8f0',
+    width: '100%',
+    gap: 12,
+  },
+  weekendEmptyText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textAlign: 'center',
   },
   historyCard: {
     flexDirection: 'row',
@@ -1787,19 +2413,21 @@ const styles = StyleSheet.create({
   },
   // Nuvola Style Additions
   navigationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 12,
     marginBottom: 24,
     marginTop: Platform.OS === 'ios' ? 0 : 12,
   },
   glassBackButton: {
-    width: 40,
-    height: 40,
+    flexDirection: 'row',
+    minHeight: 40,
     borderRadius: 12,
     backgroundColor: 'white',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
     borderWidth: 1,
     borderColor: '#f1f5f9',
     shadowColor: '#000',
@@ -1811,6 +2439,11 @@ const styles = StyleSheet.create({
   viewTitleHeader: {
     fontSize: 18,
     fontWeight: '800',
+    color: '#1e293b',
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
     color: '#1e293b',
   },
   dateTextHeader: {
@@ -1875,13 +2508,15 @@ const styles = StyleSheet.create({
   },
   statusSelectorBtn: {
     flex: 1,
-    height: 40,
+    minHeight: 44,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fafafa',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -1984,8 +2619,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   selectionCard: {
-    width: '45%',
-    aspectRatio: 1,
+    width: '46%',
+    minHeight: 110,
     backgroundColor: '#f8fafc',
     borderRadius: 20,
     borderWidth: 1,
@@ -1993,7 +2628,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
-    gap: 12,
+    gap: 8,
   },
   selectionText: {
     fontSize: 13,
@@ -2053,6 +2688,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     gap: 16,
+    minHeight: 80,
   },
   squareIconContainer: {
     width: 48,
@@ -2065,6 +2701,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#1e293b',
+    flex: 1,
+    flexWrap: 'wrap',
   },
   premiumCancelButton: {
     width: '100%',
@@ -2115,7 +2753,7 @@ const styles = StyleSheet.create({
   },
   squareAttTile: {
     width: '48%',
-    aspectRatio: 1.3,
+    minHeight: 90,
     borderRadius: 16,
     borderWidth: 2,
     borderColor: '#f1f5f9',
@@ -2123,6 +2761,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginBottom: 8,
+    padding: 8,
   },
   squareAttTileText: {
     fontSize: 12,
@@ -2210,6 +2849,119 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1e293b',
     fontWeight: '600',
+  },
+  gradeCard: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 1.5,
+    gap: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  gradeHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  gradeDate: {
+    fontSize: 13,
+    color: '#1e293b',
+    fontWeight: '800',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  gradeComment: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  typeLabelText: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '400',
+  },
+  gradeCardHorizontal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  dateColumn: {
+    width: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#f1f5f9',
+    marginRight: 10,
+  },
+  gradeDateSmall: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  gradeCircleContainer: {
+    marginRight: 12,
+  },
+  gradeInfoMain: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  typeLabelSmall: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  gradeCommentSmall: {
+    fontSize: 15,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  editIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  premiumActionCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  statusInitialCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

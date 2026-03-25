@@ -9,8 +9,12 @@ import {
   Dimensions,
   TextInput,
   FlatList,
+  RefreshControl,
+  Linking,
   Platform
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Home,
   School,
@@ -42,11 +46,16 @@ import {
   ArrowUpCircle,
   Bell,
   FileText,
+  X,
+  Link,
+  Trash,
+  Upload
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
 import { KOSOVO_DATA } from '../data/kosovoSchools';
 import { KOSOVO_SUBJECTS } from '../data/kosovoSubjects';
+import { formatClassName } from '../utils/stringUtils';
 import { Modal, Alert } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -58,19 +67,64 @@ const AdminDashboard = ({
   onDeleteSchool, onDeleteClass, onRemoveTeacherFromClass, onRemoveStudentFromClass,
   onDeleteTeacher, onDeleteStudent, onArchiveYear, onPromoteStudents,
   notices, onAddNotice, onDeleteNotice,
-  schoolAdmins
+  schoolAdmins, onRefresh, onUploadFile
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
   const [academicYearName, setAcademicYearName] = useState('2024-2025');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeView, setActiveView] = useState('home'); // To match TeacherDashboard structure if needed, or just use navigation
 
   // Notice Form State
+  const [isNoticeModalVisible, setIsNoticeModalVisible] = useState(false);
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeMessage, setNoticeMessage] = useState('');
   const [noticeAttachment, setNoticeAttachment] = useState('');
+  const [noticeSchoolId, setNoticeSchoolId] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState('');
+  
+  const [refreshing, setRefreshing] = useState(false);
   const isSuperAdmin = user?.email === 'admin@ditari-elektronik.com';
+
+  const handleFilePick = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setSelectedFileName(file.name);
+        setIsUploading(true);
+        
+        const uploadResult = await onUploadFile(file.uri, file.name, file.mimeType);
+        
+        setIsUploading(false);
+        
+        if (uploadResult.publicUrl) {
+          setNoticeAttachment(uploadResult.publicUrl);
+        } else {
+          showAlert(t('upload_failed') || 'Ngarkimi dështoi', 'error');
+          setSelectedFileName('');
+        }
+      }
+    } catch (err) {
+      console.error('Pick error:', err);
+      setIsUploading(false);
+      showAlert(t('pick_error') || 'Gabim gjatë zgjedhjes së fajllit', 'error');
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (onRefresh) {
+      await onRefresh();
+    }
+    setRefreshing(false);
+  };
 
   // School Form State
   const [newSchoolCity, setNewSchoolCity] = useState('');
@@ -80,17 +134,6 @@ const AdminDashboard = ({
   const [isSchoolDropdownVisible, setIsSchoolDropdownVisible] = useState(false);
   const [citySearchQuery, setCitySearchQuery] = useState('');
   const [schoolSearchQuery, setSchoolSearchQuery] = useState('');
-
-  const resetSchoolForm = () => {
-    setNewSchoolCity('');
-    setNewSchoolName('');
-    setNewSchoolHasParalele(false);
-    setIsCityDropdownVisible(false);
-    setIsSchoolDropdownVisible(false);
-    setCitySearchQuery('');
-    setSchoolSearchQuery('');
-    setIsSchoolModalVisible(false);
-  };
 
   // Teacher Form State
   const [teacherFirstName, setTeacherFirstName] = useState('');
@@ -119,7 +162,11 @@ const AdminDashboard = ({
   // Settings Deletion States
   const [settingsSearchQuery, setSettingsSearchQuery] = useState('');
   const [selectedEntityForAction, setSelectedEntityForAction] = useState(null);
-  const [activeSettingsMode, setActiveSettingsMode] = useState(null); // 'delete_school', 'delete_class', 'dissociate_teacher', 'dissociate_student'
+  const [activeSettingsMode, setActiveSettingsMode] = useState(null); 
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState([]);
+  const [isTeacherSelectionMode, setIsTeacherSelectionMode] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [isStudentSelectionMode, setIsStudentSelectionMode] = useState(false);
 
   // Confirm Modal State
   const [confirmState, setConfirmState] = useState({
@@ -127,6 +174,53 @@ const AdminDashboard = ({
     message: '',
     onConfirm: null
   });
+
+  // Persist Navigation State
+  React.useEffect(() => {
+    const loadNavState = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(`nav_state_${user.id}`);
+        if (saved) {
+          const savedNav = JSON.parse(saved);
+          if (savedNav) setNavigation(savedNav);
+        }
+      } catch (e) {
+        console.error("Scale load error", e);
+      }
+    };
+    loadNavState();
+  }, []);
+
+  React.useEffect(() => {
+    const saveNavState = async () => {
+      try {
+        await AsyncStorage.setItem(`nav_state_${user.id}`, JSON.stringify(navigation));
+      } catch (e) {
+        console.error("State save error", e);
+      }
+    };
+    saveNavState();
+  }, [navigation]);
+
+  const resetSchoolForm = () => {
+    setNewSchoolCity('');
+    setNewSchoolName('');
+    setNewSchoolHasParalele(false);
+    setIsCityDropdownVisible(false);
+    setIsSchoolDropdownVisible(false);
+    setCitySearchQuery('');
+    setSchoolSearchQuery('');
+    setIsSchoolModalVisible(false);
+  };
+
+  const resetTeacherForm = () => {
+    setTeacherFirstName('');
+    setTeacherLastName('');
+    setTeacherUsername('');
+    setTeacherPassword('');
+    setTeacherSubjects([]);
+    setIsTeacherModalVisible(false);
+  };
 
   // Auto-select school for non-super admins if they are in a view that needs navigation.data
   React.useEffect(() => {
@@ -216,12 +310,7 @@ const AdminDashboard = ({
     });
 
     if (!result?.error) {
-      setTeacherFirstName('');
-      setTeacherLastName('');
-      setTeacherUsername('');
-      setTeacherPassword('');
-      setTeacherSubjects([]);
-      setIsTeacherModalVisible(false);
+      resetTeacherForm();
     }
   };
 
@@ -302,9 +391,9 @@ const AdminDashboard = ({
         {!activeSettingsMode ? (
           <ScrollView contentContainerStyle={styles.settingsMenu}>
             {[
-              { id: 'academic_year', label: t('academic_year_mgmt'), icon: Calendar, color: '#6366f1' },
+              isSuperAdmin && { id: 'academic_year', label: t('academic_year_mgmt'), icon: Calendar, color: '#6366f1' },
               { id: 'delete_school', label: t('delete_school'), icon: School, color: '#ef4444' },
-            ].map(item => (
+            ].filter(Boolean).map(item => (
               <TouchableOpacity
                 key={item.id}
                 style={styles.settingsItem}
@@ -411,14 +500,23 @@ const AdminDashboard = ({
   };
 
   const renderMain = () => (
-    <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView 
+      style={styles.scrollContent} 
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 100 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+      }
+    >
 
       <View style={styles.statsGrid}>
-        <View style={styles.statCard}>
-          <BarChart3 size={20} color="#64748b" style={{ marginBottom: 12 }} />
-          <Text style={styles.statValue}>{schools.length}</Text>
-          <Text style={styles.statLabel}>{t('manage_schools')}</Text>
-        </View>
+        {isSuperAdmin && (
+          <View style={styles.statCard}>
+            <BarChart3 size={20} color="#64748b" style={{ marginBottom: 12 }} />
+            <Text style={styles.statValue}>{schools.length}</Text>
+            <Text style={styles.statLabel}>{t('schools')}</Text>
+          </View>
+        )}
         <View style={styles.statCard}>
           <Users size={20} color="#64748b" style={{ marginBottom: 12 }} />
           <Text style={styles.statValue}>{teachers.length}</Text>
@@ -439,7 +537,7 @@ const AdminDashboard = ({
           <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff' }]}>
             <Building2 size={24} color="#6366f1" />
           </View>
-          <Text style={styles.actionTileTitle}>{isSuperAdmin ? t('manage_schools') : t('my_school')}</Text>
+          <Text style={styles.actionTileTitle}>{isSuperAdmin ? t('schools') : t('my_school')}</Text>
           <ChevronRight size={18} color="#94a3b8" />
         </TouchableOpacity>
 
@@ -459,31 +557,41 @@ const AdminDashboard = ({
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'academic-year', data: null })}>
-          <View style={[styles.actionIconContainer, { backgroundColor: '#e0f2fe' }]}>
-            <Calendar size={24} color="#0284c7" />
-          </View>
-          <Text style={styles.actionTileTitle}>{t('academic_year_mgmt')}</Text>
-          <ChevronRight size={20} color="#94a3b8" />
-        </TouchableOpacity>
+        {isSuperAdmin && (
+          <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'academic-year', data: null })}>
+            <View style={[styles.actionIconContainer, { backgroundColor: '#e0f2fe' }]}>
+              <Calendar size={24} color="#0284c7" />
+            </View>
+            <Text style={styles.actionTileTitle}>{t('academic_year_mgmt')}</Text>
+            <ChevronRight size={20} color="#94a3b8" />
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'notices', data: null })}>
           <View style={[styles.actionIconContainer, { backgroundColor: '#fdf2f8' }]}>
             <Bell size={24} color="#db2777" />
+            {notices?.length > 0 && (
+              <View style={[styles.badgeContainer, { backgroundColor: '#db2777' }]}>
+                <Text style={styles.badgeText}>{notices.length}</Text>
+              </View>
+            )}
           </View>
+          <Text style={styles.actionTileTitle}>{t('notices')}</Text>
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.actionTile} 
-          onPress={() => setNavigation({ view: 'school-directory', data: null })}
-        >
-          <View style={[styles.actionIconContainer, { backgroundColor: '#f0f9ff' }]}>
-            <ShieldCheck size={24} color="#0ea5e9" />
-          </View>
-          <Text style={styles.actionTileTitle}>{t('school_directory')}</Text>
-          <ChevronRight size={20} color="#94a3b8" />
-        </TouchableOpacity>
+        {isSuperAdmin && (
+          <TouchableOpacity 
+            style={styles.actionTile} 
+            onPress={() => setNavigation({ view: 'codes', data: null })}
+          >
+            <View style={[styles.actionIconContainer, { backgroundColor: '#f0f9ff' }]}>
+              <ShieldCheck size={24} color="#0ea5e9" />
+            </View>
+            <Text style={styles.actionTileTitle}>{t('school_directory')}</Text>
+            <ChevronRight size={20} color="#94a3b8" />
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
@@ -495,18 +603,20 @@ const AdminDashboard = ({
 
       return (
         <View style={styles.viewContainer}>
-          <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
-            <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('back')}</Text>
-          </TouchableOpacity>
-          <View style={styles.viewHeader}>
-            <View></View>
-            {!isClassesOnly && isSuperAdmin && (
-              <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsSchoolModalVisible(true)}>
-                <Plus size={18} color="#fff" />
-                <Text style={styles.smallAddButtonText}>{t('add')}</Text>
-              </TouchableOpacity>
-            )}
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <Text style={styles.viewTitle}>{isClassesOnly ? t('classes_label') : t('schools')}</Text>
+              {!isClassesOnly && isSuperAdmin && (
+                <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsSchoolModalVisible(true)}>
+                  <Plus size={18} color="#fff" />
+                  <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           <View style={styles.searchBarContainer}>
@@ -519,7 +629,13 @@ const AdminDashboard = ({
             />
           </View>
 
-          <ScrollView style={styles.scrollContent}>
+          <ScrollView 
+            style={styles.scrollContent}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+          >
             {listData
               .filter(item => (isClassesOnly ? item.name : item.name).toLowerCase().includes(settingsSearchQuery.toLowerCase()))
               .map(item => (
@@ -528,12 +644,12 @@ const AdminDashboard = ({
                   style={styles.card}
                   onPress={() => setNavigation({ view: isClassesOnly ? 'class-detail' : 'school-detail', data: item })}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, flex: 1 }}>
                     <View style={[styles.actionIconContainer, { backgroundColor: isClassesOnly ? '#f5f3ff' : '#eff6ff', width: 44, height: 44 }]}>
                       {isClassesOnly ? <LayoutGrid size={20} color="#a855f7" /> : <Building2 size={20} color="#6366f1" />}
                     </View>
-                    <View>
-                      <Text style={styles.cardTitle}>{isClassesOnly ? `${t('add_class_short')} ${item.name}` : item.name}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>{isClassesOnly ? formatClassName(item) : item.name}</Text>
                       <Text style={styles.cardSubtitle}>
                         {isClassesOnly
                           ? (schools.find(s => s.id === item.schoolId)?.name || t('no_school'))
@@ -556,63 +672,71 @@ const AdminDashboard = ({
 
       return (
         <View style={styles.viewContainer}>
-          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'schools', data: null })}>
-            <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('manage_schools')}</Text>
-          </TouchableOpacity>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'schools', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('manage_schools')}</Text>
+            </TouchableOpacity>
+          </View>
 
-          <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-              <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff', width: 56, height: 56 }]}>
-                <Building2 size={28} color="#6366f1" />
+          <ScrollView 
+            style={styles.scrollContent}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+          >
+            <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+                <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff', width: 56, height: 56 }]}>
+                  <Building2 size={28} color="#6366f1" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.viewTitle}>{school.name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Hash size={14} color="#64748b" />
+                    <Text style={styles.cardSubtitle}>{school.code}</Text>
+                  </View>
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.viewTitle}>{school.name}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Hash size={14} color="#64748b" />
-                  <Text style={styles.cardSubtitle}>{school.code}</Text>
+
+              <View style={styles.statsRow}>
+                <View style={styles.statCard}>
+                  <Users size={18} color="#6366f1" />
+                  <Text style={styles.statValue}>{schoolTeachers.length}</Text>
+                  <Text style={styles.statLabel}>{t('teachers_count')}</Text>
+                </View>
+                <View style={styles.statCard}>
+                  <LayoutGrid size={18} color="#10b981" />
+                  <Text style={styles.statValue}>{schoolClasses.length}</Text>
+                  <Text style={styles.statLabel}>{t('classes_label')}</Text>
                 </View>
               </View>
             </View>
 
-            <View style={styles.statsRow}>
-              <View style={styles.statCard}>
-                <Users size={18} color="#6366f1" />
-                <Text style={styles.statValue}>{schoolTeachers.length}</Text>
-                <Text style={styles.statLabel}>{t('teachers_count')}</Text>
-              </View>
-              <View style={styles.statCard}>
-                <LayoutGrid size={18} color="#10b981" />
-                <Text style={styles.statValue}>{schoolClasses.length}</Text>
-                <Text style={styles.statLabel}>{t('classes_label')}</Text>
-              </View>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{t('actions')}</Text>
             </View>
-          </View>
 
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('actions')}</Text>
-          </View>
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+              <TouchableOpacity
+                style={[styles.actionButton, { flex: 1, backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}
+                onPress={() => setIsTeacherModalVisible(true)}
+              >
+                <UserPlus size={20} color="#6366f1" />
+                <Text style={[styles.actionButtonText, { color: '#6366f1' }]}>{t('add_teacher')}</Text>
+              </TouchableOpacity>
 
-          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-            <TouchableOpacity
-              style={[styles.actionButton, { flex: 1, backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}
-              onPress={() => setIsTeacherModalVisible(true)}
-            >
-              <UserPlus size={20} color="#6366f1" />
-              <Text style={[styles.actionButtonText, { color: '#6366f1' }]}>{t('add_teacher')}</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, { flex: 1, backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}
+                onPress={() => setIsClassModalVisible(true)}
+              >
+                <Plus size={20} color="#10b981" />
+                <Text style={[styles.actionButtonText, { color: '#10b981' }]}>{t('add_class_short')}</Text>
+              </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity
-              style={[styles.actionButton, { flex: 1, backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}
-              onPress={() => setIsClassModalVisible(true)}
-            >
-              <Plus size={20} color="#10b981" />
-              <Text style={[styles.actionButtonText, { color: '#10b981' }]}>{t('add_class_short')}</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>{t('school_classes')}</Text>
-          <ScrollView style={styles.scrollContent}>
+            <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>{t('school_classes')}</Text>
             {schoolClasses.map(cls => (
               <TouchableOpacity
                 key={cls.id}
@@ -620,7 +744,7 @@ const AdminDashboard = ({
                 onPress={() => setNavigation({ view: 'class-detail', data: cls })}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{t('add_class_short')} {cls.name}</Text>
+                  <Text style={styles.cardTitle}>{formatClassName(cls)}</Text>
                   <Text style={styles.cardSubtitle}>
                     {(cls.teacherIds || []).length} {t('teachers_count')} • {students.filter(s => s.classId === cls.id).length} {t('students_count')}
                   </Text>
@@ -643,88 +767,96 @@ const AdminDashboard = ({
 
       return (
         <View style={styles.viewContainer}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setNavigation({ view: 'school-detail', data: school })}
-          >
-            <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{school?.name || 'Detajet'}</Text>
-          </TouchableOpacity>
-
-          <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-              <View style={[styles.actionIconContainer, { backgroundColor: '#f5f3ff', width: 52, height: 52 }]}>
-                <LayoutGrid size={24} color="#a855f7" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.viewTitle}>Klasa {currentClass.name}</Text>
-                <Text style={styles.cardSubtitle}>{school?.name}</Text>
-              </View>
-              <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_class')}: ${currentClass.name}?`, async () => {
-                if (onDeleteClass) {
-                  await onDeleteClass(currentClass.id);
-                  setNavigation({ view: 'school-detail', data: school });
-                }
-              })}>
-                <Trash2 size={24} color="#ef4444" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <Text style={styles.label}>{t('class_teachers')}</Text>
-                <TouchableOpacity
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                  onPress={() => setIsAddTeacherToClassModalVisible(true)}
-                >
-                  <Plus size={16} color="#6366f1" />
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#6366f1' }}>{t('add')}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={{ gap: 8 }}>
-                {(currentClass.teacherIds || []).map(tId => {
-                  const teacher = teachers.find(t => t.id === tId);
-                  return (
-                    <View key={tId} style={styles.teacherListItem}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
-                          <GraduationCap size={16} color="#6366f1" />
-                        </View>
-                        <View>
-                          <Text style={styles.teacherNameText}>{teacher?.name || t('unknown_teacher')}</Text>
-                          <Text style={{ fontSize: 11, color: '#64748b' }}>{(teacher?.subjects || []).join(', ')}</Text>
-                        </View>
-                      </View>
-                      <TouchableOpacity onPress={() => handleRemoveTeacherLocal(tId)}>
-                        <View style={{ padding: 8, borderRadius: 8, backgroundColor: '#fef2f2' }}>
-                          <Trash2 size={16} color="#ef4444" />
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-                {(currentClass.teacherIds || []).length === 0 && (
-                  <Text style={styles.emptyTextSmall}>{t('no_teachers_assigned')}</Text>
-                )}
-              </View>
-            </View>
-          </View>
-
-          <View style={[styles.sectionHeader, { marginTop: 20 }]}>
-            <View>
-              <Text style={styles.sectionTitle}>{t('students_label')} ({classStudents.length})</Text>
-            </View>
+          <View style={styles.navigationHeader}>
             <TouchableOpacity
-              style={styles.smallAddButton}
-              onPress={() => setIsStudentModalVisible(true)}
+              style={styles.backButton}
+              onPress={() => setNavigation({ view: 'school-detail', data: school })}
             >
-              <Plus size={16} color="white" />
-              <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{school?.name || 'Detajet'}</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.scrollContent}>
+          <ScrollView 
+            style={styles.scrollContent}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+          >
+            <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+                <View style={[styles.actionIconContainer, { backgroundColor: '#f5f3ff', width: 52, height: 52 }]}>
+                  <LayoutGrid size={24} color="#a855f7" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.viewTitle}>{formatClassName(currentClass)}</Text>
+                  <Text style={styles.cardSubtitle}>{school?.name}</Text>
+                </View>
+                <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_class')}: ${formatClassName(currentClass)}?`, async () => {
+                  if (onDeleteClass) {
+                    await onDeleteClass(currentClass.id);
+                    setNavigation({ view: 'school-detail', data: school });
+                  }
+                })}>
+                  <Trash2 size={24} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <Text style={styles.label}>{t('class_teachers')}</Text>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                    onPress={() => setIsAddTeacherToClassModalVisible(true)}
+                  >
+                    <Plus size={16} color="#6366f1" />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#6366f1' }}>{t('add')}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ gap: 8 }}>
+                  {(currentClass.teacherIds || []).map(tId => {
+                    const teacher = teachers.find(t => t.id === tId);
+                    return (
+                      <View key={tId} style={styles.teacherListItem}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                            <GraduationCap size={16} color="#6366f1" />
+                          </View>
+                          <View>
+                            <Text style={styles.teacherNameText}>{teacher?.name || t('unknown_teacher')}</Text>
+                            <Text style={{ fontSize: 11, color: '#64748b' }}>{(teacher?.subjects || []).join(', ')}</Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity onPress={() => handleRemoveTeacherLocal(tId)}>
+                          <View style={{ padding: 8, borderRadius: 8, backgroundColor: '#fef2f2' }}>
+                            <Trash2 size={16} color="#ef4444" />
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                  {(currentClass.teacherIds || []).length === 0 && (
+                    <Text style={styles.emptyTextSmall}>{t('no_teachers_assigned')}</Text>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+              <View>
+                <Text style={styles.sectionTitle}>{t('students_label')} ({classStudents.length})</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.smallAddButton}
+                onPress={() => setIsStudentModalVisible(true)}
+              >
+                <Plus size={16} color="white" />
+                <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+              </TouchableOpacity>
+            </View>
+
             {classStudents.map(student => (
               <View key={student.id} style={styles.card}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -761,7 +893,7 @@ const AdminDashboard = ({
           <Text style={styles.viewTitle}>{t('academic_year_mgmt')}</Text>
           <Text style={styles.entitySub}>{t('year_transition_desc')}</Text>
 
-          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
             {/* Step 1: Archive Current Data */}
             <View style={[styles.card, { flexDirection: 'column', padding: 20, marginTop: 20 }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -833,18 +965,34 @@ const AdminDashboard = ({
     if (navigation.view === 'notices') {
       return (
         <View style={styles.viewContainer}>
-          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
-            <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('back')}</Text>
-          </TouchableOpacity>
-
-          <View style={styles.viewHeader}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
             <Text style={styles.viewTitle}>{t('notices')}</Text>
           </View>
 
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {/* Post Notice Form */}
             <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
+              {isSuperAdmin && (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={styles.label}>{t('select_school_for_notice') || 'Zgjidh Shkollën për Lajmërim'}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                    {schools.map(s => (
+                      <TouchableOpacity
+                        key={s.id}
+                        style={[styles.chip, noticeSchoolId === s.id && styles.activeChip]}
+                        onPress={() => setNoticeSchoolId(s.id)}
+                      >
+                        <Text style={[styles.chipText, noticeSchoolId === s.id && styles.activeChipText]}>{s.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               <Text style={styles.label}>{t('notice_title')}</Text>
               <TextInput
                 style={styles.input}
@@ -863,27 +1011,54 @@ const AdminDashboard = ({
               />
 
               <Text style={styles.label}>{t('attachment')}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Link o URL dell'allegato"
-                value={noticeAttachment}
-                onChangeText={setNoticeAttachment}
-              />
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="Link URL"
+                  value={noticeAttachment}
+                  onChangeText={(val) => {
+                    setNoticeAttachment(val);
+                    setSelectedFileName('');
+                  }}
+                />
+                <TouchableOpacity 
+                  style={[styles.smallAddButton, { height: 52, paddingHorizontal: 16 }]} 
+                  onPress={handleFilePick}
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <RefreshCw size={20} color="white" style={{ transform: [{ rotate: '45deg' }] }} />
+                  ) : (
+                    <Upload size={20} color="white" />
+                  )}
+                </TouchableOpacity>
+              </View>
+              {selectedFileName ? (
+                <Text style={{ fontSize: 12, color: '#10b981', fontWeight: '700', marginTop: 4, marginLeft: 4 }}>
+                  {t('file_selected') || 'Fajlli u zgjodh'}: {selectedFileName}
+                </Text>
+              ) : null}
 
               <TouchableOpacity
-                style={[styles.submitButton, { marginTop: 10 }]}
+                style={[styles.submitButton, { marginTop: 20 }]}
                 onPress={async () => {
                   if (!noticeTitle || !noticeMessage) return;
+                  if (isSuperAdmin && !noticeSchoolId) {
+                    showAlert(t('please_select_school') || 'Ju lutem zgjidhni shkollën', 'error');
+                    return;
+                  }
+                  
                   await onAddNotice({
-                    school_id: user.school_id,
+                    schoolId: isSuperAdmin ? noticeSchoolId : user.school_id,
                     title: noticeTitle,
                     message: noticeMessage,
-                    attachment_url: noticeAttachment,
-                    attachment_type: noticeAttachment.toLowerCase().endsWith('.pdf') ? 'pdf' : (noticeAttachment.match(/\.(jpg|jpeg|png|gif)$/i) ? 'image' : 'file')
+                    attachmentUrl: noticeAttachment
                   });
+                  
                   setNoticeTitle('');
                   setNoticeMessage('');
                   setNoticeAttachment('');
+                  setSelectedFileName('');
                 }}
               >
                 <Text style={styles.submitButtonText}>{t('post_notice')}</Text>
@@ -926,12 +1101,11 @@ const AdminDashboard = ({
     if (navigation.view === 'school-directory') {
       return (
         <View style={styles.viewContainer}>
-          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
-            <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('back')}</Text>
-          </TouchableOpacity>
-
-          <View style={styles.viewHeader}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
             <Text style={styles.viewTitle}>{t('school_directory')}</Text>
           </View>
 
@@ -992,56 +1166,180 @@ const AdminDashboard = ({
     return null;
   };
 
+  const toggleTeacherSelection = (id) => {
+    setSelectedTeacherIds(prev => 
+      prev.includes(id) ? prev.filter(tid => tid !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDeleteTeachers = () => {
+    if (selectedTeacherIds.length === 0) return;
+    confirmDelete(t('confirm_bulk_delete_teachers'), async () => {
+      for (const id of selectedTeacherIds) {
+        if (onDeleteTeacher) await onDeleteTeacher(id);
+      }
+      setSelectedTeacherIds([]);
+      setIsTeacherSelectionMode(false);
+    });
+  };
+
+  const handleDeleteAllTeachers = () => {
+    confirmDelete(t('confirm_delete_all_teachers'), async () => {
+      // Loop through all teachers in current view (or all)
+      for (const teacher of teachers) {
+        if (onDeleteTeacher) await onDeleteTeacher(teacher.id);
+      }
+      setSelectedTeacherIds([]);
+      setIsTeacherSelectionMode(false);
+    });
+  };
+
   const renderTeachers = () => (
     <View style={styles.viewContainer}>
-      <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
-        <ArrowLeft size={18} color="#1e293b" />
-        <Text style={styles.backButtonText}>{t('back')}</Text>
-      </TouchableOpacity>
-      <View style={styles.viewHeader}>
-        <View></View>
-        <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsTeacherModalVisible(true)}>
-          <Plus size={20} color="white" />
-          <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+      <View style={styles.navigationHeader}>
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={() => {
+            setNavigation({ view: 'home', data: null });
+            setIsTeacherSelectionMode(false);
+            setSelectedTeacherIds([]);
+          }}
+        >
+          <ArrowLeft size={18} color="#1e293b" />
+          <Text style={styles.backButtonText}>{t('back')}</Text>
         </TouchableOpacity>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.viewTitle}>{t('manage_teachers')}</Text>
+            {isTeacherSelectionMode && (
+              <Text style={{ fontSize: 13, color: '#6366f1', fontWeight: '700' }}>
+                {selectedTeacherIds.length} {t('selected')}
+              </Text>
+            )}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {teachers.length > 0 && (
+              <TouchableOpacity 
+                style={[styles.smallAddButton, { backgroundColor: isTeacherSelectionMode ? '#ef4444' : '#f1f5f9' }]} 
+                onPress={() => {
+                  setIsTeacherSelectionMode(!isTeacherSelectionMode);
+                  setSelectedTeacherIds([]);
+                }}
+              >
+                {isTeacherSelectionMode ? (
+                  <X size={18} color="white" />
+                ) : (
+                  <Users size={18} color="#64748b" />
+                )}
+                <Text style={[styles.smallAddButtonText, { color: isTeacherSelectionMode ? 'white' : '#64748b' }]}>
+                  {isTeacherSelectionMode ? t('cancel') : t('select') || 'Zgjidh'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsTeacherModalVisible(true)}>
+              <Plus size={18} color="white" />
+              <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
-      <ScrollView style={styles.scrollContent}>
-        {teachers.map(teacher => (
-          <View key={teacher.id} style={styles.card}>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                <View style={[styles.actionIconContainer, { backgroundColor: '#f0fdf4', width: 40, height: 40 }]}>
-                  <UserCheck size={20} color="#10b981" />
+      <ScrollView 
+        style={styles.scrollContent}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
+        {teachers.map(teacher => {
+          const isSelected = selectedTeacherIds.includes(teacher.id);
+          return (
+            <TouchableOpacity 
+              key={teacher.id} 
+              style={[styles.card, isSelected && { borderColor: '#6366f1', backgroundColor: '#f5f3ff' }]}
+              onPress={() => isTeacherSelectionMode ? toggleTeacherSelection(teacher.id) : null}
+              activeOpacity={isTeacherSelectionMode ? 0.7 : 1}
+            >
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  {isTeacherSelectionMode ? (
+                    <View style={{ 
+                      width: 24, 
+                      height: 24, 
+                      borderRadius: 12, 
+                      borderWidth: 2, 
+                      borderColor: isSelected ? '#6366f1' : '#cbd5e1',
+                      backgroundColor: isSelected ? '#6366f1' : 'transparent',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {isSelected && <Check size={14} color="white" />}
+                    </View>
+                  ) : (
+                    <View style={[styles.actionIconContainer, { backgroundColor: '#f0fdf4', width: 40, height: 40 }]}>
+                      <UserCheck size={20} color="#10b981" />
+                    </View>
+                  )}
+                  <View>
+                    <Text style={styles.cardTitle}>{teacher.name}</Text>
+                    <Text style={styles.cardSubtitle}>{(teacher.subjects || []).join(', ')}</Text>
+                  </View>
                 </View>
-                <View>
-                  <Text style={styles.cardTitle}>{teacher.name}</Text>
-                  <Text style={styles.cardSubtitle}>{(teacher.subjects || []).join(', ')}</Text>
-                </View>
+                <Text style={{ fontSize: 12, color: '#64748b' }}>
+                  {t('school_label')}: {schools.find(s => s.id === teacher.schoolId)?.name || t('no_school')}
+                </Text>
+                <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                  {t('classes_label')}: {classes.filter(c => (c.teacherIds || []).includes(teacher.id)).map(c => formatClassName(c)).join(', ') || t('none')}
+                </Text>
               </View>
-              <Text style={{ fontSize: 12, color: '#64748b' }}>
-                {t('school_label')}: {schools.find(s => s.id === teacher.schoolId)?.name || t('no_school')}
-              </Text>
-              <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                {t('classes_label')}: {classes.filter(c => (c.teacherIds || []).includes(teacher.id)).map(c => c.name).join(', ') || t('none')}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity
-                style={[styles.smallAddButton, { backgroundColor: '#eff6ff', paddingHorizontal: 10 }]}
-                onPress={() => setNavigation({ view: 'teachers', data: teacher, mode: 'link' })}
-              >
-                <Plus size={16} color="#6366f1" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_teacher')}: ${teacher.name}?`, async () => {
-                if (onDeleteTeacher) await onDeleteTeacher(teacher.id);
-              })}>
-                <Trash2 size={18} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
+              
+              {!isTeacherSelectionMode && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={[styles.smallAddButton, { backgroundColor: '#eff6ff', paddingHorizontal: 10 }]}
+                    onPress={() => setNavigation({ view: 'teachers', data: teacher, mode: 'link' })}
+                  >
+                    <Plus size={16} color="#6366f1" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_teacher')}: ${teacher.name}?`, async () => {
+                    if (onDeleteTeacher) await onDeleteTeacher(teacher.id);
+                  })}>
+                    <Trash2 size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+        {teachers.length === 0 && (
+          <Text style={styles.emptyText}>{t('no_teachers_registered')}</Text>
+        )}
       </ScrollView>
+
+      {isTeacherSelectionMode && (
+        <View style={{ 
+          flexDirection: 'row', 
+          gap: 12, 
+          padding: 16, 
+          backgroundColor: '#fff', 
+          borderTopWidth: 1, 
+          borderTopColor: '#f1f5f9' 
+        }}>
+          <TouchableOpacity 
+            style={[styles.submitButton, { flex: 1, backgroundColor: '#f1f5f9', shadowColor: 'transparent' }]} 
+            onPress={handleDeleteAllTeachers}
+          >
+            <Text style={[styles.submitButtonText, { color: '#ef4444' }]}>{t('delete_all') || 'Fshij të gjithë'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.submitButton, { flex: 2, backgroundColor: selectedTeacherIds.length > 0 ? '#ef4444' : '#cbd5e1', shadowColor: selectedTeacherIds.length > 0 ? '#ef4444' : 'transparent' }]} 
+            onPress={handleBulkDeleteTeachers}
+            disabled={selectedTeacherIds.length === 0}
+          >
+            <Text style={styles.submitButtonText}>{t('delete_selected') || 'Fshij të zgjedhurit'} ({selectedTeacherIds.length})</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {navigation.view === 'teachers' && navigation.mode === 'link' && (
         <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }]}>
@@ -1065,7 +1363,7 @@ const AdminDashboard = ({
                       }}
                     >
                       <Text style={[styles.schoolSelectText, isAlreadyIn && styles.activeSchoolSelectText]}>
-                        {cls.name} {isAlreadyIn ? `(${t('already_linked')})` : ''}
+                        {formatClassName(cls)} {isAlreadyIn ? `(${t('already_linked')})` : ''}
                       </Text>
                       {isAlreadyIn ? <Check size={16} color="#6366f1" /> : <ChevronRight size={16} color="#94a3b8" />}
                     </TouchableOpacity>
@@ -1084,35 +1382,106 @@ const AdminDashboard = ({
     </View>
   );
 
+  const toggleStudentSelection = (id) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDeleteStudents = () => {
+    if (selectedStudentIds.length === 0) return;
+    confirmDelete(t('confirm_bulk_delete_students'), async () => {
+      for (const id of selectedStudentIds) {
+        if (onDeleteStudent) await onDeleteStudent(id);
+      }
+      setSelectedStudentIds([]);
+      setIsStudentSelectionMode(false);
+    });
+  };
+
+  const handleDeleteAllStudents = () => {
+    confirmDelete(t('confirm_delete_all_students'), async () => {
+      for (const student of students) {
+        if (onDeleteStudent) await onDeleteStudent(student.id);
+      }
+      setSelectedStudentIds([]);
+      setIsStudentSelectionMode(false);
+    });
+  };
+
   const renderStudents = () => {
     const unassignedStudents = students.filter(s => !s.classId);
 
     return (
       <View style={styles.viewContainer}>
-        <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
-          <ArrowLeft size={18} color="#1e293b" />
-          <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
-        </TouchableOpacity>
-        <View style={styles.viewHeader}>
-          <View></View>
-          <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsStudentModalVisible(true)}>
-            <Plus size={18} color="#fff" />
-            <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+        <View style={styles.navigationHeader}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => {
+              setNavigation({ view: 'home', data: null });
+              setIsStudentSelectionMode(false);
+              setSelectedStudentIds([]);
+            }}
+          >
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back')}</Text>
           </TouchableOpacity>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.viewTitle}>{t('manage_students')}</Text>
+              {isStudentSelectionMode && (
+                <Text style={{ fontSize: 13, color: '#6366f1', fontWeight: '700' }}>
+                  {selectedStudentIds.length} {t('selected')}
+                </Text>
+              )}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {students.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.smallAddButton, { backgroundColor: isStudentSelectionMode ? '#ef4444' : '#f1f5f9' }]}
+                  onPress={() => {
+                    setIsStudentSelectionMode(!isStudentSelectionMode);
+                    setSelectedStudentIds([]);
+                  }}
+                >
+                  {isStudentSelectionMode ? (
+                    <X size={18} color="white" />
+                  ) : (
+                    <Users size={18} color="#64748b" />
+                  )}
+                  <Text style={[styles.smallAddButtonText, { color: isStudentSelectionMode ? 'white' : '#64748b' }]}>
+                    {isStudentSelectionMode ? t('cancel') : t('select')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.smallAddButton} onPress={() => setIsStudentModalVisible(true)}>
+                <Plus size={18} color="#fff" />
+                <Text style={styles.smallAddButtonText}>{t('add')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.searchBarContainer}>
-          <Search size={20} color="#94a3b8" />
-          <TextInput
-            placeholder={t('search_students')}
-            style={styles.searchBarInput}
-            value={settingsSearchQuery}
-            onChangeText={setSettingsSearchQuery}
-          />
-        </View>
+        {!isStudentSelectionMode && (
+          <View style={styles.searchBarContainer}>
+            <Search size={20} color="#94a3b8" />
+            <TextInput
+              placeholder={t('search_students')}
+              style={styles.searchBarInput}
+              value={settingsSearchQuery}
+              onChangeText={setSettingsSearchQuery}
+            />
+          </View>
+        )}
 
-        <ScrollView style={styles.scrollContent}>
-          {unassignedStudents.length > 0 && (
+        <ScrollView 
+          style={styles.scrollContent}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
+          {!isStudentSelectionMode && unassignedStudents.length > 0 && (
             <View style={{ marginBottom: 24 }}>
               <Text style={styles.sectionTitle}>{t('unassigned')} ({unassignedStudents.length})</Text>
               {unassignedStudents.map(student => (
@@ -1134,26 +1503,71 @@ const AdminDashboard = ({
             </View>
           )}
 
-          <Text style={styles.sectionTitle}>{t('all_students')}</Text>
-          {students
-            .filter(s => s.name.toLowerCase().includes(settingsSearchQuery.toLowerCase()))
-            .map(student => (
-              <View key={student.id} style={styles.card}>
-                <View>
-                  <Text style={styles.cardTitle}>{student.name}</Text>
-                  <Text style={{ fontSize: 12, color: '#64748b' }}>
-                    {classes.find(c => c.id === student.classId)?.name || t('no_class')} •
-                    {schools.find(s => s.id === student.schoolId)?.name || t('no_school')}
-                  </Text>
+          {!isStudentSelectionMode && <Text style={styles.sectionTitle}>{t('all_students')}</Text>}
+
+          {(isStudentSelectionMode ? students : students.filter(s => s.name.toLowerCase().includes(settingsSearchQuery.toLowerCase()))).map(student => {
+            const isSelected = selectedStudentIds.includes(student.id);
+            return (
+              <TouchableOpacity
+                key={student.id}
+                style={[styles.card, isSelected && { borderColor: '#6366f1', backgroundColor: '#f5f3ff' }]}
+                onPress={() => isStudentSelectionMode ? toggleStudentSelection(student.id) : null}
+                activeOpacity={isStudentSelectionMode ? 0.7 : 1}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  {isStudentSelectionMode && (
+                    <View style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      borderWidth: 2,
+                      borderColor: isSelected ? '#6366f1' : '#cbd5e1',
+                      backgroundColor: isSelected ? '#6366f1' : 'transparent',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {isSelected && <Check size={14} color="white" />}
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitle}>{student.name}</Text>
+                    <Text style={{ fontSize: 12, color: '#64748b' }}>
+                      {formatClassName(classes.find(c => c.id === student.classId)) || t('no_class')} • {schools.find(s => s.id === student.schoolId)?.name || t('no_school')}
+                    </Text>
+                  </View>
                 </View>
-                <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_student') || 'Jeni të sigurt që doni të fshini këtë nxënës?'}: ${student.name}?`, async () => {
-                  if (onDeleteStudent) await onDeleteStudent(student.id);
-                })}>
-                  <Trash2 size={18} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-            ))}
+                {!isStudentSelectionMode && (
+                  <TouchableOpacity onPress={() => confirmDelete(`${t('confirm_delete_student') || 'Fshij nxënësin'}: ${student.name}?`, async () => {
+                    if (onDeleteStudent) await onDeleteStudent(student.id);
+                  })}>
+                    <Trash2 size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+          {students.length === 0 && (
+            <Text style={styles.emptyText}>{t('no_students_registered')}</Text>
+          )}
         </ScrollView>
+
+        {isStudentSelectionMode && (
+          <View style={{ flexDirection: 'row', gap: 12, padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+            <TouchableOpacity
+              style={[styles.submitButton, { flex: 1, backgroundColor: '#f1f5f9', shadowColor: 'transparent' }]}
+              onPress={handleDeleteAllStudents}
+            >
+              <Text style={[styles.submitButtonText, { color: '#ef4444' }]}>{t('delete_all')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.submitButton, { flex: 2, backgroundColor: selectedStudentIds.length > 0 ? '#ef4444' : '#cbd5e1', shadowColor: selectedStudentIds.length > 0 ? '#ef4444' : 'transparent' }]}
+              onPress={handleBulkDeleteStudents}
+              disabled={selectedStudentIds.length === 0}
+            >
+              <Text style={styles.submitButtonText}>{t('delete_selected')} ({selectedStudentIds.length})</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {navigation.view === 'students' && navigation.mode === 'assign' && (
           <View style={[styles.modalOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}>
@@ -1172,7 +1586,7 @@ const AdminDashboard = ({
                         setNavigation({ view: 'students', data: null });
                       }}
                     >
-                      <Text style={styles.schoolSelectText}>{cls.name}</Text>
+                      <Text style={styles.schoolSelectText}>{formatClassName(cls)}</Text>
                       <ChevronRight size={16} color="#94a3b8" />
                     </TouchableOpacity>
                   ))}
@@ -1192,51 +1606,77 @@ const AdminDashboard = ({
 
   const renderCodes = () => (
     <View style={styles.viewContainer}>
-      <TouchableOpacity style={[styles.backButton, { marginBottom: 12 }]} onPress={() => setNavigation({ view: 'home', data: null })}>
-        <ArrowLeft size={18} color="#1e293b" />
-        <Text style={styles.backButtonText}>{t('back') || 'Kthehu'}</Text>
-      </TouchableOpacity>
-      <View style={styles.viewHeader}>
-        <View></View>
+      <View style={styles.navigationHeader}>
+        <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <ArrowLeft size={18} color="#1e293b" />
+          <Text style={styles.backButtonText}>{t('back')}</Text>
+        </TouchableOpacity>
+        <Text style={styles.viewTitle}>{t('school_codes') || 'Kodet e Shkollave'}</Text>
       </View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {schools.map(school => (
-          <View key={school.id} style={[styles.card, { paddingVertical: 20 }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
-                {school.name}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff', width: 48, height: 48, borderRadius: 12 }]}>
-                  <Hash size={24} color="#2563eb" />
-                </View>
-                <Text style={{ fontSize: 28, fontWeight: '900', color: '#1e293b', letterSpacing: 2 }}>
-                  {school.code}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 }}>
+          {schools.map(school => (
+            <View key={school.id} style={[styles.card, { 
+              width: (width - 48 - 12) / 2, 
+              paddingVertical: 16, 
+              paddingHorizontal: 12, 
+              flexDirection: 'column', 
+              alignItems: 'stretch',
+              marginBottom: 12
+            }]}>
+              <View style={{ flex: 1 }}>
+                {/* School Name */}
+                <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '800', marginBottom: 8 }} numberOfLines={2}>
+                  {school.name}
                 </Text>
-              </View>
-              <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, fontWeight: '600' }}>
-                {t('municipality_label')}: {school.city}
-              </Text>
-
-              {isSuperAdmin && (
-                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
-                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' }}>
-                    {t('admin_credentials')}
+                
+                {/* School Code Section */}
+                <View style={{ 
+                  backgroundColor: '#eff6ff', 
+                  padding: 12, 
+                  borderRadius: 12, 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: '#dbeafe',
+                  marginBottom: 10
+                }}>
+                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#1e293b', letterSpacing: 2 }}>
+                    {school.code}
                   </Text>
-                  <View style={{ gap: 4 }}>
-                    <Text style={{ fontSize: 13, color: '#1e293b' }}>
-                      <Text style={{ fontWeight: '600' }}>{t('email_label')}</Text> {school.admin_email || t('not_available')}
-                    </Text>
-                    <Text style={{ fontSize: 13, color: '#1e293b' }}>
-                      <Text style={{ fontWeight: '600' }}>{t('password')}:</Text> {school.admin_password || t('not_available')}
-                    </Text>
-                  </View>
                 </View>
-              )}
+
+                {/* City/Municipality */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 }}>
+                  <Building2 size={12} color="#64748b" />
+                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }} numberOfLines={1}>
+                    {school.city}
+                  </Text>
+                </View>
+
+                {/* Admin Credentials */}
+                {isSuperAdmin && (
+                  <View style={{ 
+                    marginTop: 4, 
+                    paddingTop: 12, 
+                    borderTopWidth: 1, 
+                    borderTopColor: '#f1f5f9' 
+                  }}>
+                    <View style={{ gap: 6, backgroundColor: '#f8fafc', padding: 8, borderRadius: 8 }}>
+                      <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: '700' }} numberOfLines={1}>
+                        {school.admin_email || 'n/a'}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600' }} numberOfLines={1}>
+                        {t('password')}: {school.admin_password || 'n/a'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
             </View>
-          </View>
-        ))}
+          ))}
+        </View>
         {schools.length === 0 && (
           <Text style={styles.emptyText}>{t('no_schools_registered')}</Text>
         )}
@@ -1245,12 +1685,104 @@ const AdminDashboard = ({
     </View>
   );
 
+  const handleAddNotice = async () => {
+    if (!noticeTitle || !noticeMessage) return;
+    const result = await onAddNotice({
+      title: noticeTitle,
+      message: noticeMessage,
+      attachmentUrl: noticeAttachment
+    });
+    
+    if (!result?.error) {
+      setNoticeTitle('');
+      setNoticeMessage('');
+      setNoticeAttachment('');
+      setIsNoticeModalVisible(false);
+    }
+  };
+
+  const renderNotices = () => {
+    return (
+      <View style={styles.viewContainer}>
+        <View style={styles.navigationHeader}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('back')}</Text>
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flex: 1 }}>
+            <Text style={styles.viewTitle}>{t('notices')}</Text>
+          </View>
+        </View>
+
+        <FlatList
+          data={notices}
+          keyExtractor={item => item.id}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+          ListEmptyComponent={() => (
+            <View style={{ padding: 40, alignItems: 'center' }}>
+              <Bell size={48} color="#cbd5e1" style={{ marginBottom: 16 }} />
+              <Text style={[styles.cardSubtitle, { textAlign: 'center' }]}>{t('no_notices')}</Text>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1, paddingRight: 16 }}>
+                  <Text style={[styles.cardTitle, { fontSize: 18, marginBottom: 4 }]}>{item.title}</Text>
+                  <Text style={[styles.cardSubtitle, { marginBottom: 12 }]}>
+                    {new Date(item.created_at).toLocaleDateString()}
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                   style={{ padding: 8, backgroundColor: '#fef2f2', borderRadius: 8 }}
+                   onPress={() => {
+                     confirmDelete(`${t('confirm_delete')} ${t('notice_title')}?`, () => onDeleteNotice(item.id));
+                   }}
+                >
+                  <Trash size={18} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ fontSize: 15, color: '#475569', lineHeight: 24, marginBottom: item.attachment_url ? 16 : 0 }}>
+                {item.message}
+              </Text>
+
+              {item.attachment_url && (
+                <TouchableOpacity 
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#eff6ff', padding: 12, borderRadius: 12, gap: 8 }}
+                  onPress={() => Linking.openURL(item.attachment_url)}
+                >
+                  <Link size={18} color="#3b82f6" />
+                  <Text style={{ color: '#3b82f6', fontWeight: '600', fontSize: 14 }} numberOfLines={1}>
+                    {t('download_attachment')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        />
+
+        <TouchableOpacity style={styles.actionFab} onPress={() => setIsNoticeModalVisible(true)}>
+          <Plus size={24} color="white" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const renderModals = () => (
     <>
       <Modal visible={isSchoolModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{t('add_new_school')}</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('add_new_school')}</Text>
+              <TouchableOpacity onPress={resetSchoolForm} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
 
             <Text style={styles.label}>{t('select_city')}</Text>
             <TouchableOpacity
@@ -1398,7 +1930,12 @@ const AdminDashboard = ({
       <Modal visible={isTeacherModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{t('add_teacher')}</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('add_teacher')}</Text>
+              <TouchableOpacity onPress={resetTeacherForm} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
 
             <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false}>
               <TextInput style={styles.input} placeholder={t('first_name')} value={teacherFirstName} onChangeText={setTeacherFirstName} />
@@ -1435,7 +1972,12 @@ const AdminDashboard = ({
       <Modal visible={isClassModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{t('add_class')}</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t('add_class')}</Text>
+              <TouchableOpacity onPress={() => setIsClassModalVisible(false)} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
 
             <TextInput
               style={styles.input}
@@ -1491,11 +2033,16 @@ const AdminDashboard = ({
       <Modal visible={isStudentModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { padding: 0, overflow: 'hidden' }]}>
-            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-              <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_student')}</Text>
-              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
-                {t('class_prefix')} {navigation.data?.name || ''}
-              </Text>
+            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_student')}</Text>
+                <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
+                  {t('class_prefix')} {navigation.data?.name || ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsStudentModalVisible(false)} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
             </View>
 
             <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
@@ -1576,11 +2123,21 @@ const AdminDashboard = ({
       <Modal visible={isAddTeacherToClassModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { padding: 0, overflow: 'hidden' }]}>
-            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-              <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_teacher')}</Text>
-              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
-                {t('class_prefix')} {navigation.data?.name || ''}
-              </Text>
+            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('add_teacher')}</Text>
+                <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>
+                  {t('class_prefix')} {navigation.data?.name || ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => {
+                setIsAddTeacherToClassModalVisible(false);
+                setTeacherFirstName(''); setTeacherLastName('');
+                setTeacherUsername(''); setTeacherPassword('');
+                setTeacherSubjects([]);
+              }} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
             </View>
 
             <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
@@ -1604,9 +2161,16 @@ const AdminDashboard = ({
                             </View>
                             <View style={{ flex: 1 }}>
                               <Text style={styles.schoolSelectText}>{teacher.name}</Text>
-                              <Text style={{ fontSize: 11, color: '#64748b' }} numberOfLines={1}>
-                                {(teacher.subjects || []).join(', ')}
-                              </Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                                {(teacher.subjects || []).map(subject => (
+                                  <View key={subject} style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                    <Text style={{ fontSize: 10, color: '#475569', fontWeight: 'bold' }}>{subject}</Text>
+                                  </View>
+                                ))}
+                                {(teacher.subjects || []).length === 0 && (
+                                  <Text style={{ fontSize: 11, color: '#94a3b8' }}>{t('no_subjects') || 'Pa lëndë'}</Text>
+                                )}
+                              </View>
                             </View>
                           </View>
                           <View style={{ backgroundColor: '#f8fafc', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#f1f5f9' }}>
@@ -1651,8 +2215,8 @@ const AdminDashboard = ({
               />
 
               <Text style={styles.label}>{t('select_subjects')}:</Text>
-              <ScrollView horizontal style={{ marginBottom: 16 }} showsHorizontalScrollIndicator={false}>
-                {(KOSOVO_SUBJECTS || []).slice(0, 20).map(subject => (
+              <View style={styles.subjectsGrid}>
+                {(KOSOVO_SUBJECTS || []).map(subject => (
                   <TouchableOpacity
                     key={subject}
                     style={[styles.subjectChip, teacherSubjects.includes(subject) && styles.activeSubjectChip]}
@@ -1663,7 +2227,7 @@ const AdminDashboard = ({
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity style={styles.cancelButton} onPress={() => {
@@ -1709,6 +2273,74 @@ const AdminDashboard = ({
         </View>
       </Modal>
 
+      {/* Notice Modal */}
+      <Modal visible={isNoticeModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { padding: 0, overflow: 'hidden' }]}>
+            <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('new_notice')}</Text>
+              </View>
+              <TouchableOpacity onPress={() => {
+                setIsNoticeModalVisible(false);
+                setNoticeTitle('');
+                setNoticeMessage('');
+                setNoticeAttachment('');
+              }} style={styles.closeModalBtn}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
+              <Text style={styles.label}>{t('notice_title')} *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={t('notice_title')}
+                value={noticeTitle}
+                onChangeText={setNoticeTitle}
+              />
+
+              <Text style={styles.label}>{t('notice_message')} *</Text>
+              <TextInput
+                style={[styles.input, { height: 120, textAlignVertical: 'top', paddingTop: 16 }]}
+                placeholder={t('notice_message')}
+                value={noticeMessage}
+                onChangeText={setNoticeMessage}
+                multiline
+              />
+
+              <Text style={styles.label}>{t('notice_attachment_url')} ({t('optional')})</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="https://..."
+                value={noticeAttachment}
+                onChangeText={setNoticeAttachment}
+                autoCapitalize="none"
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => {
+                  setIsNoticeModalVisible(false);
+                  setNoticeTitle('');
+                  setNoticeMessage('');
+                  setNoticeAttachment('');
+                }}>
+                  <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.submitButton, { opacity: (noticeTitle && noticeMessage) ? 1 : 0.5 }]}
+                  onPress={handleAddNotice}
+                  disabled={!noticeTitle || !noticeMessage}
+                >
+                  <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </>
   );
 
@@ -1733,6 +2365,7 @@ const AdminDashboard = ({
       {navigation.view === 'students' && renderStudents()}
       {navigation.view === 'codes' && renderCodes()}
       {navigation.view === 'settings' && renderSettings()}
+      {navigation.view === 'notices' && renderNotices()}
 
       {renderModals()}
 
@@ -1864,6 +2497,12 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 24,
   },
+  navigationHeader: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    gap: 8,
+  },
   viewHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1892,7 +2531,7 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     backgroundColor: '#fff',
-    padding: 24,
+    padding: 16,
     borderRadius: 28,
     borderWidth: 1,
     borderColor: '#fff', // White border for subtle depth
@@ -2016,9 +2655,10 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   actionButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '800',
     color: '#2563eb',
+    flexShrink: 1,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -2204,8 +2844,20 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
     color: '#1e293b',
-    marginBottom: 20,
+    marginBottom: 0,
     letterSpacing: -0.5,
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  closeModalBtn: {
+    padding: 8,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 20,
   },
   label: {
     fontSize: 14,

@@ -97,7 +97,17 @@ export const AuthProvider = ({ children }) => {
     }
     
     if (error) throw error;
-    return data;
+
+    // Fetch profile immediately to return it for role check
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*, schools(*)')
+      .eq('id', data.user.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    return { ...data, profile };
   };
 
   const logout = async () => {

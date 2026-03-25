@@ -5,6 +5,7 @@ import { DatabaseProvider, useDatabase } from './src/context/DatabaseContext';
 import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
 import { AlertProvider, useAlert } from './src/context/AlertContext';
 import StylishAlert from './src/components/StylishAlert';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import LoginScreen from './src/screens/LoginScreen';
 import AdminDashboard from './src/screens/AdminDashboard';
@@ -13,38 +14,63 @@ import StudentDashboard from './src/screens/StudentDashboard';
 
 function AppContent() {
   const { user, loading: authLoading, login, logout, isPasswordRecovery } = useAuth();
-  const { 
+  const {
     schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices,
     addSchool, addClass, addTeacher, addStudent,
     addGrade, addLesson, toggleAttendance, addHomework, addNote, addNotice,
     activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice,
-    loading: dataLoading
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice, updateGrade,
+    initializeDailyAttendance,
+    justifyAttendance,
+    markNoticeRead, noticeReads, uploadFile,
+    loading: dataLoading,
+    refreshData
   } = useDatabase();
+  const { t } = useLanguage();
   const { showAlert } = useAlert();
 
   const handleLogin = async (data) => {
     try {
       // In Supabase, email is the primary identifier.
       const email = data.email || data.username;
-      
-      await login(email, data.password);
+      const res = await login(email, data.password);
+
+      // Verify role matches the selected tab
+      const userRole = res.profile?.role;
+      const requestedRole = data.role; // 'mesues' or 'nxenes'
+
+      let roleMatch = false;
+      if (requestedRole === 'mesues') {
+        // Teacher tab accepts both admin and mesues
+        roleMatch = (userRole === 'admin' || userRole === 'mesues');
+      } else if (requestedRole === 'nxenes') {
+        // Student tab only accepts nxenes
+        roleMatch = (userRole === 'nxenes');
+      }
+
+      if (!roleMatch) {
+        await logout();
+        throw new Error('invalid_credentials');
+      }
     } catch (err) {
-      showAlert(`Gabim gjatë kyçjes! Arsyeja: ${err.message || err}`, 'error');
+      // Standardize all login errors to "invalid_credentials"
+      showAlert(t('invalid_credentials'), 'error');
       console.error("Login error:", err);
     }
   };
 
   const handleLogout = async () => {
     try {
+      if (user) {
+        await AsyncStorage.removeItem(`nav_state_${user.id}`);
+      }
       await logout();
     } catch (err) {
       console.error(err);
     }
   };
 
-  const { t } = useLanguage();
 
   if (authLoading || (user && dataLoading)) {
     return (
@@ -62,9 +88,9 @@ function AppContent() {
   if (user.role === 'admin') {
     return (
       <View style={styles.container}>
-        <AdminDashboard 
-          user={user} 
-          onLogout={handleLogout} 
+        <AdminDashboard
+          user={user}
+          onLogout={handleLogout}
           schools={schools}
           teachers={teachers}
           classes={classes}
@@ -88,6 +114,8 @@ function AppContent() {
           onAddNotice={addNotice}
           onDeleteNotice={deleteNotice}
           schoolAdmins={schoolAdmins}
+          onRefresh={refreshData}
+          onUploadFile={uploadFile}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -97,9 +125,9 @@ function AppContent() {
   if (user.role === 'mesues') {
     return (
       <View style={styles.container}>
-        <TeacherDashboard 
-          user={user} 
-          onLogout={handleLogout} 
+        <TeacherDashboard
+          user={user}
+          onLogout={handleLogout}
           classes={classes}
           students={students}
           grades={grades}
@@ -111,8 +139,11 @@ function AppContent() {
           onUpdateGrade={updateGrade}
           onAddLesson={addLesson}
           onToggleAttendance={toggleAttendance}
+          onJustifyAttendance={justifyAttendance}
+          onInitializeAttendance={initializeDailyAttendance}
           onAddHomework={addHomework}
           onAddNote={addNote}
+          onRefresh={refreshData}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -122,9 +153,9 @@ function AppContent() {
   if (user.role === 'nxenes') {
     return (
       <View style={styles.container}>
-        <StudentDashboard 
-          user={user} 
-          onLogout={handleLogout} 
+        <StudentDashboard
+          user={user}
+          onLogout={handleLogout}
           grades={grades}
           classes={classes}
           lessons={lessons}
@@ -132,6 +163,9 @@ function AppContent() {
           homework={homework}
           notes={notes}
           notices={notices}
+          noticeReads={noticeReads}
+          onMarkNoticeRead={markNoticeRead}
+          onRefresh={refreshData}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -179,8 +213,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   centerContainer: {
-    flex: 1, 
-    justifyContent: 'center', 
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#eff6ff'
   },

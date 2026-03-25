@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { School, Mail, Lock, LogIn, ArrowLeft, Languages, CheckCircle, XCircle } from 'lucide-react-native';
+import { School, Mail, Lock, LogIn, ArrowLeft, Languages, CheckCircle, XCircle, X } from 'lucide-react-native';
 import { Modal } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -34,11 +34,14 @@ const LoginScreen = ({ onLogin }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleSubmit = () => {
-    if (role === 'mesues') {
-      onLogin({ role, schoolCode, username, password });
-    } else {
-      onLogin({ role, username, password });
+    let finalUsername = username;
+    
+    // Secret logic for school admins: if no @, assume it's a school code
+    if (role === 'mesues' && username && !username.includes('@')) {
+      finalUsername = `admin@${username.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
     }
+
+    onLogin({ role, username: finalUsername, password });
   };
 
   const { t, language, changeLanguage } = useLanguage();
@@ -100,7 +103,7 @@ const LoginScreen = ({ onLogin }) => {
     }
   };
 
-  const isAdmin = username === 'admin@ditari-elektronik.com';
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -139,22 +142,6 @@ const LoginScreen = ({ onLogin }) => {
           </View>
 
           <View style={styles.form}>
-            {role === 'mesues' && !isAdmin && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>{t('school_code')}</Text>
-                <View style={styles.inputContainer}>
-                  <School size={18} color="#64748b" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder={t('school_code_placeholder')}
-                    value={schoolCode}
-                    onChangeText={setSchoolCode}
-                    autoCapitalize="characters"
-                  />
-                </View>
-              </View>
-            )}
-
             <View style={styles.inputGroup}>
               <Text style={styles.label}>{t('email')}</Text>
               <View style={styles.inputContainer}>
@@ -261,9 +248,17 @@ const LoginScreen = ({ onLogin }) => {
         <Modal visible={isResetModalVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                  {resetStep === 'email' ? t('reset_password_title') : t('enter_code_title')}
+                </Text>
+                <TouchableOpacity onPress={() => setIsResetModalVisible(false)} style={styles.closeModalBtn}>
+                  <X size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
               {resetStep === 'email' ? (
                 <>
-                  <Text style={styles.modalTitle}>{t('reset_password_title')}</Text>
                   <Text style={styles.modalDescription}>
                     {t('reset_password_desc')}
                   </Text>
@@ -291,7 +286,6 @@ const LoginScreen = ({ onLogin }) => {
                 </>
               ) : (
                 <>
-                  <Text style={styles.modalTitle}>{t('enter_code_title')}</Text>
                   <Text style={styles.modalDescription}>
                     {t('enter_code_desc')}
                   </Text>
@@ -502,11 +496,23 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 5,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  closeModalBtn: {
+    padding: 8,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 20,
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: '800',
     color: '#1e293b',
-    marginBottom: 8,
+    marginBottom: 0,
+    flex: 1,
   },
   modalDescription: {
     fontSize: 14,

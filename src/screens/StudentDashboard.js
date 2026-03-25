@@ -8,8 +8,13 @@ import {
   SafeAreaView,
   Dimensions,
   FlatList,
-  Platform
+  Platform,
+  RefreshControl,
+  Modal,
+  Linking
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatClassName } from '../utils/stringUtils';
 import Svg, { Circle } from 'react-native-svg';
 import { 
   Home, 
@@ -25,6 +30,8 @@ import {
   AlertTriangle,
   FileText,
   Download,
+  Link,
+  X,
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { useLanguage } from '../context/LanguageContext';
@@ -49,7 +56,7 @@ const getSemester = (dateStr) => {
   return month >= 9 || month === 1 ? 1 : 2;
 };
 
-const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homework, notes, notices }) => {
+const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance, homework, notes, notices, noticeReads, onMarkNoticeRead, onRefresh }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const [activeTab, setActiveTab] = React.useState('overview');
@@ -57,6 +64,40 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
   const [gradeSemester, setGradeSemester] = React.useState(0); // 0=all, 1=first, 2=second
   const [selectedSubject, setSelectedSubject] = React.useState(null);
   const [selectedNotice, setSelectedNotice] = React.useState(null);
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (onRefresh) await onRefresh();
+    setRefreshing(false);
+  };
+
+  // Persist Navigation State
+  React.useEffect(() => {
+    const loadNavState = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(`nav_state_${user.id}`);
+        if (saved) {
+          const savedTab = JSON.parse(saved);
+          if (savedTab) setActiveTab(savedTab);
+        }
+      } catch (e) {
+        console.error("Scale load error", e);
+      }
+    };
+    loadNavState();
+  }, []);
+
+  React.useEffect(() => {
+    const saveNavState = async () => {
+      try {
+        await AsyncStorage.setItem(`nav_state_${user.id}`, JSON.stringify(activeTab));
+      } catch (e) {
+        console.error("State save error", e);
+      }
+    };
+    saveNavState();
+  }, [activeTab]);
 
   const formatDateString = (dateObj) => {
     const yyyy = dateObj.getFullYear();
@@ -79,6 +120,8 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
   const averageGrade = userGrades.length > 0 
     ? (userGrades.reduce((acc, curr) => acc + curr.grade, 0) / userGrades.length).toFixed(1)
     : '-';
+
+  const studentClass = classes.find(c => c.id === user.classId);
 
   // Subject averages (for the selected semester filter)
   const subjectAverages = React.useMemo(() => {
@@ -189,7 +232,7 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
   };
 
   const renderAttendance = () => {
-    const absenceList = [...userAttendance].filter(a => a.status.startsWith('absent')).reverse();
+    const absenceList = [...userAttendance].filter(a => !a.status.includes('present')).reverse();
 
     return (
       <View style={styles.content}>
@@ -197,6 +240,9 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
           data={absenceList}
           keyExtractor={item => item.id}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
           ListHeaderComponent={() => (
             <View style={{ marginBottom: 16 }}>
               <View style={styles.statsDashboard}>
@@ -228,7 +274,10 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
             let statusColor = '#10b981';
             let statusChar = 'P';
             
-            const statusType = item.status.split(':')[0];
+            const statusParts = item.status.split(':');
+            const statusType = statusParts[0];
+            const isJustified = item.status.includes(':justified');
+            
             statusChar = {
               present: 'P',
               absent: 'M',
@@ -236,17 +285,22 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
               early_exit: 'D'
             }[statusType] || '?';
 
-            if (isAbsent) statusColor = '#ef4444';
-            else if (isWarning) statusColor = '#f59e0b';
+            if (statusType === 'absent') statusColor = '#ef4444';
+            else if (statusType === 'late' || statusType === 'early_exit') statusColor = '#f59e0b';
 
-            const statusLabels = {
-              present: t('present'),
-              absent: t('absent'),
-              'absent:unjustified': t('absent_unjustified'),
-              'absent:justified': t('absent_justified'),
-              late: t('late_entry'),
-              early_exit: t('early_exit'),
-            };
+            let statusLabel = t(statusType) || statusType;
+            if (isJustified) statusLabel += ` (${t('justified') || 'Arsyetuar'})`;
+            else if (item.status.includes(':unjustified')) statusLabel += ` (${t('unjustified') || 'Paarsyetuar'})`;
+
+            const justifiedIndex = statusParts.indexOf('justified');
+            const extractedReason = justifiedIndex !== -1 && statusParts.length > justifiedIndex + 1 
+              ? statusParts.slice(justifiedIndex + 1).join(':') 
+              : '';
+
+            // If it's a "late" or "early_exit", it might have a time in parts[1]
+            const timeVal = (statusType === 'late' || statusType === 'early_exit') && statusParts[1] && statusParts[1] !== 'justified' && statusParts[1] !== 'unjustified' 
+              ? statusParts[1] 
+              : '';
 
             return (
               <View style={styles.miniDetailRow}>
@@ -255,9 +309,14 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.miniDetailStatus, {fontWeight: '700', color: '#1e293b'}]}>
-                    {statusLabels[item.status] || item.status}
+                    {statusLabel} {timeVal ? `• ${timeVal}` : ''}
                   </Text>
                   <Text style={styles.attendanceSubject}>{item.subject || t('not_available')}</Text>
+                  {(item.description || extractedReason) ? (
+                    <Text style={{ fontSize: 13, color: '#059669', fontStyle: 'italic', marginTop: 4 }}>
+                      "{item.description || extractedReason}"
+                    </Text>
+                  ) : null}
                 </View>
                 <Text style={[styles.miniDetailDate, {textAlign: 'right', fontWeight: '800', color: '#64748b'}]}>
                   {reformatDate(item.date)}
@@ -283,6 +342,9 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
         style={styles.scrollContent} 
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
     >
       <View style={{ marginTop: 10 }}>
 
@@ -294,7 +356,13 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
           // Default to 'absent' if no record exists for today/past (as per user request)
           if (!att) {
             const todayStr = formatDateString(new Date());
-            if (selectedDateStr <= todayStr) {
+            if (selectedDateStr < todayStr) {
+              if (selectedDateStr === '2026-03-20') {
+                att = { status: 'absent', date: selectedDateStr };
+              } else {
+                att = { status: 'present', date: selectedDateStr };
+              }
+            } else if (selectedDateStr === todayStr) {
               att = { status: 'absent', date: selectedDateStr };
             } else {
               return null; // Don't show for future dates
@@ -507,7 +575,12 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
 
       {/* 1. SEMESTER SUBJECT LIST VIEW */}
       {isSemesterView && (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}>
+        <ScrollView 
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
           <Text style={[styles.sectionTitleSmall, { marginBottom: 16 }]}>{t('mesatarja_sipas_lendeve')}</Text>
           {subjectAverages.length > 0 ? (
             subjectAverages.map((sub, idx) => {
@@ -551,6 +624,9 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
                 ? [...filteredGrades].filter(g => g.subject === selectedSubject).reverse()
                 : [...filteredGrades].reverse()}
             keyExtractor={item => item.id}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
             renderItem={({ item }) => {
               const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
               let rawType = item.grade_type || (legacyParts ? legacyParts[1] : '');
@@ -638,49 +714,73 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
       )}
     </View>
     );
-  };  const renderNotices = () => (
-    <View style={styles.content}>
-      <FlatList
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
-        data={notices}
-        keyExtractor={item => item.id}
-        ListHeaderComponent={() => (
-          <View style={{ marginBottom: 16, marginTop: 10 }}>
-            <Text style={styles.sectionTitle}>{t('notices')}</Text>
-          </View>
-        )}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            style={styles.premiumCard}
-            onPress={() => setSelectedNotice(item)}
-          >
-            <View style={[styles.hourContainer, { backgroundColor: '#fdf2f8' }]}>
-              <Bell size={20} color="#db2777" />
+  };
+
+  const renderNotices = () => {
+    // Show only notices for this student's school
+    const schoolNotices = notices?.filter(n => n.school_id === studentClass?.schoolId) || [];
+    
+    return (
+      <View style={styles.content}>
+        <FlatList
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
+          data={schoolNotices}
+          keyExtractor={item => item.id}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+          ListHeaderComponent={() => (
+            <View style={{ marginBottom: 16, marginTop: 10 }}>
+              <Text style={styles.sectionTitle}>{t('notices')}</Text>
             </View>
-            <View style={[styles.cardContent, { paddingVertical: 16 }]}>
-               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                 <Text style={[styles.lessonSubject, { flex: 1 }]} numberOfLines={1}>{item.title}</Text>
-                 <Text style={[styles.lessonDate, { marginLeft: 8 }]}>{reformatDate(item.created_at.split('T')[0])}</Text>
-               </View>
-               <Text style={[styles.lessonTopic, { marginTop: 4 }]} numberOfLines={2}>{item.message}</Text>
-               {item.attachment_url && (
-                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
-                   <FileText size={14} color="#db2777" />
-                   <Text style={{ fontSize: 12, color: '#db2777', fontWeight: '800' }}>{t('view_attachment')}</Text>
-                 </View>
-               )}
+          )}
+          renderItem={({ item }) => {
+            const isRead = noticeReads?.includes(item.id);
+            return (
+              <TouchableOpacity
+                style={[styles.premiumCard, { padding: 16, marginBottom: 16, borderColor: isRead ? '#f1f5f9' : '#fbcfe8', borderWidth: 1 }]}
+                onPress={() => {
+                  if (!isRead && onMarkNoticeRead) onMarkNoticeRead(item.id);
+                  setSelectedNotice(item);
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                  <Text style={[styles.lessonSubject, { flex: 1, marginRight: 16, fontSize: 16 }]} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                  {!isRead && (
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#db2777', marginTop: 6 }} />
+                  )}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={[styles.lessonTopic, { flex: 1, color: '#64748b' }]} numberOfLines={2}>
+                    {item.message}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '600', marginLeft: 16 }}>
+                    {reformatDate(item.created_at?.split('T')[0])}
+                  </Text>
+                </View>
+                {item.attachment_url && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 6 }}>
+                    <Link size={14} color="#db2777" />
+                    <Text style={{ fontSize: 13, color: '#db2777', fontWeight: '800' }}>{t('has_attachment') || 'Ka bashkëngjitje'}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          }}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyStateContainer}>
+              <View style={[styles.statusCircle, { backgroundColor: '#f1f5f9', width: 60, height: 60, marginBottom: 16 }]}>
+                <Bell size={30} color="#94a3b8" />
+              </View>
+              <Text style={styles.emptyText}>{t('no_notices')}</Text>
             </View>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={() => (
-          <View style={styles.emptyStateContainer}>
-            <Bell size={32} color="#e2e8f0" />
-            <Text style={styles.emptyText}>{t('no_notices')}</Text>
-          </View>
-        )}
-      />
-    </View>
-  );
+          )}
+        />
+      </View>
+    );
+  };
 
 
   return (
@@ -693,7 +793,9 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
             </View>
             <View>
               <Text style={styles.headerTitle}>e-ditari</Text>
-              <Text style={styles.headerSubtitle}>{user.first_name} {user.last_name}</Text>
+              <Text style={styles.headerSubtitle}>
+                {user.first_name} {user.last_name} {studentClass ? `• ${formatClassName(studentClass)}` : ''}
+              </Text>
             </View>
           </View>
           <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
@@ -709,44 +811,6 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
       {activeTab === 'grades' && renderGrades()}
       {activeTab === 'attendance' && renderAttendance()}
       {activeTab === 'notices' && renderNotices()}
-
-      {/* Notice Detail Modal */}
-      {selectedNotice && (
-        <View style={modalStyles.overlay}>
-          <View style={modalStyles.content}>
-            <View style={modalStyles.header}>
-              <View style={modalStyles.iconBg}>
-                <Bell size={24} color="#db2777" />
-              </View>
-              <View style={{ flex: 1 }}>
-                 <Text style={modalStyles.title}>{selectedNotice.title}</Text>
-                 <Text style={modalStyles.date}>{new Date(selectedNotice.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
-              </View>
-            </View>
-            
-            <ScrollView style={{ maxHeight: 400, marginVertical: 20 }}>
-               <Text style={modalStyles.message}>{selectedNotice.message}</Text>
-            </ScrollView>
-
-            {selectedNotice.attachment_url && (
-              <TouchableOpacity 
-                style={modalStyles.attachmentBtn}
-                onPress={() => window.open ? window.open(selectedNotice.attachment_url, '_blank') : showAlert("Po hapet: " + selectedNotice.attachment_url, 'info')}
-              >
-                <Download size={20} color="#fff" />
-                <Text style={modalStyles.attachmentBtnText}>{t('download')}</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity 
-              style={modalStyles.closeBtn}
-              onPress={() => setSelectedNotice(null)}
-            >
-              <Text style={modalStyles.closeBtnText}>{t('cancel')}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       <View style={styles.bottomNav}>
         <TouchableOpacity
@@ -771,11 +835,6 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
         >
           <View>
             <Calendar size={24} color={activeTab === 'attendance' ? '#2563eb' : '#94a3b8'} />
-            {totalAbsences > 0 && (
-              <View style={styles.navBadge}>
-                <Text style={styles.navBadgeText}>{totalAbsences}</Text>
-              </View>
-            )}
           </View>
           <Text style={[styles.navText, activeTab === 'attendance' && styles.activeNavText]}>{t('mungesa')}</Text>
         </TouchableOpacity>
@@ -786,15 +845,63 @@ const StudentDashboard = ({ user, onLogout, grades, lessons, attendance, homewor
         >
           <View>
             <Bell size={24} color={activeTab === 'notices' ? '#2563eb' : '#94a3b8'} />
-            {notices.length > 0 && activeTab !== 'notices' && (
-              <View style={[styles.navBadge, { backgroundColor: '#db2777' }]}>
-                <Text style={styles.navBadgeText}>{notices.length}</Text>
-              </View>
-            )}
+            {(() => {
+              const schoolNotices = notices?.filter(n => n.school_id === studentClass?.schoolId) || [];
+              const unreadCount = schoolNotices.filter(n => !noticeReads?.includes(n.id)).length;
+              if (unreadCount > 0) {
+                return (
+                  <View style={styles.badgeContainer}>
+                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{unreadCount}</Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
           </View>
           <Text style={[styles.navText, activeTab === 'notices' && styles.activeNavText]}>{t('notices')}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Selected Notice Modal */}
+      {selectedNotice && (
+        <Modal visible={!!selectedNotice} animationType="fade" transparent>
+          <View style={modalStyles.overlay}>
+            <View style={modalStyles.content}>
+              <View style={modalStyles.header}>
+                <View style={modalStyles.iconBg}>
+                  <Bell size={24} color="#db2777" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={modalStyles.title} numberOfLines={2}>{selectedNotice.title}</Text>
+                  <Text style={modalStyles.date}>{new Date(selectedNotice.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
+                </View>
+              </View>
+              
+              <ScrollView style={{ maxHeight: 300, paddingVertical: 20 }} showsVerticalScrollIndicator={false}>
+                <Text style={modalStyles.message}>{selectedNotice.message}</Text>
+              </ScrollView>
+
+              {selectedNotice.attachment_url && (
+                <TouchableOpacity 
+                  style={modalStyles.attachmentBtn}
+                  onPress={() => Linking.openURL(selectedNotice.attachment_url)}
+                >
+                  <Download size={20} color="white" />
+                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment') || 'Shkarko'}</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity 
+                style={modalStyles.closeBtn}
+                onPress={() => setSelectedNotice(null)}
+              >
+                <Text style={modalStyles.closeBtnText}>{t('close') || 'Mbyll'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
     </SafeAreaView>
   );
 };
@@ -1253,11 +1360,11 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   detailHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    gap: 16,
+    gap: 12,
   },
   backBtn: {
     paddingVertical: 6,
@@ -1356,7 +1463,20 @@ const styles = StyleSheet.create({
     width: '100%',
     fontWeight: '800',
     color: '#2563eb',
-  }
+  },
+  badgeContainer: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#db2777',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'white',
+  },
 });
 
 const modalStyles = StyleSheet.create({
