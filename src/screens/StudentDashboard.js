@@ -36,6 +36,7 @@ import {
 import CalendarStrip from '../components/CalendarStrip';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
+import { downloadFile } from '../utils/fileUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -717,9 +718,11 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
   };
 
   const renderNotices = () => {
-    // Show only notices for this student's school
-    const schoolNotices = notices?.filter(n => n.school_id === studentClass?.schoolId) || [];
-    
+    const schoolNotices = notices?.filter(n =>
+      (n.school_id === studentClass?.schoolId || !n.school_id) &&
+      (!n.class_id || n.class_id === user.classId)
+    ) || [];
+
     return (
       <View style={styles.content}>
         <FlatList
@@ -736,35 +739,65 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           )}
           renderItem={({ item }) => {
             const isRead = noticeReads?.includes(item.id);
+            const hasAttachment = !!item.attachment_url;
             return (
               <TouchableOpacity
-                style={[styles.premiumCard, { padding: 16, marginBottom: 16, borderColor: isRead ? '#f1f5f9' : '#fbcfe8', borderWidth: 1 }]}
+                activeOpacity={0.82}
+                style={{
+                  backgroundColor: isRead ? 'white' : '#fdf2f8',
+                  borderRadius: 20,
+                  marginBottom: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: isRead ? '#f1f5f9' : '#fce7f3',
+                  shadowColor: isRead ? '#94a3b8' : '#db2777',
+                  shadowOffset: { width: 0, height: 3 },
+                  shadowOpacity: isRead ? 0.06 : 0.10,
+                  shadowRadius: 10,
+                  elevation: 3,
+                }}
                 onPress={() => {
                   if (!isRead && onMarkNoticeRead) onMarkNoticeRead(item.id);
                   setSelectedNotice(item);
                 }}
               >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <Text style={[styles.lessonSubject, { flex: 1, marginRight: 16, fontSize: 16 }]} numberOfLines={2}>
+                {/* Icon container on the left */}
+                <View style={{
+                  width: 50, height: 50, borderRadius: 16,
+                  backgroundColor: isRead ? '#f0f9ff' : '#fce7f3',
+                  alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                  borderWidth: 1,
+                  borderColor: isRead ? '#e0f2fe' : '#fbcfe8',
+                }}>
+                  {hasAttachment
+                    ? <FileText size={24} color={isRead ? '#0ea5e9' : '#db2777'} />
+                    : <Bell size={24} color={isRead ? '#0ea5e9' : '#db2777'} />
+                  }
+                </View>
+
+                {/* Text content */}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a', marginBottom: 3 }} numberOfLines={2}>
                     {item.title}
                   </Text>
-                  {!isRead && (
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#db2777', marginTop: 6 }} />
+                  <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '500' }}>
+                    {new Date(item.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </Text>
+                  {hasAttachment && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 }}>
+                      <FileText size={11} color="#db2777" />
+                      <Text style={{ fontSize: 11, color: '#db2777', fontWeight: '700' }}>{t('attachment') || 'Bashkëngjitje'}</Text>
+                    </View>
                   )}
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={[styles.lessonTopic, { flex: 1, color: '#64748b' }]} numberOfLines={2}>
-                    {item.message}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '600', marginLeft: 16 }}>
-                    {reformatDate(item.created_at?.split('T')[0])}
-                  </Text>
-                </View>
-                {item.attachment_url && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 6 }}>
-                    <Link size={14} color="#db2777" />
-                    <Text style={{ fontSize: 13, color: '#db2777', fontWeight: '800' }}>{t('has_attachment') || 'Ka bashkëngjitje'}</Text>
-                  </View>
+
+                {/* Unread dot */}
+                {!isRead && (
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#db2777', flexShrink: 0 }} />
                 )}
               </TouchableOpacity>
             );
@@ -884,7 +917,11 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
               {selectedNotice.attachment_url && (
                 <TouchableOpacity 
                   style={modalStyles.attachmentBtn}
-                  onPress={() => Linking.openURL(selectedNotice.attachment_url)}
+                  onPress={() => {
+                    const extension = selectedNotice.attachment_url.split('.').pop().split('?')[0] || 'pdf';
+                    const fileName = `${selectedNotice.title.replace(/[^a-z0-9]/gi, '_')}.${extension}`;
+                    downloadFile(selectedNotice.attachment_url, fileName);
+                  }}
                 >
                   <Download size={20} color="white" />
                   <Text style={modalStyles.attachmentBtnText}>{t('download_attachment') || 'Shkarko'}</Text>

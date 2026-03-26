@@ -11,7 +11,8 @@ import {
   Dimensions,
   Modal,
   TextInput,
-  RefreshControl
+  RefreshControl,
+  Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Circle } from 'react-native-svg';
@@ -42,7 +43,10 @@ import {
   FlaskConical,
   Palette,
   Music,
-  Divide
+  Divide,
+  FileText,
+  Paperclip,
+  Download
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { formatDate, formatDisplayDate } from '../utils/dateUtils';
@@ -116,8 +120,8 @@ const GradeRing = ({ value, size = 64, showProgress = false }) => {
 };
 
 const TeacherDashboard = ({
-  user, onLogout, classes, students, grades, lessons, attendance, homework, notes,
-  onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onJustifyAttendance, 
+  user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices,
+  onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onJustifyAttendance,
   onInitializeAttendance, onAddHomework, onAddNote, onRefresh
 }) => {
   const { t } = useLanguage();
@@ -154,6 +158,7 @@ const TeacherDashboard = ({
   const [gradeCustomDate, setGradeCustomDate] = useState(null); // null = use selectedDate
 
   // Modal State
+  const [selectedNotice, setSelectedNotice] = useState(null);
   const [isLessonModalVisible, setIsLessonModalVisible] = useState(false);
   const [isGradeModalVisible, setIsGradeModalVisible] = useState(false);
   const [isActionModalVisible, setIsActionModalVisible] = useState(false);
@@ -1653,6 +1658,100 @@ const TeacherDashboard = ({
     );
   };
 
+  const renderNotices = () => {
+    const teacherSchoolId = user.school_id;
+    const teacherClassIds = classes
+      .filter(c => (c.teacherIds || []).includes(user.id))
+      .map(c => c.id);
+
+    const visibleNotices = (notices || []).filter(n =>
+      (n.school_id === teacherSchoolId || !n.school_id) &&
+      (!n.class_id || teacherClassIds.includes(n.class_id))
+    );
+
+    return (
+      <View style={styles.viewContainer}>
+        <FlatList
+          contentContainerStyle={{ paddingHorizontal: 0, paddingBottom: 120, flexGrow: 1 }}
+          data={visibleNotices}
+          keyExtractor={item => item.id}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+          ListHeaderComponent={() => (
+            <View style={{ marginBottom: 16, marginTop: 10 }}>
+              <Text style={styles.sectionTitle}>{t('notices')}</Text>
+            </View>
+          )}
+          renderItem={({ item }) => {
+            const hasAttachment = !!item.attachment_url;
+            return (
+              <TouchableOpacity
+                activeOpacity={0.82}
+                style={{
+                  backgroundColor: 'white',
+                  borderRadius: 20,
+                  marginBottom: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: '#f1f5f9',
+                  shadowColor: '#94a3b8',
+                  shadowOffset: { width: 0, height: 3 },
+                  shadowOpacity: 0.06,
+                  shadowRadius: 10,
+                  elevation: 3,
+                }}
+                onPress={() => setSelectedNotice(item)}
+              >
+                {/* Icon container on the left */}
+                <View style={{
+                  width: 50, height: 50, borderRadius: 16,
+                  backgroundColor: '#f0f9ff',
+                  alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                  borderWidth: 1,
+                  borderColor: '#e0f2fe',
+                }}>
+                  {hasAttachment
+                    ? <FileText size={24} color={'#0ea5e9'} />
+                    : <Bell size={24} color={'#0ea5e9'} />
+                  }
+                </View>
+
+                {/* Text content */}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a', marginBottom: 3 }} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '500' }}>
+                    {new Date(item.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </Text>
+                  {hasAttachment && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 }}>
+                      <FileText size={11} color="#2563eb" />
+                      <Text style={{ fontSize: 11, color: '#2563eb', fontWeight: '700' }}>{t('attachment') || 'Bashkëngjitje'}</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+          ListEmptyComponent={() => (
+            <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+              <View style={{ width: 80, height: 80, borderRadius: 24, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                <Bell size={36} color="#cbd5e1" />
+              </View>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: '#94a3b8', textAlign: 'center' }}>{t('no_notices')}</Text>
+            </View>
+          )}
+        />
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -1674,6 +1773,7 @@ const TeacherDashboard = ({
 
       {activeView === 'lessons' && navigation.view === 'home' && renderClassList('lesson-form', t('select_class_lesson'))}
       {activeView === 'notat' && navigation.view === 'home' && renderClassList('notat-students', t('select_class_grades'))}
+      {activeView === 'lajmerimet' && navigation.view === 'home' && renderNotices()}
 
       {navigation.view === 'class-detail' && renderClassDetail(navigation.data)}
       {navigation.view === 'lesson-form' && renderLessonForm(navigation.data)}
@@ -1788,7 +1888,73 @@ const TeacherDashboard = ({
           <ShieldCheck size={24} color={activeView === 'notat' ? '#2563eb' : '#94a3b8'} />
           <Text style={[styles.navText, activeView === 'notat' && styles.activeNavText]}>{t('student_grades')}</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => { setActiveView('lajmerimet'); setNavigation({ view: 'home', data: null }); }}
+        >
+          <View>
+            <Bell size={24} color={activeView === 'lajmerimet' ? '#2563eb' : '#94a3b8'} />
+            {(() => {
+              const teacherSchoolId = user.school_id;
+              const unread = (notices || []).filter(n =>
+                (n.school_id === teacherSchoolId || !n.school_id)
+              ).length;
+              if (unread > 0 && activeView !== 'lajmerimet') {
+                return (
+                  <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#db2777', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: 'white', fontSize: 9, fontWeight: '900' }}>{unread > 9 ? '9+' : unread}</Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
+          </View>
+          <Text style={[styles.navText, activeView === 'lajmerimet' && styles.activeNavText]}>{t('notices')}</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Selected Notice Modal */}
+      {selectedNotice && (
+        <Modal visible={!!selectedNotice} animationType="fade" transparent>
+          <View style={modalStyles.overlay}>
+            <View style={modalStyles.content}>
+              <View style={modalStyles.header}>
+                <View style={modalStyles.iconBg}>
+                  <Bell size={24} color="#2563eb" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={modalStyles.title} numberOfLines={2}>{selectedNotice.title}</Text>
+                  <Text style={modalStyles.date}>{new Date(selectedNotice.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
+                </View>
+              </View>
+              
+              <ScrollView style={{ maxHeight: 300, paddingVertical: 20 }} showsVerticalScrollIndicator={false}>
+                <Text style={modalStyles.message}>{selectedNotice.message}</Text>
+              </ScrollView>
+
+              {selectedNotice.attachment_url && (
+                <TouchableOpacity 
+                  style={modalStyles.attachmentBtn}
+                  onPress={() => {
+                    Linking.openURL(selectedNotice.attachment_url);
+                  }}
+                >
+                  <Download size={20} color="white" />
+                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment') || 'Shkarko bashkëngjitjen'}</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity 
+                style={modalStyles.closeBtn}
+                onPress={() => setSelectedNotice(null)}
+              >
+                <Text style={modalStyles.closeBtnText}>{t('close') || 'Mbyll'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
     </SafeAreaView>
   );
 };
@@ -2965,6 +3131,89 @@ const styles = StyleSheet.create({
   },
 });
 
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    padding: 24,
+  },
+  content: {
+    backgroundColor: 'white',
+    borderRadius: 32,
+    padding: 24,
+    width: '100%',
+    maxWidth: 500,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.2,
+    shadowRadius: 25,
+    elevation: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    paddingBottom: 20,
+  },
+  iconBg: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#1e293b',
+    letterSpacing: -0.5,
+  },
+  date: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  message: {
+    fontSize: 16,
+    lineHeight: 26,
+    color: '#475569',
+  },
+  attachmentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563eb',
+    padding: 16,
+    borderRadius: 16,
+    gap: 10,
+    marginBottom: 12,
+  },
+  attachmentBtnText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  closeBtn: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+  },
+  closeBtnText: {
+    color: '#64748b',
+    fontWeight: '800',
+    fontSize: 16,
+  }
+});
 
 export default TeacherDashboard;
 

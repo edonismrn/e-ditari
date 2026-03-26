@@ -49,13 +49,16 @@ import {
   X,
   Link,
   Trash,
-  Upload
+  Upload,
+  Paperclip,
+  Download
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
 import { KOSOVO_DATA } from '../data/kosovoSchools';
 import { KOSOVO_SUBJECTS } from '../data/kosovoSubjects';
 import { formatClassName } from '../utils/stringUtils';
+import { downloadFile } from '../utils/fileUtils';
 import { Modal, Alert } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -82,9 +85,18 @@ const AdminDashboard = ({
   const [noticeMessage, setNoticeMessage] = useState('');
   const [noticeAttachment, setNoticeAttachment] = useState('');
   const [noticeSchoolId, setNoticeSchoolId] = useState(null);
+  const [selectedNoticeSchools, setSelectedNoticeSchools] = useState([]);
+  const [selectedNoticeClasses, setSelectedNoticeClasses] = useState([]);
+  const [isAllSchools, setIsAllSchools] = useState(false);
+  const [isAllClasses, setIsAllClasses] = useState(true);
+  const [searchNoticeSchools, setSearchNoticeSchools] = useState('');
+  const [searchNoticeClasses, setSearchNoticeClasses] = useState('');
+  const [isNoticeSchoolDropdownVisible, setIsNoticeSchoolDropdownVisible] = useState(false);
+  const [isNoticeClassDropdownVisible, setIsNoticeClassDropdownVisible] = useState(false);
+  const [noticeModalStep, setNoticeModalStep] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState('');
-  
+
   const [refreshing, setRefreshing] = useState(false);
   const isSuperAdmin = user?.email === 'admin@ditari-elektronik.com';
 
@@ -99,22 +111,24 @@ const AdminDashboard = ({
         const file = result.assets[0];
         setSelectedFileName(file.name);
         setIsUploading(true);
-        
+
         const uploadResult = await onUploadFile(file.uri, file.name, file.mimeType);
-        
+
         setIsUploading(false);
-        
+
         if (uploadResult.publicUrl) {
           setNoticeAttachment(uploadResult.publicUrl);
         } else {
-          showAlert(t('upload_failed') || 'Ngarkimi dështoi', 'error');
+          const errorMsg = uploadResult.error?.message || t('upload_failed') || 'Ngarkimi dështoi';
+          showAlert(errorMsg, 'error');
           setSelectedFileName('');
         }
       }
     } catch (err) {
       console.error('Pick error:', err);
       setIsUploading(false);
-      showAlert(t('pick_error') || 'Gabim gjatë zgjedhjes së fajllit', 'error');
+      const errorMsg = err.message || t('pick_error') || 'Gabim gjatë zgjedhjes së fajllit';
+      showAlert(errorMsg, 'error');
     }
   };
 
@@ -162,7 +176,7 @@ const AdminDashboard = ({
   // Settings Deletion States
   const [settingsSearchQuery, setSettingsSearchQuery] = useState('');
   const [selectedEntityForAction, setSelectedEntityForAction] = useState(null);
-  const [activeSettingsMode, setActiveSettingsMode] = useState(null); 
+  const [activeSettingsMode, setActiveSettingsMode] = useState(null);
   const [selectedTeacherIds, setSelectedTeacherIds] = useState([]);
   const [isTeacherSelectionMode, setIsTeacherSelectionMode] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
@@ -287,7 +301,7 @@ const AdminDashboard = ({
       setTeacherSubjects([...teacherSubjects, subject]);
     }
   };
- 
+
   const handleAddTeacherLocal = async (specificSchoolId) => {
     const schoolId = specificSchoolId || navigation.data?.id || navigation.data?.schoolId;
     if (!schoolId) {
@@ -323,7 +337,7 @@ const AdminDashboard = ({
     const school = schools.find(s => s.id === schoolId);
     let finalClassName = newClassName;
     if (school?.has_paralele && newClassParalele) {
-       finalClassName = `${newClassName}-${newClassParalele}`;
+      finalClassName = `${newClassName}-${newClassParalele}`;
     }
 
     const result = await onAddClass({
@@ -500,8 +514,8 @@ const AdminDashboard = ({
   };
 
   const renderMain = () => (
-    <ScrollView 
-      style={styles.scrollContent} 
+    <ScrollView
+      style={styles.scrollContent}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: 100 }}
       refreshControl={
@@ -530,8 +544,8 @@ const AdminDashboard = ({
       </View>
 
       <View style={styles.quickActions}>
-        <TouchableOpacity 
-          style={styles.actionTile} 
+        <TouchableOpacity
+          style={styles.actionTile}
           onPress={() => isSuperAdmin ? setNavigation({ view: 'schools', data: null }) : setNavigation({ view: 'school-detail', data: schools[0] })}
         >
           <View style={[styles.actionIconContainer, { backgroundColor: '#eff6ff' }]}>
@@ -570,19 +584,14 @@ const AdminDashboard = ({
         <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'notices', data: null })}>
           <View style={[styles.actionIconContainer, { backgroundColor: '#fdf2f8' }]}>
             <Bell size={24} color="#db2777" />
-            {notices?.length > 0 && (
-              <View style={[styles.badgeContainer, { backgroundColor: '#db2777' }]}>
-                <Text style={styles.badgeText}>{notices.length}</Text>
-              </View>
-            )}
           </View>
           <Text style={styles.actionTileTitle}>{t('notices')}</Text>
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
 
         {isSuperAdmin && (
-          <TouchableOpacity 
-            style={styles.actionTile} 
+          <TouchableOpacity
+            style={styles.actionTile}
             onPress={() => setNavigation({ view: 'codes', data: null })}
           >
             <View style={[styles.actionIconContainer, { backgroundColor: '#f0f9ff' }]}>
@@ -629,7 +638,7 @@ const AdminDashboard = ({
             />
           </View>
 
-          <ScrollView 
+          <ScrollView
             style={styles.scrollContent}
             contentContainerStyle={{ paddingBottom: 100 }}
             refreshControl={
@@ -679,7 +688,7 @@ const AdminDashboard = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView 
+          <ScrollView
             style={styles.scrollContent}
             contentContainerStyle={{ paddingBottom: 100 }}
             refreshControl={
@@ -777,7 +786,7 @@ const AdminDashboard = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView 
+          <ScrollView
             style={styles.scrollContent}
             contentContainerStyle={{ paddingBottom: 100 }}
             refreshControl={
@@ -898,11 +907,11 @@ const AdminDashboard = ({
             <View style={[styles.card, { flexDirection: 'column', padding: 20, marginTop: 20 }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <View style={[styles.actionIconContainer, { backgroundColor: '#fef3c7', width: 44, height: 44 }]}>
-                   <Archive size={20} color="#d97706" />
+                  <Archive size={20} color="#d97706" />
                 </View>
                 <Text style={styles.cardTitle}>{t('archive_data')}</Text>
               </View>
-              
+
               <Text style={[styles.cardSubtitle, { marginBottom: 16 }]}>
                 {t('confirm_archive')}
               </Text>
@@ -914,14 +923,14 @@ const AdminDashboard = ({
                 onChangeText={setAcademicYearName}
               />
 
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: '#d97706', borderColor: '#d97706' }]} 
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: '#d97706', borderColor: '#d97706' }]}
                 onPress={() => {
-                   confirmDelete(t('confirm_archive'), async () => {
-                      setIsProcessing(true);
-                      await onArchiveYear(user.school_id, academicYearName);
-                      setIsProcessing(false);
-                   });
+                  confirmDelete(t('confirm_archive'), async () => {
+                    setIsProcessing(true);
+                    await onArchiveYear(user.school_id, academicYearName);
+                    setIsProcessing(false);
+                  });
                 }}
                 disabled={isProcessing}
               >
@@ -934,23 +943,23 @@ const AdminDashboard = ({
             <View style={[styles.card, { flexDirection: 'column', padding: 20, marginTop: 16 }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <View style={[styles.actionIconContainer, { backgroundColor: '#dcfce7', width: 44, height: 44 }]}>
-                   <ArrowUpCircle size={20} color="#16a34a" />
+                  <ArrowUpCircle size={20} color="#16a34a" />
                 </View>
                 <Text style={styles.cardTitle}>{t('promote_students')}</Text>
               </View>
-              
+
               <Text style={[styles.cardSubtitle, { marginBottom: 16 }]}>
                 {t('confirm_promotion')}
               </Text>
 
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: '#16a34a', borderColor: '#16a34a' }]} 
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: '#16a34a', borderColor: '#16a34a' }]}
                 onPress={() => {
-                   confirmDelete(t('confirm_promotion'), async () => {
-                      setIsProcessing(true);
-                      await onPromoteStudents(user.school_id);
-                      setIsProcessing(false);
-                   });
+                  confirmDelete(t('confirm_promotion'), async () => {
+                    setIsProcessing(true);
+                    await onPromoteStudents(user.school_id);
+                    setIsProcessing(false);
+                  });
                 }}
                 disabled={isProcessing}
               >
@@ -1021,8 +1030,8 @@ const AdminDashboard = ({
                     setSelectedFileName('');
                   }}
                 />
-                <TouchableOpacity 
-                  style={[styles.smallAddButton, { height: 52, paddingHorizontal: 16 }]} 
+                <TouchableOpacity
+                  style={[styles.smallAddButton, { height: 52, paddingHorizontal: 16 }]}
                   onPress={handleFilePick}
                   disabled={isUploading}
                 >
@@ -1047,14 +1056,14 @@ const AdminDashboard = ({
                     showAlert(t('please_select_school') || 'Ju lutem zgjidhni shkollën', 'error');
                     return;
                   }
-                  
+
                   await onAddNotice({
                     schoolId: isSuperAdmin ? noticeSchoolId : user.school_id,
                     title: noticeTitle,
                     message: noticeMessage,
                     attachmentUrl: noticeAttachment
                   });
-                  
+
                   setNoticeTitle('');
                   setNoticeMessage('');
                   setNoticeAttachment('');
@@ -1066,7 +1075,7 @@ const AdminDashboard = ({
             </View>
 
             <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>{t('notices')} ({notices.length})</Text>
-            
+
             {(notices || []).map(item => (
               <View key={item.id} style={styles.card}>
                 <View style={{ flex: 1 }}>
@@ -1082,16 +1091,18 @@ const AdminDashboard = ({
                     </View>
                   ) : null}
                 </View>
-                <TouchableOpacity onPress={() => confirmDelete(t('confirm_delete'), () => onDeleteNotice(item.id))}>
-                  <Trash2 size={20} color="#94a3b8" />
-                </TouchableOpacity>
+                {(!item.is_super_admin || isSuperAdmin) && (
+                  <TouchableOpacity onPress={() => confirmDelete(t('confirm_delete'), () => onDeleteNotice(item.id))}>
+                    <Trash2 size={20} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
-            
+
             {(notices || []).length === 0 && (
               <Text style={styles.emptyTextSmall}>{t('no_notices')}</Text>
             )}
-            
+
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>
@@ -1132,10 +1143,10 @@ const AdminDashboard = ({
                         <Hash size={14} color="#64748b" />
                         <Text style={{ fontSize: 13, color: '#64748b', fontWeight: 'bold' }}>{school.code}</Text>
                       </View>
-                      
+
                       <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 }}>
                         <Text style={[styles.entitySub, { fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }]}>{t('admin_credentials')}</Text>
-                        
+
                         {/* Email */}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
                           <Users size={14} color="#6366f1" />
@@ -1167,7 +1178,7 @@ const AdminDashboard = ({
   };
 
   const toggleTeacherSelection = (id) => {
-    setSelectedTeacherIds(prev => 
+    setSelectedTeacherIds(prev =>
       prev.includes(id) ? prev.filter(tid => tid !== id) : [...prev, id]
     );
   };
@@ -1197,8 +1208,8 @@ const AdminDashboard = ({
   const renderTeachers = () => (
     <View style={styles.viewContainer}>
       <View style={styles.navigationHeader}>
-        <TouchableOpacity 
-          style={styles.backButton} 
+        <TouchableOpacity
+          style={styles.backButton}
           onPress={() => {
             setNavigation({ view: 'home', data: null });
             setIsTeacherSelectionMode(false);
@@ -1219,8 +1230,8 @@ const AdminDashboard = ({
           </View>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             {teachers.length > 0 && (
-              <TouchableOpacity 
-                style={[styles.smallAddButton, { backgroundColor: isTeacherSelectionMode ? '#ef4444' : '#f1f5f9' }]} 
+              <TouchableOpacity
+                style={[styles.smallAddButton, { backgroundColor: isTeacherSelectionMode ? '#ef4444' : '#f1f5f9' }]}
                 onPress={() => {
                   setIsTeacherSelectionMode(!isTeacherSelectionMode);
                   setSelectedTeacherIds([]);
@@ -1244,7 +1255,7 @@ const AdminDashboard = ({
         </View>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollContent}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={
@@ -1254,8 +1265,8 @@ const AdminDashboard = ({
         {teachers.map(teacher => {
           const isSelected = selectedTeacherIds.includes(teacher.id);
           return (
-            <TouchableOpacity 
-              key={teacher.id} 
+            <TouchableOpacity
+              key={teacher.id}
               style={[styles.card, isSelected && { borderColor: '#6366f1', backgroundColor: '#f5f3ff' }]}
               onPress={() => isTeacherSelectionMode ? toggleTeacherSelection(teacher.id) : null}
               activeOpacity={isTeacherSelectionMode ? 0.7 : 1}
@@ -1263,11 +1274,11 @@ const AdminDashboard = ({
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                   {isTeacherSelectionMode ? (
-                    <View style={{ 
-                      width: 24, 
-                      height: 24, 
-                      borderRadius: 12, 
-                      borderWidth: 2, 
+                    <View style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      borderWidth: 2,
                       borderColor: isSelected ? '#6366f1' : '#cbd5e1',
                       backgroundColor: isSelected ? '#6366f1' : 'transparent',
                       alignItems: 'center',
@@ -1292,7 +1303,7 @@ const AdminDashboard = ({
                   {t('classes_label')}: {classes.filter(c => (c.teacherIds || []).includes(teacher.id)).map(c => formatClassName(c)).join(', ') || t('none')}
                 </Text>
               </View>
-              
+
               {!isTeacherSelectionMode && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity
@@ -1317,22 +1328,22 @@ const AdminDashboard = ({
       </ScrollView>
 
       {isTeacherSelectionMode && (
-        <View style={{ 
-          flexDirection: 'row', 
-          gap: 12, 
-          padding: 16, 
-          backgroundColor: '#fff', 
-          borderTopWidth: 1, 
-          borderTopColor: '#f1f5f9' 
+        <View style={{
+          flexDirection: 'row',
+          gap: 12,
+          padding: 16,
+          backgroundColor: '#fff',
+          borderTopWidth: 1,
+          borderTopColor: '#f1f5f9'
         }}>
-          <TouchableOpacity 
-            style={[styles.submitButton, { flex: 1, backgroundColor: '#f1f5f9', shadowColor: 'transparent' }]} 
+          <TouchableOpacity
+            style={[styles.submitButton, { flex: 1, backgroundColor: '#f1f5f9', shadowColor: 'transparent' }]}
             onPress={handleDeleteAllTeachers}
           >
             <Text style={[styles.submitButtonText, { color: '#ef4444' }]}>{t('delete_all') || 'Fshij të gjithë'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.submitButton, { flex: 2, backgroundColor: selectedTeacherIds.length > 0 ? '#ef4444' : '#cbd5e1', shadowColor: selectedTeacherIds.length > 0 ? '#ef4444' : 'transparent' }]} 
+          <TouchableOpacity
+            style={[styles.submitButton, { flex: 2, backgroundColor: selectedTeacherIds.length > 0 ? '#ef4444' : '#cbd5e1', shadowColor: selectedTeacherIds.length > 0 ? '#ef4444' : 'transparent' }]}
             onPress={handleBulkDeleteTeachers}
             disabled={selectedTeacherIds.length === 0}
           >
@@ -1415,8 +1426,8 @@ const AdminDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity 
-            style={styles.backButton} 
+          <TouchableOpacity
+            style={styles.backButton}
             onPress={() => {
               setNavigation({ view: 'home', data: null });
               setIsStudentSelectionMode(false);
@@ -1474,7 +1485,7 @@ const AdminDashboard = ({
           </View>
         )}
 
-        <ScrollView 
+        <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
@@ -1617,11 +1628,11 @@ const AdminDashboard = ({
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 }}>
           {schools.map(school => (
-            <View key={school.id} style={[styles.card, { 
-              width: (width - 48 - 12) / 2, 
-              paddingVertical: 16, 
-              paddingHorizontal: 12, 
-              flexDirection: 'column', 
+            <View key={school.id} style={[styles.card, {
+              width: (width - 48 - 12) / 2,
+              paddingVertical: 16,
+              paddingHorizontal: 12,
+              flexDirection: 'column',
               alignItems: 'stretch',
               marginBottom: 12
             }]}>
@@ -1630,13 +1641,13 @@ const AdminDashboard = ({
                 <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '800', marginBottom: 8 }} numberOfLines={2}>
                   {school.name}
                 </Text>
-                
+
                 {/* School Code Section */}
-                <View style={{ 
-                  backgroundColor: '#eff6ff', 
-                  padding: 12, 
-                  borderRadius: 12, 
-                  alignItems: 'center', 
+                <View style={{
+                  backgroundColor: '#eff6ff',
+                  padding: 12,
+                  borderRadius: 12,
+                  alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1,
                   borderColor: '#dbeafe',
@@ -1657,11 +1668,11 @@ const AdminDashboard = ({
 
                 {/* Admin Credentials */}
                 {isSuperAdmin && (
-                  <View style={{ 
-                    marginTop: 4, 
-                    paddingTop: 12, 
-                    borderTopWidth: 1, 
-                    borderTopColor: '#f1f5f9' 
+                  <View style={{
+                    marginTop: 4,
+                    paddingTop: 12,
+                    borderTopWidth: 1,
+                    borderTopColor: '#f1f5f9'
                   }}>
                     <View style={{ gap: 6, backgroundColor: '#f8fafc', padding: 8, borderRadius: 8 }}>
                       <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: '700' }} numberOfLines={1}>
@@ -1690,18 +1701,40 @@ const AdminDashboard = ({
     const result = await onAddNotice({
       title: noticeTitle,
       message: noticeMessage,
-      attachmentUrl: noticeAttachment
+      attachmentUrl: noticeAttachment,
+      schoolIds: isSuperAdmin ? (isAllSchools ? schools.map(s => s.id) : selectedNoticeSchools) : null,
+      classIds: !isSuperAdmin ? (isAllClasses ? null : selectedNoticeClasses) : null,
+      schoolId: !isSuperAdmin ? user.school_id : null
     });
-    
+
     if (!result?.error) {
-      setNoticeTitle('');
-      setNoticeMessage('');
       setNoticeAttachment('');
+      setSelectedFileName('');
+      setNoticeSchoolId(null);
+      setSelectedNoticeSchools([]);
+      setSelectedNoticeClasses([]);
+      setSearchNoticeSchools('');
+      setSearchNoticeClasses('');
+      setIsNoticeSchoolDropdownVisible(false);
+      setIsNoticeClassDropdownVisible(false);
+      setNoticeModalStep(1);
       setIsNoticeModalVisible(false);
     }
   };
 
   const renderNotices = () => {
+    // Deduplicate notices based on title, message and attachment for a cleaner admin view
+    const uniqueNotices = [];
+    const seen = new Set();
+
+    (notices || []).forEach(notice => {
+      const key = `${notice.title}-${notice.message}-${notice.attachment_url || ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueNotices.push(notice);
+      }
+    });
+
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
@@ -1711,56 +1744,98 @@ const AdminDashboard = ({
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flex: 1 }}>
             <Text style={styles.viewTitle}>{t('notices')}</Text>
+            <Text style={{ fontSize: 13, color: '#94a3b8', fontWeight: '600' }}></Text>
           </View>
         </View>
 
         <FlatList
-          data={notices}
+          data={uniqueNotices}
           keyExtractor={item => item.id}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 120 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
           ListEmptyComponent={() => (
-            <View style={{ padding: 40, alignItems: 'center' }}>
-              <Bell size={48} color="#cbd5e1" style={{ marginBottom: 16 }} />
-              <Text style={[styles.cardSubtitle, { textAlign: 'center' }]}>{t('no_notices')}</Text>
+            <View style={{ padding: 60, alignItems: 'center' }}>
+              <View style={{ width: 80, height: 80, borderRadius: 24, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                <Bell size={36} color="#cbd5e1" />
+              </View>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: '#94a3b8', textAlign: 'center' }}>{t('no_notices')}</Text>
             </View>
           )}
           renderItem={({ item }) => (
-            <View style={styles.card}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ flex: 1, paddingRight: 16 }}>
-                  <Text style={[styles.cardTitle, { fontSize: 18, marginBottom: 4 }]}>{item.title}</Text>
-                  <Text style={[styles.cardSubtitle, { marginBottom: 12 }]}>
-                    {new Date(item.created_at).toLocaleDateString()}
-                  </Text>
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 24,
+              marginBottom: 16,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: '#f1f5f9',
+              shadowColor: '#6366f1',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.08,
+              shadowRadius: 16,
+              elevation: 4,
+              flexDirection: 'row',
+            }}>
+              {/* Left accent bar */}
+              <View style={{ width: 5, backgroundColor: '#db2777', borderTopLeftRadius: 24, borderBottomLeftRadius: 24 }} />
+
+              <View style={{ flex: 1, padding: 18 }}>
+                {/* Header row: icon + title + delete */}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                  {/* Icon */}
+                  <View style={{ width: 46, height: 46, borderRadius: 15, backgroundColor: '#fdf2f8', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fce7f3', flexShrink: 0 }}>
+                    <Bell size={22} color="#db2777" />
+                  </View>
+
+                  {/* Title + date */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a', lineHeight: 22, marginBottom: 4 }} numberOfLines={2}>
+                      {item.title}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                        <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700', letterSpacing: 0.3 }}>
+                          {new Date(item.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Delete button (Hidden for School Admins on Super Admin notices) */}
+                  {(!item.is_super_admin || isSuperAdmin) && (
+                    <TouchableOpacity
+                      style={{ width: 36, height: 36, backgroundColor: '#fef2f2', borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                      onPress={() => confirmDelete(`${t('confirm_delete')} ${t('notice_title')}?`, () => onDeleteNotice(item.id))}
+                    >
+                      <Trash size={16} color="#ef4444" />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                <TouchableOpacity 
-                   style={{ padding: 8, backgroundColor: '#fef2f2', borderRadius: 8 }}
-                   onPress={() => {
-                     confirmDelete(`${t('confirm_delete')} ${t('notice_title')}?`, () => onDeleteNotice(item.id));
-                   }}
-                >
-                  <Trash size={18} color="#ef4444" />
-                </TouchableOpacity>
+
+                {/* Message body */}
+                <Text style={{ fontSize: 14, color: '#475569', lineHeight: 22, marginBottom: item.attachment_url ? 14 : 0 }} numberOfLines={4}>
+                  {item.message}
+                </Text>
+
+                {/* Attachment chip */}
+                {item.attachment_url && (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fdf2f8', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 14, gap: 8, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#fce7f3' }}
+                    onPress={() => {
+                      const extension = item.attachment_url.split('.').pop().split('?')[0] || 'pdf';
+                      const fileName = `${item.title.replace(/[^a-z0-9]/gi, '_')}.${extension}`;
+                      downloadFile(item.attachment_url, fileName);
+                    }}
+                  >
+                    <Paperclip size={14} color="#db2777" />
+                    <Text style={{ color: '#db2777', fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
+                      {t('download_attachment') || 'Shkarko bashkëngjitjen'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
-
-              <Text style={{ fontSize: 15, color: '#475569', lineHeight: 24, marginBottom: item.attachment_url ? 16 : 0 }}>
-                {item.message}
-              </Text>
-
-              {item.attachment_url && (
-                <TouchableOpacity 
-                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#eff6ff', padding: 12, borderRadius: 12, gap: 8 }}
-                  onPress={() => Linking.openURL(item.attachment_url)}
-                >
-                  <Link size={18} color="#3b82f6" />
-                  <Text style={{ color: '#3b82f6', fontWeight: '600', fontSize: 14 }} numberOfLines={1}>
-                    {t('download_attachment')}
-                  </Text>
-                </TouchableOpacity>
-              )}
             </View>
           )}
         />
@@ -2279,62 +2354,276 @@ const AdminDashboard = ({
           <View style={[styles.modalContent, { padding: 0, overflow: 'hidden' }]}>
             <View style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { marginBottom: 4 }]}>{t('new_notice')}</Text>
+                <Text style={[styles.modalTitle, { marginBottom: 4 }]}>
+                  {t('new_notice')} - {noticeModalStep === 1 ? (t('step_1') || 'Hapi 1') : (t('step_2') || 'Hapi 2')}
+                </Text>
               </View>
               <TouchableOpacity onPress={() => {
                 setIsNoticeModalVisible(false);
                 setNoticeTitle('');
                 setNoticeMessage('');
                 setNoticeAttachment('');
+                setSelectedFileName('');
+                setNoticeSchoolId(null);
+                setSelectedNoticeSchools([]);
+                setSelectedNoticeClasses([]);
+                setSearchNoticeSchools('');
+                setSearchNoticeClasses('');
+                setIsNoticeSchoolDropdownVisible(false);
+                setIsNoticeClassDropdownVisible(false);
+                setNoticeModalStep(1);
+                setIsAllSchools(false);
+                setIsAllClasses(true);
               }} style={styles.closeModalBtn}>
                 <X size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={{ padding: 24 }} showsVerticalScrollIndicator={false}>
-              <Text style={styles.label}>{t('notice_title')} *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={t('notice_title')}
-                value={noticeTitle}
-                onChangeText={setNoticeTitle}
-              />
+              {noticeModalStep === 1 && (
+                <View style={{ paddingBottom: 20 }}>
+                  {isSuperAdmin && (
+                    <View style={{ marginBottom: 20 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <Text style={[styles.label, { marginBottom: 0 }]}>{t('select_schools') || 'Zgjidh Shkollat'} *</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setIsAllSchools(!isAllSchools);
+                            if (!isAllSchools) {
+                              setSelectedNoticeSchools([]);
+                              setIsNoticeSchoolDropdownVisible(false);
+                            }
+                          }}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                        >
+                          <View style={{ width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: isAllSchools ? '#6366f1' : '#cbd5e1', backgroundColor: isAllSchools ? '#6366f1' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {isAllSchools && <Check size={14} color="white" />}
+                          </View>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: isAllSchools ? '#6366f1' : '#64748b' }}>{t('all_schools') || 'Të gjitha'}</Text>
+                        </TouchableOpacity>
+                      </View>
 
-              <Text style={styles.label}>{t('notice_message')} *</Text>
-              <TextInput
-                style={[styles.input, { height: 120, textAlignVertical: 'top', paddingTop: 16 }]}
-                placeholder={t('notice_message')}
-                value={noticeMessage}
-                onChangeText={setNoticeMessage}
-                multiline
-              />
+                      {!isAllSchools && (
+                        <>
+                          <TouchableOpacity
+                            style={[
+                              styles.input,
+                              { justifyContent: 'center' },
+                              isNoticeSchoolDropdownVisible && { borderColor: '#6366f1', backgroundColor: '#f8fafc' }
+                            ]}
+                            onPress={() => setIsNoticeSchoolDropdownVisible(!isNoticeSchoolDropdownVisible)}
+                          >
+                            <Text style={{ color: selectedNoticeSchools.length > 0 ? '#1e293b' : '#94a3b8', fontWeight: '700' }}>
+                              {selectedNoticeSchools.length > 0
+                                ? `${selectedNoticeSchools.length} ${t('schools_selected') || 'Shkolla të përzgjedhura'}`
+                                : t('select_schools_placeholder') || 'Zgjidh shkollat...'}
+                            </Text>
+                            <ChevronDown
+                              size={18}
+                              color={isNoticeSchoolDropdownVisible ? '#6366f1' : '#94a3b8'}
+                              style={{ position: 'absolute', right: 12, transform: [{ rotate: isNoticeSchoolDropdownVisible ? '180deg' : '0deg' }] }}
+                            />
+                          </TouchableOpacity>
 
-              <Text style={styles.label}>{t('notice_attachment_url')} ({t('optional')})</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="https://..."
-                value={noticeAttachment}
-                onChangeText={setNoticeAttachment}
-                autoCapitalize="none"
-              />
+                          {isNoticeSchoolDropdownVisible && (
+                            <View style={[styles.dropdownContainer, { position: 'relative', marginTop: 8, width: '100%' }]}>
+                              <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginBottom: 12, height: 44, backgroundColor: '#f1f5f9' }]}>
+                                <Search size={18} color="#64748b" />
+                                <TextInput
+                                  placeholder={t('search_school_placeholder') || 'Kërko shkollën...'}
+                                  style={[styles.searchBarInput, { fontSize: 14, height: 44 }]}
+                                  value={searchNoticeSchools}
+                                  onChangeText={setSearchNoticeSchools}
+                                />
+                              </View>
+                              <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                                {schools.filter(s => s.name.toLowerCase().includes(searchNoticeSchools.toLowerCase())).map(school => {
+                                  const isSelected = selectedNoticeSchools.includes(school.id);
+                                  return (
+                                    <TouchableOpacity
+                                      key={school.id}
+                                      style={[styles.dropdownItem, isSelected && styles.activeDropdownItem]}
+                                      onPress={() => {
+                                        if (isSelected) setSelectedNoticeSchools(prev => prev.filter(id => id !== school.id));
+                                        else setSelectedNoticeSchools(prev => [...prev, school.id]);
+                                      }}
+                                    >
+                                      <Text style={[styles.dropdownItemText, isSelected && styles.activeDropdownItemText]}>{school.name}</Text>
+                                      {isSelected && <Check size={16} color="#6366f1" />}
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </View>
+                  )}
 
-              <View style={styles.modalButtons}>
-                <TouchableOpacity style={styles.cancelButton} onPress={() => {
-                  setIsNoticeModalVisible(false);
-                  setNoticeTitle('');
-                  setNoticeMessage('');
-                  setNoticeAttachment('');
-                }}>
-                  <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.submitButton, { opacity: (noticeTitle && noticeMessage) ? 1 : 0.5 }]}
-                  onPress={handleAddNotice}
-                  disabled={!noticeTitle || !noticeMessage}
-                >
-                  <Text style={styles.submitButtonText}>{t('confirm')}</Text>
-                </TouchableOpacity>
-              </View>
+                  {!isSuperAdmin && (
+                    <View style={{ marginBottom: 20 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <Text style={[styles.label, { marginBottom: 0 }]}>{t('select_classes') || 'Zgjidh Klasat'} *</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setIsAllClasses(!isAllClasses);
+                            if (!isAllClasses) {
+                              setSelectedNoticeClasses([]);
+                              setIsNoticeClassDropdownVisible(false);
+                            }
+                          }}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                        >
+                          <View style={{ width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: isAllClasses ? '#6366f1' : '#cbd5e1', backgroundColor: isAllClasses ? '#6366f1' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {isAllClasses && <Check size={14} color="white" />}
+                          </View>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: isAllClasses ? '#6366f1' : '#64748b' }}>{t('all_classes') || 'Të gjithë shkollën'}</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {!isAllClasses && (
+                        <>
+                          <TouchableOpacity
+                            style={[
+                              styles.input,
+                              { justifyContent: 'center' },
+                              isNoticeClassDropdownVisible && { borderColor: '#6366f1', backgroundColor: '#f8fafc' }
+                            ]}
+                            onPress={() => setIsNoticeClassDropdownVisible(!isNoticeClassDropdownVisible)}
+                          >
+                            <Text style={{ color: selectedNoticeClasses.length > 0 ? '#1e293b' : '#94a3b8', fontWeight: '700' }}>
+                              {selectedNoticeClasses.length > 0
+                                ? `${selectedNoticeClasses.length} ${t('classes_selected') || 'Klasa të përzgjedhura'}`
+                                : t('select_classes_placeholder') || 'Zgjidh klasat...'}
+                            </Text>
+                            <ChevronDown
+                              size={18}
+                              color={isNoticeClassDropdownVisible ? '#6366f1' : '#94a3b8'}
+                              style={{ position: 'absolute', right: 12, transform: [{ rotate: isNoticeClassDropdownVisible ? '180deg' : '0deg' }] }}
+                            />
+                          </TouchableOpacity>
+
+                          {isNoticeClassDropdownVisible && (
+                            <View style={[styles.dropdownContainer, { position: 'relative', marginTop: 8, width: '100%' }]}>
+                              <View style={[styles.searchBarContainer, { marginHorizontal: 0, marginBottom: 12, height: 44, backgroundColor: '#f1f5f9' }]}>
+                                <Search size={18} color="#64748b" />
+                                <TextInput
+                                  placeholder={t('search_class_placeholder') || 'Kërko klasën...'}
+                                  style={[styles.searchBarInput, { fontSize: 14, height: 44 }]}
+                                  value={searchNoticeClasses}
+                                  onChangeText={setSearchNoticeClasses}
+                                />
+                              </View>
+                              <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                                {(classes || []).filter(c => c.school_id === user?.school_id && formatClassName(c).toLowerCase().includes(searchNoticeClasses.toLowerCase())).map(cls => {
+                                  const isSelected = selectedNoticeClasses.includes(cls.id);
+                                  return (
+                                    <TouchableOpacity
+                                      key={cls.id}
+                                      style={[styles.dropdownItem, isSelected && styles.activeDropdownItem]}
+                                      onPress={() => {
+                                        if (isSelected) setSelectedNoticeClasses(prev => prev.filter(id => id !== cls.id));
+                                        else setSelectedNoticeClasses(prev => [...prev, cls.id]);
+                                      }}
+                                    >
+                                      <Text style={[styles.dropdownItemText, isSelected && styles.activeDropdownItemText]}>{formatClassName(cls)}</Text>
+                                      {isSelected && <Check size={16} color="#6366f1" />}
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.submitButton, {
+                      marginTop: 20,
+                      opacity: (
+                        (isSuperAdmin && (isAllSchools || selectedNoticeSchools.length > 0)) ||
+                        (!isSuperAdmin && (isAllClasses || selectedNoticeClasses.length > 0))
+                      ) ? 1 : 0.5
+                    }]}
+                    onPress={() => setNoticeModalStep(2)}
+                    disabled={
+                      (isSuperAdmin && !isAllSchools && selectedNoticeSchools.length === 0) ||
+                      (!isSuperAdmin && !isAllClasses && selectedNoticeClasses.length === 0)
+                    }
+                  >
+                    <Text style={styles.submitButtonText}>{t('next') || 'Vazhdo'}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {noticeModalStep === 2 && (
+                <View>
+                  <Text style={styles.label}>{t('notice_title')} *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t('notice_title')}
+                    value={noticeTitle}
+                    onChangeText={setNoticeTitle}
+                  />
+
+                  <Text style={styles.label}>{t('notice_message')} *</Text>
+                  <TextInput
+                    style={[styles.input, { height: 120, textAlignVertical: 'top', paddingTop: 16 }]}
+                    placeholder={t('notice_message')}
+                    value={noticeMessage}
+                    onChangeText={setNoticeMessage}
+                    multiline
+                  />
+
+                  <Text style={styles.label}>{t('attachment')}</Text>
+
+                  {!noticeAttachment ? (
+                    <TouchableOpacity
+                      style={[styles.actionButton, { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', marginBottom: 20, opacity: isUploading ? 0.6 : 1 }]}
+                      onPress={handleFilePick}
+                      disabled={isUploading}
+                    >
+                      <Upload size={20} color="#db2777" />
+                      <Text style={[styles.actionButtonText, { color: '#db2777' }]}>
+                        {isUploading ? (t('uploading') || 'Duke u ngarkuar...') : (t('upload_file') || 'Ngarko Dokumentin')}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={[styles.card, { padding: 12, marginBottom: 20, borderColor: '#db2777', borderWidth: 1, backgroundColor: '#fdf2f8' }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                        <FileText size={20} color="#db2777" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }} numberOfLines={1}>
+                            {selectedFileName || 'Dokumenti i ngarkuar'}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: '#db2777' }}>{t('file_selected') || 'Fajlli u përzgjodh'}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => { setNoticeAttachment(''); setSelectedFileName(''); }}>
+                          <X size={18} color="#94a3b8" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.modalButtons}>
+                    <TouchableOpacity style={styles.cancelButton} onPress={() => setNoticeModalStep(1)}>
+                      <Text style={styles.cancelButtonText}>{t('back') || 'Mbrapsht'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.submitButton, {
+                        opacity: (noticeTitle && noticeMessage) ? 1 : 0.5
+                      }]}
+                      onPress={handleAddNotice}
+                      disabled={!noticeTitle || !noticeMessage}
+                    >
+                      <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
               <View style={{ height: 40 }} />
             </ScrollView>
           </View>

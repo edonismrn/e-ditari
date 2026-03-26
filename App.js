@@ -135,6 +135,7 @@ function AppContent() {
           attendance={attendance}
           homework={homework}
           notes={notes}
+          notices={notices}
           onAddGrade={addGrade}
           onUpdateGrade={updateGrade}
           onAddLesson={addLesson}

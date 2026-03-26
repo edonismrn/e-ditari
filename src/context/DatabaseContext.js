@@ -38,13 +38,14 @@ export const DatabaseProvider = ({ children }) => {
           supabase.from('classes').select('*'),
           supabase.from('teacher_classes').select('*'),
           supabase.from('student_classes').select('*'),
-          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
+          supabase.from('notices').select('*').order('created_at', { ascending: false })
         ]);
-        
+
         if (!isSuperAdmin && user.school_id) {
           if (schoolsRes.data) schoolsRes.data = schoolsRes.data.filter(s => s.id === user.school_id);
           if (profilesRes.data) profilesRes.data = profilesRes.data.filter(p => p.school_id === user.school_id || p.id === user.id);
           if (classesRes.data) classesRes.data = classesRes.data.filter(c => c.school_id === user.school_id);
+          if (noticesRes.data) noticesRes.data = noticesRes.data.filter(n => n.school_id === user.school_id);
         }
 
         if (schoolsRes.data) setSchools(schoolsRes.data);
@@ -869,59 +870,115 @@ export const DatabaseProvider = ({ children }) => {
   // ─── Notice Board Functions ───
   const uploadFile = async (uri, name, type) => {
     try {
-      // For web, uri might be a blob or file already if handled correctly,
-      // but expo-document-picker returns an object.
+      console.log('Starting upload for:', name, 'type:', type, 'uri:', uri);
+      
       let fileToUpload;
       
-      if (Platform.OS === 'web') {
-        // On web, document picker returns a file/blob compatible uri or the file itself
+      try {
         const response = await fetch(uri);
         fileToUpload = await response.blob();
-      } else {
-        // On native, we might need a different approach, but blob often works
-        const response = await fetch(uri);
-        fileToUpload = await response.blob();
+      } catch (fetchErr) {
+        console.error('Fetch error during upload:', fetchErr);
+        // Fallback for some native cases if fetch fails
+        if (Platform.OS !== 'web') {
+           // We could try XMLHttpRequest or other methods here if needed
+           throw new Error('Failed to fetch local file for upload: ' + fetchErr.message);
+        }
+        throw fetchErr;
       }
 
-      const fileExt = name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const fileExt = name.split('.').pop() || 'bin';
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
       const filePath = `notices/${fileName}`;
 
       const { data, error } = await supabase.storage
         .from('notices')
         .upload(filePath, fileToUpload, {
-          contentType: type,
-          upsert: true
+          contentType: type || 'application/octet-stream',
+          cacheControl: '3600',
+          upsert: false
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase storage upload error:', error);
+        throw error;
+      }
 
       const { data: { publicUrl } } = supabase.storage
         .from('notices')
         .getPublicUrl(filePath);
 
+      console.log('Upload successful! Public URL:', publicUrl);
       return { publicUrl };
     } catch (error) {
-      console.error('Error uploading file:', error);
+      console.error('Final upload catch:', error);
       return { error };
     }
   };
 
-  const addNotice = async ({ title, message, attachmentUrl, schoolId }) => {
+  const addNotice = async ({ title, message, attachmentUrl, schoolIds, classIds, schoolId }) => {
     try {
-      const targetSchoolId = schoolId || user.school_id;
+      const records = [];
+      
+      const isSuperAdmin = user?.email === 'admin@ditari-elektronik.com';
+
+      if (schoolIds && schoolIds.length > 0) {
+        // Multi-school notice (Super Admin)
+        schoolIds.forEach(sid => {
+          records.push({
+            title,
+            message,
+            attachment_url: attachmentUrl || null,
+            school_id: sid,
+            is_super_admin: isSuperAdmin
+          });
+        });
+      } else if (classIds && classIds.length > 0) {
+        // Multi-class notice (School Admin)
+        classIds.forEach(cid => {
+          records.push({
+            title,
+            message,
+            attachment_url: attachmentUrl || null,
+            school_id: user.school_id,
+            class_id: cid, // We'll try to use class_id
+            is_super_admin: isSuperAdmin
+          });
+        });
+      } else {
+        // Single target or default
+        records.push({
+          title,
+          message,
+          attachment_url: attachmentUrl || null,
+          school_id: schoolId || user.school_id,
+          is_super_admin: isSuperAdmin
+        });
+      }
+
+      console.log('Inserting notices:', records);
       const { data, error } = await supabase
         .from('notices')
-        .insert([{ 
-          title, 
-          message, 
-          attachment_url: attachmentUrl || null, 
-          school_id: targetSchoolId 
-        }])
-        .select()
-        .single();
-      if (error) throw error;
-      if (data) setNotices(prev => [data, ...prev]);
+        .insert(records)
+        .select();
+
+      if (error) {
+        // If class_id doesn't exist, try again without it if only one class was targeted or if we want to fallback
+        if (error.message?.includes('class_id') || error.code === '42703') {
+           console.warn('notices table seems to be missing class_id column. Falling back to school-wide notice.');
+           const fallbackRecords = records.map(r => {
+             const { class_id, ...rest } = r;
+             return rest;
+           });
+           const retry = await supabase.from('notices').insert(fallbackRecords).select();
+           if (retry.error) throw retry.error;
+           if (retry.data) setNotices(prev => [...retry.data, ...prev]);
+           return { data: retry.data, warning: 'class_targeting_not_supported' };
+        }
+        throw error;
+      };
+
+      if (data) setNotices(prev => [...data, ...prev]);
       return { data };
     } catch (error) {
       console.error('Error adding notice:', error);
