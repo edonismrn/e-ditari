@@ -545,7 +545,16 @@ export const DatabaseProvider = ({ children }) => {
     return { data, error };
   };
   const addNote = async (noteData) => {
-    const { data, error } = await supabase.from('notes').insert([noteData]).select();
+    const dbNote = {
+      student_id: noteData.studentId || null,
+      class_id: noteData.classId || null,
+      content: noteData.content,
+      is_class_note: noteData.isClassNote || false,
+      date: noteData.date,
+      teacher_id: user.id
+    };
+    const { data, error } = await supabase.from('notes').insert([dbNote]).select();
+    if (error) console.error('Error adding note:', error);
     if (data) setNotes(prev => [data[0], ...prev]);
     return { data: data?.[0], error };
   };
@@ -594,50 +603,164 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
-  const toggleAttendance = async (studentId, date, status, time = '') => {
+  const syncDailyStatus = async (studentId, date, updatedAttendance) => {
+    // 1. Get all records for this student/date for hours 1-7
+    const dayRecords = updatedAttendance.filter(a => 
+      (a.student_id === studentId || a.studentId === studentId) && 
+      a.date === date && 
+      a.hour > 0 && a.hour <= 7
+    );
+
+    // 2. Map statuses for all 7 hours (default to 'present' if missing, though they should exist)
+    const statuses = {};
+    for (let i = 1; i <= 7; i++) {
+      const rec = dayRecords.find(r => r.hour === i);
+      // We only care about the base type (present/absent)
+      statuses[i] = rec ? rec.status.split(':')[0] : 'present';
+    }
+
+    // 3. Determine new daily status
+    let newDailyStatus = 'present';
+    const allPresent = Object.values(statuses).every(s => s === 'present');
+    const allAbsent = Object.values(statuses).every(s => s === 'absent');
+
+    if (allPresent) {
+      newDailyStatus = 'present';
+    } else if (allAbsent) {
+      newDailyStatus = 'absent';
+    } else {
+      // Find first and last present hours
+      let firstPresent = -1;
+      let lastPresent = -1;
+      for (let i = 1; i <= 7; i++) {
+        if (statuses[i] === 'present') {
+          if (firstPresent === -1) firstPresent = i;
+          lastPresent = i;
+        }
+      }
+
+      if (firstPresent > 1 && firstPresent !== -1) {
+        newDailyStatus = 'late';
+      } else if (lastPresent < 7 && lastPresent !== -1) {
+        newDailyStatus = 'early_exit';
+      } else if (firstPresent === -1) {
+        // No present hours (should be handled by allAbsent, but safe fallback)
+        newDailyStatus = 'absent';
+      }
+    }
+
+    // 4. Update Database for hour 0
+    const student = students.find(s => s.id === studentId);
+    const { data: syncData, error: syncError } = await supabase.from('attendance').upsert({
+      student_id: studentId,
+      class_id: student?.classId || student?.class_id,
+      date: date,
+      hour: 0,
+      status: newDailyStatus
+    }, { onConflict: 'student_id, class_id, date, hour' }).select().single();
+
+    if (!syncError && syncData) {
+      setAttendance(prev => {
+        const filtered = prev.filter(a =>
+          !((a.student_id === studentId || a.studentId === studentId) && a.date === date && a.hour === 0)
+        );
+        return [...filtered, syncData];
+      });
+    }
+  };
+
+  const toggleAttendance = async (studentId, date, status, hour, time = '') => {
+    // Permission Check: Only the teacher of that specific hour's lesson can edit attendance
+    // EXCEPTION: Hour 0 (Daily Summary) can be edited without a registered lesson
+    if (user.role === 'mesues' && hour !== 0) {
+      const student = students.find(s => s.id === studentId);
+      const studentClassId = student?.classId || student?.class_id;
+      
+      const lesson = lessons.find(l => 
+        (l.class_id === studentClassId) && 
+        l.date === date && 
+        l.topic?.includes(`[Ora ${hour}]`)
+      );
+      
+      if (!lesson) {
+        return { error: { message: `Nuk ka asnjë orë të regjistruar për orën ${hour}. Ju lutem regjistroni orën në axhendë më parë.` } };
+      }
+
+      if (lesson.teacher_id !== user.id) {
+        return { error: { message: "Nuk keni leje të ndryshoni prezencën për këtë orë, pasi nuk jeni profesori i kësaj lënde." } };
+      }
+    }
+
     const finalStatus = time ? `${status}:${time}` : status;
-    // Upsert attendance
+    // Upsert attendance including hour in conflict resolution
+    const student = students.find(s => s.id === studentId);
     const { data, error } = await supabase.from('attendance').upsert({
       student_id: studentId,
-      class_id: students.find(s => s.id === studentId)?.classId,
+      class_id: student?.classId || student?.class_id,
       date: date,
+      hour: hour,
       status: finalStatus
-    }, { onConflict: 'student_id, class_id, date' }).select().single();
+    }, { onConflict: 'student_id, class_id, date, hour' }).select().single();
 
     if (!error && data) {
-      setAttendance(prev => {
-        const filtered = prev.filter(a => !(a.student_id === studentId && a.date === date));
-        return [...filtered, data];
-      });
+      const currentFiltered = attendance.filter(a =>
+        !((a.student_id === studentId || a.studentId === studentId) && a.date === date && a.hour === hour)
+      );
+      const updatedList = [...currentFiltered, data];
+      setAttendance(updatedList);
+
+      // Trigger automatic Daily Summary (hour 0) sync if updating an hourly lesson
+      if (hour !== 0) {
+        await syncDailyStatus(studentId, date, updatedList);
+      }
     }
     return { data, error };
   };
 
-  const justifyAttendance = async (attendanceId, reason) => {
-    // Format: type:justified:reason (or type:time:justified:reason)
-    const record = attendance.find(a => a.id === attendanceId);
-    if (!record) return { error: { message: "Record not found" } };
+  const justifyAttendance = async (studentId, date, reason) => {
+    // Find all unjustified non-present records for this student on this date
+    const recordsToUpdate = attendance.filter(a => 
+      (a.student_id === studentId || a.studentId === studentId) && 
+      a.date === date && 
+      !a.status.includes('present') && 
+      !a.status.includes('justified')
+    );
 
-    const currentStatus = record.status || 'absent';
-    const typePart = currentStatus.split(':')[0];
-    const timePart = (currentStatus.includes(':') && !['justified', 'unjustified'].includes(currentStatus.split(':')[1])) 
-      ? currentStatus.split(':')[1] 
-      : '';
-    
-    let newStatus = `${typePart}:justified:${reason}`;
-    if (timePart) newStatus = `${typePart}:${timePart}:justified:${reason}`;
-    
-    const { error } = await supabase.from('attendance')
-      .update({ 
-        status: newStatus
-      })
-      .eq('id', attendanceId);
+    if (recordsToUpdate.length === 0) return { error: { message: "Nessuna assenza trovata per questa data." } };
 
-    if (!error) {
-      setAttendance(prev => prev.map(a => a.id === attendanceId ? { ...a, status: newStatus } : a));
-      return { success: true };
+    const updates = recordsToUpdate.map(record => {
+      const currentStatus = record.status || 'absent';
+      const typePart = currentStatus.split(':')[0];
+      const timePart = (currentStatus.includes(':') && !['justified', 'unjustified'].includes(currentStatus.split(':')[1])) 
+        ? currentStatus.split(':')[1] 
+        : '';
+      
+      let newStatus = `${typePart}:justified:${reason}`;
+      if (timePart) newStatus = `${typePart}:${timePart}:justified:${reason}`;
+
+      return { id: record.id, status: newStatus };
+    });
+
+    const updatePromises = updates.map(u => 
+      supabase.from('attendance').update({ status: u.status }).eq('id', u.id).select().single()
+    );
+
+    const results = await Promise.allSettled(updatePromises);
+    const hasError = results.some(r => r.status === 'rejected' || (r.value && r.value.error));
+
+    if (hasError) {
+      console.error("Some records failed to update in backend:", results);
+      return { error: { message: "Errore durante la giustificazione." } };
     }
-    return { error };
+
+    // Update local state
+    setAttendance(prev => prev.map(a => {
+      const updateObj = updates.find(u => u.id === a.id);
+      if (updateObj) return { ...a, status: updateObj.status };
+      return a;
+    }));
+
+    return { success: true };
   };
 
   const assignStudentToClass = async (studentId, classId) => {
@@ -919,6 +1042,10 @@ export const DatabaseProvider = ({ children }) => {
   const addNotice = async ({ title, message, attachmentUrl, schoolIds, classIds, schoolId }) => {
     try {
       const records = [];
+      const batchId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
       
       const isSuperAdmin = user?.email === 'admin@ditari-elektronik.com';
 
@@ -930,7 +1057,8 @@ export const DatabaseProvider = ({ children }) => {
             message,
             attachment_url: attachmentUrl || null,
             school_id: sid,
-            is_super_admin: isSuperAdmin
+            is_super_admin: isSuperAdmin,
+            batch_id: batchId
           });
         });
       } else if (classIds && classIds.length > 0) {
@@ -941,8 +1069,9 @@ export const DatabaseProvider = ({ children }) => {
             message,
             attachment_url: attachmentUrl || null,
             school_id: user.school_id,
-            class_id: cid, // We'll try to use class_id
-            is_super_admin: isSuperAdmin
+            class_id: cid,
+            is_super_admin: isSuperAdmin,
+            batch_id: batchId
           });
         });
       } else {
@@ -952,30 +1081,36 @@ export const DatabaseProvider = ({ children }) => {
           message,
           attachment_url: attachmentUrl || null,
           school_id: schoolId || user.school_id,
-          is_super_admin: isSuperAdmin
+          is_super_admin: isSuperAdmin,
+          batch_id: batchId
         });
       }
 
-      console.log('Inserting notices:', records);
-      const { data, error } = await supabase
+      console.log('Inserting notices with batch_id:', batchId, records);
+      let { data, error } = await supabase
         .from('notices')
         .insert(records)
         .select();
 
       if (error) {
-        // If class_id doesn't exist, try again without it if only one class was targeted or if we want to fallback
-        if (error.message?.includes('class_id') || error.code === '42703') {
-           console.warn('notices table seems to be missing class_id column. Falling back to school-wide notice.');
+        // Fallback: If batch_id or class_id column is missing
+        if (error.message?.includes('batch_id') || error.message?.includes('class_id') || error.code === '42703') {
+           console.warn('notices table might be missing batch_id or class_id columns. Falling back...');
            const fallbackRecords = records.map(r => {
-             const { class_id, ...rest } = r;
-             return rest;
+             const { batch_id, class_id, ...rest } = r;
+             // Only remove class_id if it was the error, but for simplicity we remove both if this broad error matches
+             // Actually, let's be slightly more precise if possible
+             let cleaned = { ...rest };
+             if (error.message?.includes('batch_id')) delete cleaned.batch_id;
+             if (error.message?.includes('class_id')) delete cleaned.class_id;
+             return cleaned;
            });
            const retry = await supabase.from('notices').insert(fallbackRecords).select();
            if (retry.error) throw retry.error;
-           if (retry.data) setNotices(prev => [...retry.data, ...prev]);
-           return { data: retry.data, warning: 'class_targeting_not_supported' };
+           data = retry.data;
+        } else {
+          throw error;
         }
-        throw error;
       };
 
       if (data) setNotices(prev => [...data, ...prev]);
@@ -988,9 +1123,37 @@ export const DatabaseProvider = ({ children }) => {
 
   const deleteNotice = async (id) => {
     try {
-      const { error } = await supabase.from('notices').delete().eq('id', id);
+      // Find the notice first to get its details for batch deletion
+      const noticeToDelete = notices.find(n => n.id === id);
+      if (!noticeToDelete) return { error: { message: "Notice not found" } };
+
+      const { batch_id, title, message, attachment_url, created_at } = noticeToDelete;
+
+      let query = supabase.from('notices').delete();
+
+      if (batch_id) {
+        // Best way: Delete everything in the same batch
+        query = query.eq('batch_id', batch_id);
+      } else {
+        // Legacy fallback: Match exactly what we can
+        query = query.match({ 
+          title, 
+          message, 
+          attachment_url,
+          created_at
+        });
+      }
+
+      const { error } = await query;
       if (error) throw error;
-      setNotices(prev => prev.filter(n => n.id !== id));
+
+      // Update local state: remove all matches
+      setNotices(prev => prev.filter(n => {
+        if (batch_id && n.batch_id === batch_id) return false;
+        if (!batch_id && n.title === title && n.message === message && n.attachment_url === attachment_url && n.created_at === created_at) return false;
+        return n.id !== id; // Extra safety
+      }));
+      
       return { success: true };
     } catch (error) {
       console.error('Error deleting notice:', error);
@@ -1010,26 +1173,41 @@ export const DatabaseProvider = ({ children }) => {
 
   const initializeDailyAttendance = async (classId, dateStr) => {
     try {
-      // 1. Get all students in this class
       const classStudents = students.filter(s => s.classId === classId);
       if (classStudents.length === 0) return { success: true };
 
-      // 2. Check which students ALREADY have a record for this date
-      // We check the local 'attendance' state first for performance
-      const existingAtt = attendance.filter(a => a.class_id === classId && a.date === dateStr);
-      const studentIdsWithRecord = new Set(existingAtt.map(a => a.student_id));
+      const allHours = [1, 2, 3, 4, 5, 6, 7];
 
-      const missingStudents = classStudents.filter(s => !studentIdsWithRecord.has(s.id));
+      // 2. Check which students ALREADY have ANY record for this date
+      const existingAtt = attendance.filter(a => a.class_id === classId && a.date === dateStr);
+      const studentIdsWithAnyRecord = new Set(existingAtt.map(a => a.student_id || a.studentId));
+
+      const missingStudents = classStudents.filter(s => !studentIdsWithAnyRecord.has(s.id));
       
       if (missingStudents.length === 0) return { success: true };
 
-      // 3. Create 'absent' records for missing students
-      const newRecords = missingStudents.map(s => ({
-        student_id: s.id,
-        class_id: classId,
-        date: dateStr,
-        status: 'absent'
-      }));
+      // 3. Create 'present' records for all 7 hours + Daily Summary (hour 0)
+      const newRecords = [];
+      missingStudents.forEach(s => {
+        // Daily Summary
+        newRecords.push({
+          student_id: s.id,
+          class_id: classId,
+          date: dateStr,
+          hour: 0,
+          status: 'present'
+        });
+        // Hourly Lessons
+        allHours.forEach(hour => {
+          newRecords.push({
+            student_id: s.id,
+            class_id: classId,
+            date: dateStr,
+            hour: hour,
+            status: 'present'
+          });
+        });
+      });
 
       const { data, error } = await supabase.from('attendance').insert(newRecords).select();
       

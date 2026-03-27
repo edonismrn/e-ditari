@@ -31,6 +31,7 @@ import {
   Building2,
   GraduationCap,
   Settings,
+  Lock,
   Search,
   Check,
   UserSquare,
@@ -58,6 +59,9 @@ import { useAlert } from '../context/AlertContext';
 import { KOSOVO_DATA } from '../data/kosovoSchools';
 import { KOSOVO_SUBJECTS } from '../data/kosovoSubjects';
 import { formatClassName } from '../utils/stringUtils';
+import { useAuth } from '../context/AuthContext';
+import ProfileDropdown from '../components/ProfileDropdown';
+import PasswordChangeModal from '../components/PasswordChangeModal';
 import { downloadFile } from '../utils/fileUtils';
 import { Modal, Alert } from 'react-native';
 
@@ -74,10 +78,29 @@ const AdminDashboard = ({
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
+  const { updatePassword, login } = useAuth();
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
   const [academicYearName, setAcademicYearName] = useState('2024-2025');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeView, setActiveView] = useState('home'); // To match TeacherDashboard structure if needed, or just use navigation
+  const [activeView, setActiveView] = useState('home');
+
+  const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
+
+  const handleUpdatePassword = async (currentPass, newPass) => {
+    try {
+      // Verify current password by re-authenticating
+      await login(user.email, currentPass);
+      // If successful, update to new password
+      await updatePassword(newPass);
+      showAlert(t('password_updated_success') || 'Fjalëkalimi u ndryshua me sukses!', 'success');
+    } catch (err) {
+      const errorMsg = err.message === 'Invalid login credentials' 
+        ? (t('invalid_current_password') || 'Fjalëkalimi aktual nuk është i saktë') 
+        : err.message;
+      showAlert(errorMsg, 'error');
+      throw err; // Let modal handle specific error display
+    }
+  };
 
   // Notice Form State
   const [isNoticeModalVisible, setIsNoticeModalVisible] = useState(false);
@@ -987,7 +1010,7 @@ const AdminDashboard = ({
             <View style={[styles.card, { flexDirection: 'column', alignItems: 'stretch' }]}>
               {isSuperAdmin && (
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={styles.label}>{t('select_school_for_notice') || 'Zgjidh Shkollën për Lajmërim'}</Text>
+                  <Text style={styles.label}>{t('select_school_for_notice')}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
                     {schools.map(s => (
                       <TouchableOpacity
@@ -1136,28 +1159,32 @@ const AdminDashboard = ({
               .map(school => {
                 const schoolAdmin = (schoolAdmins || []).find(a => a.schoolId === school.id);
                 return (
-                  <View key={school.id} style={[styles.card, { padding: 16 }]}>
+                  <View key={school.id} style={[styles.card, { padding: 20, flexDirection: 'row', alignItems: 'center' }]}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{school.name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        <Hash size={14} color="#64748b" />
-                        <Text style={{ fontSize: 13, color: '#64748b', fontWeight: 'bold' }}>{school.code}</Text>
+                      <Text style={[styles.cardTitle, { fontSize: 16, marginBottom: 4 }]}>{school.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                        <Building2 size={13} color="#64748b" />
+                        <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{school.city || '---'}</Text>
                       </View>
 
-                      <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 }}>
-                        <Text style={[styles.entitySub, { fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }]}>{t('admin_credentials')}</Text>
-
-                        {/* Email */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                      <View style={{ 
+                        marginTop: 4, 
+                        backgroundColor: '#f8fafc', 
+                        padding: 12, 
+                        borderRadius: 14, 
+                        borderWidth: 1, 
+                        borderColor: '#f1f5f9',
+                        gap: 8
+                      }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                           <Users size={14} color="#6366f1" />
                           <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '700' }}>
                             {school.admin_email || schoolAdmin?.username || '---'}
                           </Text>
                         </View>
 
-                        {/* Password (if available in school record) */}
                         {school.admin_password && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <ShieldCheck size={14} color="#10b981" />
                             <Text style={{ fontSize: 13, color: '#10b981', fontWeight: '800' }}>
                               PW: {school.admin_password}
@@ -1165,6 +1192,27 @@ const AdminDashboard = ({
                           </View>
                         )}
                       </View>
+                    </View>
+
+                    {/* School Code Badge */}
+                    <View style={{
+                      backgroundColor: '#eff6ff',
+                      paddingVertical: 10,
+                      paddingHorizontal: 14,
+                      borderRadius: 16,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderWidth: 1.5,
+                      borderColor: '#dbeafe',
+                      marginLeft: 16,
+                      minWidth: 80
+                    }}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', marginBottom: 2 }}>
+                        {t('code') || 'KODI'}
+                      </Text>
+                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b', letterSpacing: 1 }}>
+                        {school.code}
+                      </Text>
                     </View>
                   </View>
                 );
@@ -1626,64 +1674,74 @@ const AdminDashboard = ({
       </View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ gap: 16 }}>
           {schools.map(school => (
             <View key={school.id} style={[styles.card, {
-              width: (width - 48 - 12) / 2,
-              paddingVertical: 16,
-              paddingHorizontal: 12,
-              flexDirection: 'column',
-              alignItems: 'stretch',
-              marginBottom: 12
+              padding: 20,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 0
             }]}>
               <View style={{ flex: 1 }}>
                 {/* School Name */}
-                <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '800', marginBottom: 8 }} numberOfLines={2}>
+                <Text style={{ fontSize: 16, color: '#1e293b', fontWeight: '800', marginBottom: 6 }}>
                   {school.name}
                 </Text>
 
-                {/* School Code Section */}
-                <View style={{
-                  backgroundColor: '#eff6ff',
-                  padding: 12,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 1,
-                  borderColor: '#dbeafe',
-                  marginBottom: 10
-                }}>
-                  <Text style={{ fontSize: 24, fontWeight: '900', color: '#1e293b', letterSpacing: 2 }}>
-                    {school.code}
-                  </Text>
-                </View>
-
                 {/* City/Municipality */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 }}>
-                  <Building2 size={12} color="#64748b" />
-                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }} numberOfLines={1}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                  <Building2 size={13} color="#64748b" />
+                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>
                     {school.city}
                   </Text>
                 </View>
 
-                {/* Admin Credentials */}
+                {/* Admin Credentials (Super Admin only) */}
                 {isSuperAdmin && (
                   <View style={{
-                    marginTop: 4,
-                    paddingTop: 12,
-                    borderTopWidth: 1,
-                    borderTopColor: '#f1f5f9'
+                    backgroundColor: '#f8fafc',
+                    padding: 12,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: '#f1f5f9',
+                    gap: 8
                   }}>
-                    <View style={{ gap: 6, backgroundColor: '#f8fafc', padding: 8, borderRadius: 8 }}>
-                      <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: '700' }} numberOfLines={1}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Users size={14} color="#6366f1" />
+                      <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '700' }}>
                         {school.admin_email || 'n/a'}
                       </Text>
-                      <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600' }} numberOfLines={1}>
-                        {t('password')}: {school.admin_password || 'n/a'}
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ShieldCheck size={14} color="#10b981" />
+                      <Text style={{ fontSize: 13, color: '#10b981', fontWeight: '800' }}>
+                        PW: {school.admin_password || 'n/a'}
                       </Text>
                     </View>
                   </View>
                 )}
+              </View>
+
+              {/* School Code Badge */}
+              <View style={{
+                backgroundColor: '#eff6ff',
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                borderRadius: 18,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1.5,
+                borderColor: '#dbeafe',
+                marginLeft: 16,
+                minWidth: 90
+              }}>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', marginBottom: 2, letterSpacing: 0.5 }}>
+                  {t('school_code') || 'KODI'}
+                </Text>
+                <Text style={{ fontSize: 22, fontWeight: '900', color: '#1e293b', letterSpacing: 1 }}>
+                  {school.code}
+                </Text>
               </View>
             </View>
           ))}
@@ -2642,9 +2700,13 @@ const AdminDashboard = ({
               <School size={18} color="white" />
             </View>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-            <LogOut size={20} color="#ef4444" />
-          </TouchableOpacity>
+          <ProfileDropdown
+            user={user}
+            t={t}
+            onLogout={onLogout}
+            onChangePassword={!isSuperAdmin ? () => setIsPasswordModalVisible(true) : undefined}
+            onHelp={() => Linking.openURL('mailto:info@ditari-elektronik.com')}
+          />
         </View>
       </View>
 
@@ -2657,6 +2719,13 @@ const AdminDashboard = ({
       {navigation.view === 'notices' && renderNotices()}
 
       {renderModals()}
+
+      <PasswordChangeModal
+        visible={isPasswordModalVisible}
+        onClose={() => setIsPasswordModalVisible(false)}
+        onUpdate={handleUpdatePassword}
+        t={t}
+      />
 
       <Modal visible={confirmState.visible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
@@ -2712,12 +2781,6 @@ const AdminDashboard = ({
           <Text style={[styles.navText, navigation.view === 'settings' && styles.activeNavText]}>{t('settings')}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={onLogout}>
-          <View style={styles.navIconContainer}>
-            <LogOut size={22} color="#94a3b8" strokeWidth={2} />
-          </View>
-          <Text style={styles.navText}>{t('logout')}</Text>
-        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );

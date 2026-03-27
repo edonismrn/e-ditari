@@ -11,6 +11,7 @@ import {
   Platform,
   RefreshControl,
   Modal,
+  TextInput,
   Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,6 +24,7 @@ import {
   Calendar, 
   LogOut, 
   Bell,
+  Lock,
   GraduationCap,
   Award,
   BookOpen as BookIcon,
@@ -36,6 +38,9 @@ import {
 import CalendarStrip from '../components/CalendarStrip';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
+import { useAuth } from '../context/AuthContext';
+import ProfileDropdown from '../components/ProfileDropdown';
+import PasswordChangeModal from '../components/PasswordChangeModal';
 import { downloadFile } from '../utils/fileUtils';
 
 const { width } = Dimensions.get('window');
@@ -60,8 +65,27 @@ const getSemester = (dateStr) => {
 const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance, homework, notes, notices, noticeReads, onMarkNoticeRead, onRefresh }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
+  const { updatePassword, login } = useAuth();
   const [activeTab, setActiveTab] = React.useState('overview');
   const [selectedDate, setSelectedDate] = React.useState(new Date());
+
+  const [isPasswordModalVisible, setIsPasswordModalVisible] = React.useState(false);
+
+  const handleUpdatePassword = async (currentPass, newPass) => {
+    try {
+      // Re-verify
+      await login(user.email, currentPass);
+      // Update
+      await updatePassword(newPass);
+      showAlert(t('password_updated_success') || 'Fjalëkalimi u ndryshua me sukses!', 'success');
+    } catch (err) {
+      const errorMsg = err.message === 'Invalid login credentials' 
+        ? (t('invalid_current_password') || 'Fjalëkalimi aktual nuk është i saktë') 
+        : err.message;
+      showAlert(errorMsg, 'error');
+      throw err;
+    }
+  };
   const [gradeSemester, setGradeSemester] = React.useState(0); // 0=all, 1=first, 2=second
   const [selectedSubject, setSelectedSubject] = React.useState(null);
   const [selectedNotice, setSelectedNotice] = React.useState(null);
@@ -142,9 +166,11 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
     })).sort((a, b) => b.average - a.average);
   }, [filteredGrades]);
 
-  const userAttendance = attendance.filter(a => a.student_id === user.id);
+  const userAttendance = attendance.filter(a => a.student_id === user.id && parseInt(a.hour || 0) === 0);
   const totalAbsences = userAttendance.filter(a => a.status.startsWith('absent')).length;
   const unjustifiedCount = userAttendance.filter(a => a.status === 'absent:unjustified').length;
+  const latesCount = userAttendance.filter(a => a.status.startsWith('late')).length;
+  const earlyExitsCount = userAttendance.filter(a => a.status.startsWith('early_exit')).length;
 
   // Semester Averages for Dashboard
   const firstSemGrades = userGrades.filter(g => getSemester(g.date) === 1);
@@ -166,14 +192,13 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
     ? notes.filter(n => n.is_class_note && !n.student_id)
     : lessons.filter(l => l.class_id === user.classId && l.topic?.includes('[CLASS_NOTE]'));
 
-  const userNotes = [...(personalNotes || []), ...(classNotes || [])];
+  const userNotes = [...(personalNotes || []), ...(classNotes || [])].sort((a,b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
 
   const todayLessons = lessons.filter(l => 
     l.class_id === user.classId && l.date === formatDateString(selectedDate)
   ).filter(l => !l.topic?.includes('[NOTE]') && !l.topic?.includes('[CLASS_NOTE]'));
   
   const selectedDateGrades = userGrades.filter(g => g.date === formatDateString(selectedDate));
-  const selectedDateNotes = userNotes.filter(n => n.date === formatDateString(selectedDate));
 
   // ─── Grade Ring Component (SVG-less, CSS-style) ───
   const GradeRing = ({ value, size = 64, showProgress = false }) => {
@@ -246,23 +271,41 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           }
           ListHeaderComponent={() => (
             <View style={{ marginBottom: 16 }}>
-              <View style={styles.statsDashboard}>
+              <View style={[styles.statsDashboard, { flexWrap: 'wrap', justifyContent: 'space-between', gap: 0, rowGap: 12 }]}>
                 {/* Total Absences */}
-                <View style={styles.statCard}>
-                   <View style={[styles.statIconBadge, { backgroundColor: '#ef444410' }]}>
-                    <Calendar size={14} color="#ef4444" />
+                <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
+                   <View style={[styles.statIconBadge, { backgroundColor: '#ef444415', width: 36, height: 36, marginBottom: 10 }]}>
+                    <Calendar size={18} color="#ef4444" />
                   </View>
-                  <Text style={[styles.statCardTitle, { color: '#64748b' }]}>{t('absences')}</Text>
-                  <Text style={[styles.hBarValue, {color: '#ef4444'}]}>{totalAbsences}</Text>
+                  <Text style={[styles.hBarValue, {color: '#ef4444', fontSize: 26, marginBottom: 2}]}>{totalAbsences}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('absences')}</Text>
                 </View>
 
                 {/* To Justify */}
-                <View style={styles.statCard}>
-                   <View style={[styles.statIconBadge, { backgroundColor: '#f59e0b10' }]}>
-                    <AlertTriangle size={14} color="#f59e0b" />
+                <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
+                   <View style={[styles.statIconBadge, { backgroundColor: '#f59e0b15', width: 36, height: 36, marginBottom: 10 }]}>
+                    <AlertTriangle size={18} color="#f59e0b" />
                   </View>
-                  <Text style={[styles.statCardTitle, { color: '#64748b' }]}>{t('to_justify')}</Text>
-                  <Text style={[styles.hBarValue, {color: '#f59e0b'}]}>{unjustifiedCount}</Text>
+                  <Text style={[styles.hBarValue, {color: '#f59e0b', fontSize: 26, marginBottom: 2}]}>{unjustifiedCount}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('to_justify') || "Për t'u arsyetuar"}</Text>
+                </View>
+
+                {/* Lates */}
+                <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
+                   <View style={[styles.statIconBadge, { backgroundColor: '#3b82f615', width: 36, height: 36, marginBottom: 10 }]}>
+                    <Clock size={18} color="#3b82f6" />
+                  </View>
+                  <Text style={[styles.hBarValue, {color: '#3b82f6', fontSize: 26, marginBottom: 2}]}>{latesCount}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{(t('late') || 'Vonesë').split(' ')[0]}</Text>
+                </View>
+
+                {/* Early Exits */}
+                <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
+                   <View style={[styles.statIconBadge, { backgroundColor: '#8b5cf615', width: 36, height: 36, marginBottom: 10 }]}>
+                    <LogOut size={18} color="#8b5cf6" />
+                  </View>
+                  <Text style={[styles.hBarValue, {color: '#8b5cf6', fontSize: 26, marginBottom: 2}]}>{earlyExitsCount}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{(t('early_exit') || 'Dalje').split(' ')[0]}</Text>
                 </View>
               </View>
               <Text style={[styles.sectionTitleSmall, { marginTop: 12 }]}>{t('attendance_details')}</Text>
@@ -290,8 +333,8 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
             else if (statusType === 'late' || statusType === 'early_exit') statusColor = '#f59e0b';
 
             let statusLabel = t(statusType) || statusType;
-            if (isJustified) statusLabel += ` (${t('justified') || 'Arsyetuar'})`;
-            else if (item.status.includes(':unjustified')) statusLabel += ` (${t('unjustified') || 'Paarsyetuar'})`;
+            if (isJustified) statusLabel += ` (${t('justified')})`;
+            else if (item.status.includes(':unjustified')) statusLabel += ` (${t('unjustified')})`;
 
             const justifiedIndex = statusParts.indexOf('justified');
             const extractedReason = justifiedIndex !== -1 && statusParts.length > justifiedIndex + 1 
@@ -312,7 +355,7 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
                   <Text style={[styles.miniDetailStatus, {fontWeight: '700', color: '#1e293b'}]}>
                     {statusLabel} {timeVal ? `• ${timeVal}` : ''}
                   </Text>
-                  <Text style={styles.attendanceSubject}>{item.subject || t('not_available')}</Text>
+                  {item.subject ? <Text style={styles.attendanceSubject}>{item.subject}</Text> : null}
                   {(item.description || extractedReason) ? (
                     <Text style={{ fontSize: 13, color: '#059669', fontStyle: 'italic', marginTop: 4 }}>
                       "{item.description || extractedReason}"
@@ -352,7 +395,7 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
         {/* Attendance Status for selected date */}
         {(() => {
           const selectedDateStr = formatDateString(selectedDate);
-          let att = userAttendance.find(a => a.date === selectedDateStr);
+          let att = userAttendance.find(a => a.date === selectedDateStr && parseInt(a.hour || 0) === 0);
           
           // Default to 'absent' if no record exists for today/past (as per user request)
           if (!att) {
@@ -370,29 +413,29 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
             }
           }
 
-          const statusLabels = {
-            present: t('present'),
-            absent: t('absent'),
-            'absent:unjustified': t('absent_unjustified'),
-            'absent:justified': t('absent_justified'),
-            late: t('late_entry'),
-            early_exit: t('early_exit'),
-          };
-          const displayStatus = statusLabels[att.status] || att.status;
-          const isAbsent = att.status.startsWith('absent');
-          const isWarning = att.status === 'late' || att.status === 'early_exit';
+          const statusKey = att.status.split(':')[0];
+          const isAbsent = statusKey === 'absent';
+          const isWarning = statusKey === 'late' || statusKey === 'early_exit';
           
           let statusColor = '#10b981'; // Green for present
           if (isAbsent) statusColor = '#ef4444'; // Red
           if (isWarning) statusColor = '#f59e0b'; // Orange
 
-          const statusKey = att.status.split(':')[0];
           const statusInitial = {
             present: 'P',
             absent: 'M',
             late: 'V',
             early_exit: 'D'
           }[statusKey] || '?';
+
+          const statusLabels = {
+            present: t('present') || 'Prezent',
+            absent: t('absent') || 'Mungon',
+            late: (t('late') || 'Vonesë').replace(/ \(.*\)/, ''), // removes the (Në hyrje) stuff
+            early_exit: (t('early_exit') || 'Dalje').split(' ')[0], // takes just 'Dalje' if 'Dalje Herët'
+          };
+          
+          const displayStatus = statusLabels[statusKey] || statusKey;
 
           return (
             <View style={[styles.statusBanner, { backgroundColor: statusColor + '15', borderColor: statusColor, alignItems: 'center', gap: 15 }]}>
@@ -406,13 +449,54 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           );
         })()}
 
-        {/* Notification badges */}
-        {selectedDateNotes.length > 0 && (
-          <View style={[styles.notifBanner, { backgroundColor: '#ef4444' }]}>
-            <AlertTriangle size={18} color="#fff" />
-            <Text style={styles.notifBannerText}>
-              {selectedDateNotes.length} {t('njoftim_disiplinor')}
-            </Text>
+        {/* Disciplinary Notes - Premium Red Cards */}
+        {userNotes.length > 0 && (
+          <View style={{ marginTop: 8, marginBottom: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                {t('njoftim_disiplinor') || 'Njoftim Disiplinor'}
+              </Text>
+            </View>
+            {userNotes.map((note, idx) => (
+              <View key={note.id || idx} style={{
+                backgroundColor: '#fff1f2',
+                borderRadius: 20,
+                padding: 16,
+                marginBottom: 10,
+                borderWidth: 1.5,
+                borderColor: '#fecaca',
+                shadowColor: '#ef4444',
+                shadowOffset: { width: 0, height: 3 },
+                shadowOpacity: 0.1,
+                shadowRadius: 8,
+                elevation: 3,
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: '#ef4444',
+                    alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <AlertTriangle size={18} color="white" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 1 }}>
+                        {note.is_class_note ? (t('class_note') || 'Klasa') : (t('personal_note') || 'Personale')}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600' }}>
+                        {note.date ? new Date(note.date).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 14, color: '#7f1d1d', fontWeight: '600', lineHeight: 20 }}>
+                      {note.content}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))}
           </View>
         )}
 
@@ -509,13 +593,13 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
         )}
 
         {/* Disciplinary Notifications for selected date */}
-        {selectedDateNotes.length > 0 && (
+        {userNotes.length > 0 && (
           <View>
             <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
               <Text style={[styles.sectionTitle, { color: '#991b1b' }]}>{t('njoftim_disiplinor')}</Text>
               <Bell size={20} color="#ef4444" />
             </View>
-            {selectedDateNotes.map((note, idx) => {
+            {userNotes.map((note, idx) => {
               const isClassNote = note.is_class_note || (note.comment || note.topic || '').includes('[CLASS_NOTE]');
               const cleanNote = note.content 
                 || (note.comment || note.topic || '').replace('[NOTE]', '').replace('[CLASS_NOTE]', '').trim();
@@ -531,7 +615,7 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
                           {isClassNote ? t('njoftim_per_klase') : t('njoftim_disiplinor')}
                         </Text>
                       </View>
-                      <Text style={styles.lessonDate}>{note.date}</Text>
+                      <Text style={styles.lessonDate}>{note.date ? reformatDate(note.date) : ''}</Text>
                     </View>
                     <Text style={[styles.lessonTopic, { color: '#ef4444', fontWeight: '800' }]}>{cleanNote}</Text>
                   </View>
@@ -825,15 +909,16 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
               <Book size={20} color="white" />
             </View>
             <View>
-              <Text style={styles.headerTitle}>e-ditari</Text>
-              <Text style={styles.headerSubtitle}>
-                {user.first_name} {user.last_name} {studentClass ? `• ${formatClassName(studentClass)}` : ''}
-              </Text>
+              <Text style={styles.headerTitle}>Ditari Elektronik</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-            <LogOut size={20} color="#ef4444" />
-          </TouchableOpacity>
+          <ProfileDropdown
+            user={user}
+            t={t}
+            onLogout={onLogout}
+            onChangePassword={() => setIsPasswordModalVisible(true)}
+            onHelp={() => Linking.openURL('mailto:info@ditari-elektronik.com')}
+          />
         </View>
         {activeTab === 'overview' && (
           <CalendarStrip selectedDate={selectedDate} onDateSelect={setSelectedDate} />
@@ -898,6 +983,7 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
       {/* Selected Notice Modal */}
       {selectedNotice && (
         <Modal visible={!!selectedNotice} animationType="fade" transparent>
+          {/* ... existing modal content ... */}
           <View style={modalStyles.overlay}>
             <View style={modalStyles.content}>
               <View style={modalStyles.header}>
@@ -938,6 +1024,13 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           </View>
         </Modal>
       )}
+
+      <PasswordChangeModal
+        visible={isPasswordModalVisible}
+        onClose={() => setIsPasswordModalVisible(false)}
+        onUpdate={handleUpdatePassword}
+        t={t}
+      />
 
     </SafeAreaView>
   );

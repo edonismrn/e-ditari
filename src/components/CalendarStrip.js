@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, Dimensions, Platform } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { getDayName, getMonthName } from '../utils/dateUtils';
+import { useLanguage } from '../context/LanguageContext';
 
 const { width } = Dimensions.get('window');
 const ITEM_WIDTH = 60;
@@ -9,6 +10,9 @@ const ITEM_MARGIN = 12;
 const TOTAL_ITEM_WIDTH = ITEM_WIDTH + ITEM_MARGIN;
 
 const CalendarStrip = ({ selectedDate, onDateSelect }) => {
+  const { t } = useLanguage();
+  const days = t('days');
+  const months = t('months');
   const flatListRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
 
@@ -81,13 +85,13 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
         onPress={() => onDateSelect(item)}
       >
         <Text style={[styles.dayName, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
-          {getDayName(item)}
+          {getDayName(item, days)}
         </Text>
         <Text style={[styles.dateNumber, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
           {item.getDate()}
         </Text>
         <Text style={[styles.monthName, isSelected && styles.selectedText]}>
-          {getMonthName(item)}
+          {getMonthName(item, months)}
         </Text>
       </TouchableOpacity>
     );

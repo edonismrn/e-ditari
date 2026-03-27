@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations } from '../data/translations';
 
@@ -21,6 +22,12 @@ export const LanguageProvider = ({ children }) => {
     };
     loadLanguage();
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      document.documentElement.lang = language;
+    }
+  }, [language]);
 
   const changeLanguage = async (newLang) => {
     setLanguage(newLang);

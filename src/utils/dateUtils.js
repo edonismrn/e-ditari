@@ -13,12 +13,10 @@ export const formatDisplayDate = (date) => {
   return `${day}/${month}`;
 };
 
-export const getDayName = (date) => {
-  const days = ['Die', 'Hën', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht'];
+export const getDayName = (date, days = ['Die', 'Hën', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht']) => {
   return days[new Date(date).getDay()];
 };
 
-export const getMonthName = (date) => {
-  const months = ['Jan', 'Shk', 'Mar', 'Pri', 'Maj', 'Qer', 'Krr', 'Gsh', 'Sht', 'Tet', 'Nën', 'Dhj'];
+export const getMonthName = (date, months = ['Jan', 'Shk', 'Mar', 'Pri', 'Maj', 'Qer', 'Kor', 'Gsh', 'Sht', 'Tet', 'Nën', 'Dhj']) => {
   return months[new Date(date).getMonth()];
 };
