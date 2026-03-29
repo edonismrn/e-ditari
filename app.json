@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "e-ditari-app",
-    "slug": "e-ditari-app",
+    "name": "Ditari Elektronik",
+    "slug": "e-ditari",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,7 +12,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.edonismrn.editari",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +28,13 @@
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "bundler": "metro",
+      "baseUrl": "/app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "d3a0ad88-77be-4409-9d8b-ae71f1ac278f"
+      }
     }
   }
 }

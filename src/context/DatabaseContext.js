@@ -20,8 +20,9 @@ export const DatabaseProvider = ({ children }) => {
   const [notes, setNotes] = useState([]);
   const [notices, setNotices] = useState([]);
   const [noticeReads, setNoticeReads] = useState([]);
+  const [tests, setTests] = useState([]);
   const [migrationRun, setMigrationRun] = useState(false);
-  
+  const [currentTerm, setCurrentTerm] = useState(1); // Global term derived from date
   const [loading, setLoading] = useState(true);
 
   const fetchData = async (showLoading = true) => {
@@ -32,13 +33,14 @@ export const DatabaseProvider = ({ children }) => {
       if (user.role === 'admin') {
         const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
         // Admin needs everything
-        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes] = await Promise.all([
+        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes, testsRes] = await Promise.all([
           supabase.from('schools').select('*'),
           supabase.from('profiles').select('*'),
           supabase.from('classes').select('*'),
-          supabase.from('teacher_classes').select('*'),
-          supabase.from('student_classes').select('*'),
-          supabase.from('notices').select('*').order('created_at', { ascending: false })
+          supabase.from('teacher_classes').select('*').is('academic_year', null),
+          supabase.from('student_classes').select('*').is('academic_year', null),
+          supabase.from('notices').select('*').order('created_at', { ascending: false }),
+          supabase.from('tests').select('*').is('academic_year', null)
         ]);
 
         if (!isSuperAdmin && user.school_id) {
@@ -48,7 +50,16 @@ export const DatabaseProvider = ({ children }) => {
           if (noticesRes.data) noticesRes.data = noticesRes.data.filter(n => n.school_id === user.school_id);
         }
 
-        if (schoolsRes.data) setSchools(schoolsRes.data);
+        if (schoolsRes.data) {
+          setSchools(schoolsRes.data);
+          // Determine term if for current school
+          const mySchool = schoolsRes.data.find(s => s.id === user.school_id);
+          if (mySchool) {
+            const today = new Date().toISOString().split('T')[0];
+            const term = (mySchool.term_two_start_date && today >= mySchool.term_two_start_date) ? 2 : 1;
+            setCurrentTerm(term);
+          }
+        }
         
         if (profilesRes.data) {
           // Map Teachers
@@ -103,6 +114,7 @@ export const DatabaseProvider = ({ children }) => {
           setClasses(mappedClasses);
         }
         if (noticesRes.data) setNotices(noticesRes.data);
+        if (testsRes.data) setTests(testsRes.data);
         
       } else if (user.role === 'mesues') {
         // Teacher data: Fetch classes the teacher belongs to
@@ -132,7 +144,7 @@ export const DatabaseProvider = ({ children }) => {
             if (scData) {
               const studentIds = scData.map(sc => sc.student_id);
               // Also get ALL teachers for these classes
-              const { data: allTcData } = await supabase.from('teacher_classes').select('teacher_id, class_id').in('class_id', classIds);
+              const { data: allTcData } = await supabase.from('teacher_classes').select('teacher_id, class_id').in('class_id', classIds).is('academic_year', null);
               const profIds = [...new Set([...studentIds, ...(allTcData || []).map(tc => tc.teacher_id)])];
               
               if (allTcData) {
@@ -156,14 +168,24 @@ export const DatabaseProvider = ({ children }) => {
             }
           }
         }
+        
+        // Fetch school info for term calculation
+        const { data: schoolInfo } = await supabase.from('schools').select('*').eq('id', user.school_id).single();
+        if (schoolInfo) {
+          const today = new Date().toISOString().split('T')[0];
+          const term = (schoolInfo.term_two_start_date && today >= schoolInfo.term_two_start_date) ? 2 : 1;
+          setCurrentTerm(term);
+          setSchools([schoolInfo]);
+        }
 
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, testsRes] = await Promise.all([
           classIds.length > 0 ? supabase.from('grades').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('attendance').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
+          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
+          classIds.length > 0 ? supabase.from('tests').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] }
         ]);
         
         if (gradesRes.data) setGrades(gradesRes.data);
@@ -172,6 +194,7 @@ export const DatabaseProvider = ({ children }) => {
         if (homeworkRes.data) setHomework(homeworkRes.data);
         if (notesRes.data) setNotes(notesRes.data);
         if (noticesRes.data) setNotices(noticesRes.data);
+        if (testsRes.data) setTests(testsRes.data);
         
       } else if (user.role === 'nxenes') {
         // Student data: find which classes they belong to
@@ -185,16 +208,26 @@ export const DatabaseProvider = ({ children }) => {
           }]);
         }
 
+        // Fetch school info for term calculation
+        const { data: schoolInfo } = await supabase.from('schools').select('*').eq('id', user.school_id).single();
+        if (schoolInfo) {
+          const today = new Date().toISOString().split('T')[0];
+          const term = (schoolInfo.term_two_start_date && today >= schoolInfo.term_two_start_date) ? 2 : 1;
+          setCurrentTerm(term);
+          setSchools([schoolInfo]);
+        }
+
         const classIds = scData ? [scData.class_id] : [];
         
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes] = await Promise.all([
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes] = await Promise.all([
           supabase.from('grades').select('*').eq('student_id', user.id).is('academic_year', null),
           classIds.length > 0 ? supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
           supabase.from('attendance').select('*').eq('student_id', user.id).is('academic_year', null),
           classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
-          supabase.from('notice_reads').select('notice_id').eq('student_id', user.id)
+          supabase.from('notice_reads').select('notice_id').eq('student_id', user.id),
+          classIds.length > 0 ? supabase.from('tests').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] }
         ]);
         
         if (gradesRes.data) setGrades(gradesRes.data);
@@ -204,6 +237,7 @@ export const DatabaseProvider = ({ children }) => {
         if (notesRes.data) setNotes(notesRes.data);
         if (noticesRes.data) setNotices(noticesRes.data);
         if (noticeReadsRes.data) setNoticeReads(noticeReadsRes.data.map(r => r.notice_id));
+        if (testsRes.data) setTests(testsRes.data);
         runAttendanceMigration([{ ...user, id: user.id, classId: user.classId }]);
       }
     } catch (error) {
@@ -473,6 +507,9 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const addGrade = async (grade) => {
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
+
     const { data, error } = await supabase.from('grades').insert([{
       student_id: grade.studentId,
       teacher_id: user.id,
@@ -482,7 +519,8 @@ export const DatabaseProvider = ({ children }) => {
       date: grade.date,
       description: grade.comment,
       grade_type: grade.type,
-      modification_count: 0
+      modification_count: 0,
+      term: currentTerm
     }]).select().single();
     
     if (!error && data) setGrades([...grades, data]);
@@ -521,12 +559,16 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const addLesson = async (lesson) => {
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
+
     const { data, error } = await supabase.from('lessons').insert([{
       teacher_id: user.id,
       class_id: lesson.classId,
       subject: lesson.subject,
       topic: lesson.topic,
-      date: lesson.date
+      date: lesson.date,
+      term: currentTerm
     }]).select().single();
 
     if (!error && data) {
@@ -545,13 +587,17 @@ export const DatabaseProvider = ({ children }) => {
     return { data, error };
   };
   const addNote = async (noteData) => {
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
+
     const dbNote = {
       student_id: noteData.studentId || null,
       class_id: noteData.classId || null,
       content: noteData.content,
       is_class_note: noteData.isClassNote || false,
       date: noteData.date,
-      teacher_id: user.id
+      teacher_id: user.id,
+      term: currentTerm
     };
     const { data, error } = await supabase.from('notes').insert([dbNote]).select();
     if (error) console.error('Error adding note:', error);
@@ -560,16 +606,43 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const addHomework = async (hw) => {
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
+
     const { data, error } = await supabase.from('homework').insert([{
       teacher_id: user.id,
       class_id: hw.classId,
       subject: hw.subject,
       description: hw.description,
-      due_date: hw.dueDate
+      due_date: hw.dueDate,
+      term: currentTerm
     }]).select().single();
 
     if (!error && data) setHomework([...homework, data]);
     return { data, error };
+  };
+
+  const addTest = async (testData) => {
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
+
+    const { data, error } = await supabase.from('tests').insert([{
+      class_id: testData.classId,
+      teacher_id: user.id,
+      subject: testData.subject,
+      date: testData.date,
+      description: testData.description,
+      term: currentTerm
+    }]).select().single();
+    
+    if (!error && data) setTests(prev => [...prev, data]);
+    return { data, error };
+  };
+
+  const deleteTest = async (testId) => {
+    const { error } = await supabase.from('tests').delete().eq('id', testId);
+    if (!error) setTests(prev => prev.filter(t => t.id !== testId));
+    return { error };
   };
 
   const updateClassTeachers = async (classId, teacherIds) => {
@@ -611,52 +684,63 @@ export const DatabaseProvider = ({ children }) => {
       a.hour > 0 && a.hour <= 7
     );
 
-    // 2. Map statuses for all 7 hours (default to 'present' if missing, though they should exist)
+    // 2. Build a map of ONLY hours that have actual records (do NOT default missing hours to 'present')
     const statuses = {};
-    for (let i = 1; i <= 7; i++) {
-      const rec = dayRecords.find(r => r.hour === i);
-      // We only care about the base type (present/absent)
-      statuses[i] = rec ? rec.status.split(':')[0] : 'present';
+    for (const rec of dayRecords) {
+      statuses[rec.hour] = rec.status.split(':')[0];
     }
 
-    // 3. Determine new daily status
+    // 3. Determine new daily status based only on recorded hours
     let newDailyStatus = 'present';
-    const allPresent = Object.values(statuses).every(s => s === 'present');
-    const allAbsent = Object.values(statuses).every(s => s === 'absent');
+    const hourKeys = Object.keys(statuses).map(Number).sort((a, b) => a - b);
 
-    if (allPresent) {
+    if (hourKeys.length === 0) {
+      // No hourly records at all — keep present (initialized default)
       newDailyStatus = 'present';
-    } else if (allAbsent) {
-      newDailyStatus = 'absent';
     } else {
-      // Find first and last present hours
-      let firstPresent = -1;
-      let lastPresent = -1;
-      for (let i = 1; i <= 7; i++) {
-        if (statuses[i] === 'present') {
-          if (firstPresent === -1) firstPresent = i;
-          lastPresent = i;
+      const allPresent = hourKeys.every(h => statuses[h] === 'present');
+      const allAbsent = hourKeys.every(h => statuses[h] !== 'present');
+
+      if (allPresent) {
+        newDailyStatus = 'present';
+      } else if (allAbsent) {
+        newDailyStatus = 'absent';
+      } else {
+        // Find first and last PRESENT among recorded hours only
+        let firstPresent = -1;
+        let lastPresent = -1;
+        for (const h of hourKeys) {
+          if (statuses[h] === 'present') {
+            if (firstPresent === -1) firstPresent = h;
+            lastPresent = h;
+          }
+        }
+
+        if (firstPresent === -1) {
+          newDailyStatus = 'absent';
+        } else if (firstPresent > hourKeys[0]) {
+          // First recorded hour is absent, a later hour is present → late
+          newDailyStatus = 'late';
+        } else if (lastPresent < hourKeys[hourKeys.length - 1]) {
+          // Last recorded hour is absent, an earlier hour was present → early exit
+          newDailyStatus = 'early_exit';
+        } else {
+          newDailyStatus = 'present';
         }
       }
-
-      if (firstPresent > 1 && firstPresent !== -1) {
-        newDailyStatus = 'late';
-      } else if (lastPresent < 7 && lastPresent !== -1) {
-        newDailyStatus = 'early_exit';
-      } else if (firstPresent === -1) {
-        // No present hours (should be handled by allAbsent, but safe fallback)
-        newDailyStatus = 'absent';
-      }
     }
 
-    // 4. Update Database for hour 0
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
     const student = students.find(s => s.id === studentId);
+
     const { data: syncData, error: syncError } = await supabase.from('attendance').upsert({
       student_id: studentId,
       class_id: student?.classId || student?.class_id,
       date: date,
       hour: 0,
-      status: newDailyStatus
+      status: newDailyStatus,
+      term: currentTerm
     }, { onConflict: 'student_id, class_id, date, hour' }).select().single();
 
     if (!syncError && syncData) {
@@ -694,12 +778,16 @@ export const DatabaseProvider = ({ children }) => {
     const finalStatus = time ? `${status}:${time}` : status;
     // Upsert attendance including hour in conflict resolution
     const student = students.find(s => s.id === studentId);
+    const currentSchool = schools.find(s => s.id === user.school_id);
+    const currentTerm = currentSchool?.current_term || 1;
+
     const { data, error } = await supabase.from('attendance').upsert({
       student_id: studentId,
       class_id: student?.classId || student?.class_id,
       date: date,
       hour: hour,
-      status: finalStatus
+      status: finalStatus,
+      term: currentTerm
     }, { onConflict: 'student_id, class_id, date, hour' }).select().single();
 
     if (!error && data) {
@@ -916,28 +1004,74 @@ export const DatabaseProvider = ({ children }) => {
     return { error };
   };
 
+  const updateCurrentTerm = async (schoolId, term) => {
+    try {
+      const { error } = await supabase.from('schools').update({ current_term: term }).eq('id', schoolId);
+      if (!error) {
+        setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, current_term: term } : s));
+        setCurrentTerm(term);
+        return { success: true };
+      }
+      return { error };
+    } catch (error) {
+      return { error };
+    }
+  };
+
+  const updateTermStartDate = async (schoolId, date) => {
+    try {
+      const { data, error } = await supabase
+        .from('schools')
+        .update({ term_two_start_date: date })
+        .eq('id', schoolId)
+        .select()
+        .single();
+        
+      if (!error) {
+        setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, term_two_start_date: date } : s));
+        // Recalculate global term
+        if (schoolId === user.school_id) {
+          const today = new Date().toISOString().split('T')[0];
+          const term = (date && today >= date) ? 2 : 1;
+          setCurrentTerm(term);
+        }
+        return { success: true };
+      }
+      return { error };
+    } catch (error) {
+      return { error };
+    }
+  };
   const archiveCurrentYear = async (schoolId, yearName) => {
     try {
-      // 1. Tag all active records for this school with the yearName
-      // Note: This assumes we have school_id or can filter by class_id -> school_id
       const schoolClassIds = classes.filter(c => c.school_id === schoolId).map(c => c.id);
       
       if (schoolClassIds.length > 0) {
+        // Tag all current records with the yearName
         await Promise.all([
           supabase.from('grades').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('attendance').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('lessons').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('homework').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('notes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('tests').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          // Also archive current student/teacher class assignments
+          supabase.from('student_classes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('teacher_classes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
         ]);
         
-        // Update local state by filtering out archived items (or we re-fetch)
+        // Update local state by filtering out archived items
         setGrades(prev => prev.filter(g => !schoolClassIds.includes(g.class_id)));
         setAttendance(prev => prev.filter(a => !schoolClassIds.includes(a.class_id)));
         setLessons(prev => prev.filter(l => !schoolClassIds.includes(l.class_id)));
         setHomework(prev => prev.filter(h => !schoolClassIds.includes(h.class_id)));
         setNotes(prev => prev.filter(n => !schoolClassIds.includes(n.class_id)));
+        setTests(prev => prev.filter(t => !schoolClassIds.includes(t.class_id)));
       }
+
+      // Update school current_year
+      await supabase.from('schools').update({ current_year: yearName, current_term: 1 }).eq('id', schoolId);
+      setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, current_year: yearName, current_term: 1 } : s));
       
       return { success: true };
     } catch (error) {
@@ -946,8 +1080,32 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
+  const promoteStudentToClass = async (studentId, classId) => {
+    try {
+      // 1. Remove any current active assignment for this student (just in case)
+      await supabase.from('student_classes').delete().eq('student_id', studentId).is('academic_year', null);
+      
+      // 2. Insert new active assignment
+      const { data, error } = await supabase.from('student_classes').insert([{
+        student_id: studentId,
+        class_id: classId,
+        academic_year: null
+      }]).select().single();
+
+      if (!error) {
+        setStudents(prev => prev.map(s => s.id === studentId ? { ...s, classId: classId } : s));
+        return { success: true };
+      }
+      return { error };
+    } catch (error) {
+      return { error };
+    }
+  };
+
   const promoteStudents = async (schoolId) => {
     try {
+      // Logic for automatic promotion if needed, but the user wants manual choice now.
+      // We'll keep this as a simple bulk advanced if they want it later.
       const schoolClasses = classes.filter(c => c.school_id === schoolId);
       
       const romanToNext = {
@@ -1223,14 +1381,57 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
+  const deleteAllData = async () => {
+    try {
+      const { error } = await supabase.rpc('delete_all_data');
+      if (error) throw error;
+      
+      // Clear local state
+      setSchools([]);
+      setTeachers([]);
+      setClasses([]);
+      setStudents([]);
+      setGrades([]);
+      setLessons([]);
+      setAttendance([]);
+      setHomework([]);
+      setNotes([]);
+      setNotices([]);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting all data:', error);
+      return { error };
+    }
+  };
+
+  const updateSchoolStatus = async (schoolId, isActive) => {
+    try {
+      const { data, error } = await supabase
+        .from('schools')
+        .update({ is_active: isActive })
+        .eq('id', schoolId)
+        .select()
+        .single();
+        
+      if (error) throw error;
+      if (data) {
+        setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, is_active: isActive } : s));
+      }
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error updating school status:', error);
+      return { error };
+    }
+  };
+
   const value = { 
-    schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, loading,
+    schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, tests, loading,
     addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, addNote, addNotice, toggleAttendance, justifyAttendance,
     activateProfile, updateClassTeachers, assignStudentToClass, initializeDailyAttendance,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice, markNoticeRead, updateGrade,
-    uploadFile,
-    refreshData
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, deleteNotice, markNoticeRead, updateGrade,
+    uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, updateCurrentTerm, updateTermStartDate, currentTerm
   };
 
   return (

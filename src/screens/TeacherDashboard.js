@@ -129,9 +129,9 @@ const GradeRing = ({ value, size = 64, showProgress = false }) => {
 };
 
 const TeacherDashboard = ({
-  user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices,
+  user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices, tests,
   onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onJustifyAttendance,
-  onInitializeAttendance, onAddHomework, onAddNote, onRefresh
+  onInitializeAttendance, onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
@@ -155,7 +155,7 @@ const TeacherDashboard = ({
     if (nowTime >= getTime(11, 35) && nowTime < getTime(12, 20)) return 5;
     if (nowTime >= getTime(12, 25) && nowTime < getTime(13, 10)) return 6;
     if (nowTime >= getTime(13, 15) && nowTime < getTime(14, 0)) return 7;
-    
+
     return null;
   };
 
@@ -233,10 +233,63 @@ const TeacherDashboard = ({
   const [selectedRegistryStudent, setSelectedRegistryStudent] = useState(null);
   const [selectedAttendanceHour, setSelectedAttendanceHour] = useState(null);
 
+  // Time Modal State (shown after hourly save when daily becomes late/early_exit)
+  const [isTimeModalVisible, setIsTimeModalVisible] = useState(false);
+  const [pendingTimeType, setPendingTimeType] = useState(null); // 'late' | 'early_exit'
+  const [pendingTimeStudentId, setPendingTimeStudentId] = useState(null);
+  const [pendingTimeDate, setPendingTimeDate] = useState(null);
+  const [timeModalSelHour, setTimeModalSelHour] = useState('');
+  const [timeModalSelMinute, setTimeModalSelMinute] = useState('');
+  const [isTimeModalHourDropdown, setIsTimeModalHourDropdown] = useState(false);
+  const [isTimeModalMinuteDropdown, setIsTimeModalMinuteDropdown] = useState(false);
+  const [isTimeSaving, setIsTimeSaving] = useState(false);
+
   // New Menu States
   const [selectedNotatStudent, setSelectedNotatStudent] = useState(null);
   const [selectedNotatSubject, setSelectedNotatSubject] = useState(null);
   const [lessonDate, setLessonDate] = useState(null); // null = use selectedDate
+
+  // Helper: compute what the daily status would be after setting studentId/date/hour to newStatus
+  const computeNewDailyStatus = (studentId, date, changedHour, newStatus) => {
+    // Gather all hourly records for this student/date
+    const existingRecords = attendance.filter(a =>
+      (a.student_id === studentId || a.studentId === studentId) &&
+      a.date === date &&
+      a.hour > 0 && a.hour <= 7
+    );
+
+    // Build a map of hour -> base status, applying the new change
+    const statuses = {};
+    existingRecords.forEach(r => {
+      const baseStatus = r.status?.split(':')[0];
+      statuses[r.hour] = baseStatus;
+    });
+    statuses[changedHour] = newStatus; // apply the change
+
+    const hourKeys = Object.keys(statuses).map(Number).sort((a, b) => a - b);
+    if (hourKeys.length === 0) return newStatus === 'present' ? 'present' : 'absent';
+
+    const allPresent = hourKeys.every(h => statuses[h] === 'present');
+    const allAbsent = hourKeys.every(h => statuses[h] === 'absent' || statuses[h] === 'absent_justified' || statuses[h] === 'absent_unjustified' || statuses[h]?.startsWith('absent'));
+
+    if (allPresent) return 'present';
+    if (allAbsent) return 'absent';
+
+    // Find first and last present
+    let firstPresent = -1;
+    let lastPresent = -1;
+    hourKeys.forEach(h => {
+      if (statuses[h] === 'present') {
+        if (firstPresent === -1) firstPresent = h;
+        lastPresent = h;
+      }
+    });
+
+    if (firstPresent === -1) return 'absent';
+    if (firstPresent > hourKeys[0]) return 'late';       // arrived after first lesson
+    if (lastPresent < hourKeys[hourKeys.length - 1]) return 'early_exit'; // left before last lesson
+    return 'present'; // mixed but present at start and end
+  };
 
   // Auto-initialize attendance for today when viewing class detail
   React.useEffect(() => {
@@ -246,7 +299,7 @@ const TeacherDashboard = ({
 
       // Only auto-initialize for today's date
       if (selectedDateStr === todayStr) {
-        onInitializeAttendance(navigation.data.id, selectedDateStr);
+        // onInitializeAttendance(navigation.data.id, selectedDateStr); // Disabled per user request: do not pre-fill attendance
       }
     }
   }, [navigation, selectedDate]);
@@ -395,18 +448,18 @@ const TeacherDashboard = ({
   const renderClassNotatGrid = (currentClass) => {
     const classStudents = students
       .filter(s => s.classId === currentClass.id)
-      .sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-    
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
     const studentIds = classStudents.map(s => s.id);
-    
+
     // Filter grades by selected subject and current class students
-    const subjectGrades = grades.filter(g => 
-      g.subject === selectedSubject && 
+    const subjectGrades = grades.filter(g =>
+      g.subject === selectedSubject &&
       (studentIds.includes(g.student_id) || studentIds.includes(g.studentId))
     );
 
     // Get unique dates
-    const uniqueDates = Array.from(new Set(subjectGrades.map(g => g.date))).sort((a,b) => new Date(a) - new Date(b));
+    const uniqueDates = Array.from(new Set(subjectGrades.map(g => g.date))).sort((a, b) => new Date(a) - new Date(b));
 
     return (
       <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
@@ -455,46 +508,46 @@ const TeacherDashboard = ({
                 {/* Data Rows */}
                 <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
                   {classStudents.map((student, idx) => {
-                  const studentGrades = subjectGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
-                  return (
-                    <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
-                      <View style={{ width: 260, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderRightWidth: 1, borderRightColor: '#e2e8f0' }}>
-                        <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: studentGrades.length === 0 ? '#fee2e2' : '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 11, fontWeight: '900', color: studentGrades.length === 0 ? '#ef4444' : '#64748b' }}>{studentGrades.length}</Text>
-                        </View>
-                        <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13, flex: 1 }} numberOfLines={2}>{student.name}</Text>
-                      </View>
-                      
-                      {uniqueDates.map(dateStr => {
-                        const gradeObj = studentGrades.find(g => g.date === dateStr);
-                        return (
-                          <View key={dateStr} style={{ width: 70, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#f1f5f9', padding: 4 }}>
-                            {gradeObj ? (
-                              <TouchableOpacity onPress={() => handleEditGradeClick(gradeObj)}>
-                                <GradeRing value={gradeObj.grade} size={42} />
-                              </TouchableOpacity>
-                            ) : (
-                              <TouchableOpacity 
-                                style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e2e8f0', borderStyle: 'dashed' }}
-                                onPress={() => {
-                                  setSelectedStudentForGrade(student);
-                                  setSelectedDate(new Date(dateStr));
-                                  setIsGradeModalVisible(true);
-                                }}
-                              >
-                                <Plus size={18} color="#cbd5e1" />
-                              </TouchableOpacity>
-                            )}
+                    const studentGrades = subjectGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
+                    return (
+                      <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                        <View style={{ width: 260, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderRightWidth: 1, borderRightColor: '#e2e8f0' }}>
+                          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: studentGrades.length === 0 ? '#fee2e2' : '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 11, fontWeight: '900', color: studentGrades.length === 0 ? '#ef4444' : '#64748b' }}>{studentGrades.length}</Text>
                           </View>
-                        );
-                      })}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </ScrollView>
-        </View>
+                          <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13, flex: 1 }} numberOfLines={2}>{student.name}</Text>
+                        </View>
+
+                        {uniqueDates.map(dateStr => {
+                          const gradeObj = studentGrades.find(g => g.date === dateStr);
+                          return (
+                            <View key={dateStr} style={{ width: 70, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#f1f5f9', padding: 4 }}>
+                              {gradeObj ? (
+                                <TouchableOpacity onPress={() => handleEditGradeClick(gradeObj)}>
+                                  <GradeRing value={gradeObj.grade} size={42} />
+                                </TouchableOpacity>
+                              ) : (
+                                <TouchableOpacity
+                                  style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e2e8f0', borderStyle: 'dashed' }}
+                                  onPress={() => {
+                                    setSelectedStudentForGrade(student);
+                                    setSelectedDate(new Date(dateStr));
+                                    setIsGradeModalVisible(true);
+                                  }}
+                                >
+                                  <Plus size={18} color="#cbd5e1" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </ScrollView>
+          </View>
         ) : (
           <View style={{ padding: 40, alignItems: 'center' }}>
             <ClipboardList size={40} color="#cbd5e1" />
@@ -912,13 +965,13 @@ const TeacherDashboard = ({
                   {(tempAttendanceStatus === 'late' || tempAttendanceStatus === 'early_exit') && (
                     <View style={{ marginTop: 15, backgroundColor: '#f8fafc', padding: 16, borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0', zIndex: 100 }}>
                       <Text style={[styles.label, { marginBottom: 12 }]}>{t('entry_exit_time')}</Text>
-                      
+
                       <View style={{ flexDirection: 'row', gap: 12 }}>
                         {/* Hour Dropdown */}
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase' }}>Ora</Text>
-                          <TouchableOpacity 
-                            style={{ 
+                          <TouchableOpacity
+                            style={{
                               flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                               backgroundColor: 'white', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: isHourDropdownVisible ? '#2563eb' : '#e2e8f0'
                             }}
@@ -927,16 +980,16 @@ const TeacherDashboard = ({
                             <Text style={{ fontSize: 15, fontWeight: '700', color: selHour ? '#1e293b' : '#94a3b8' }}>{selHour || 'Ora'}</Text>
                             <ChevronDown size={18} color="#64748b" style={{ transform: [{ rotate: isHourDropdownVisible ? '180deg' : '0deg' }] }} />
                           </TouchableOpacity>
-                          
+
                           {isHourDropdownVisible && (
-                            <View style={{ 
-                              marginTop: 8, backgroundColor: 'white', 
+                            <View style={{
+                              marginTop: 8, backgroundColor: 'white',
                               borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, elevation: 2, maxHeight: 160
                             }}>
                               <ScrollView nestedScrollEnabled>
                                 {['07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19'].map(h => (
-                                  <TouchableOpacity 
-                                    key={h} 
+                                  <TouchableOpacity
+                                    key={h}
                                     style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: selHour === h ? '#f0f7ff' : 'white' }}
                                     onPress={() => { setSelHour(h); setIsHourDropdownVisible(false); }}
                                   >
@@ -951,8 +1004,8 @@ const TeacherDashboard = ({
                         {/* Minute Dropdown */}
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase' }}>Minuta</Text>
-                          <TouchableOpacity 
-                            style={{ 
+                          <TouchableOpacity
+                            style={{
                               flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                               backgroundColor: 'white', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: isMinuteDropdownVisible ? '#2563eb' : '#e2e8f0'
                             }}
@@ -963,14 +1016,14 @@ const TeacherDashboard = ({
                           </TouchableOpacity>
 
                           {isMinuteDropdownVisible && (
-                            <View style={{ 
-                              marginTop: 8, backgroundColor: 'white', 
+                            <View style={{
+                              marginTop: 8, backgroundColor: 'white',
                               borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, elevation: 2, maxHeight: 160
                             }}>
                               <ScrollView nestedScrollEnabled>
                                 {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map(m => (
-                                  <TouchableOpacity 
-                                    key={m} 
+                                  <TouchableOpacity
+                                    key={m}
                                     style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: selMinute === m ? '#f0f7ff' : 'white' }}
                                     onPress={() => { setSelMinute(m); setIsMinuteDropdownVisible(false); }}
                                   >
@@ -996,23 +1049,45 @@ const TeacherDashboard = ({
                       setIsAttendanceSaving(true);
                       const finalTime = (tempAttendanceStatus === 'late' || tempAttendanceStatus === 'early_exit') ? `${selHour}:${selMinute}` : '';
                       const result = await onToggleAttendance(
-                        selectedActionStudent.id, 
-                        formatDate(selectedDate), 
-                        tempAttendanceStatus, 
-                        selectedAttendanceHour, 
+                        selectedActionStudent.id,
+                        formatDate(selectedDate),
+                        tempAttendanceStatus,
+                        selectedAttendanceHour,
                         finalTime
                       );
                       setIsAttendanceSaving(false);
-                      
+
                       if (result?.error) {
                         showAlert(result.error.message, 'error');
                       } else {
+                        // Close the action modal
                         setIsActionModalVisible(false);
                         setTempAttendanceStatus(null);
                         setAttendanceTime('');
-                        setSelectedAttendanceHour(null);
                         setIsHourDropdownVisible(false);
                         setIsMinuteDropdownVisible(false);
+
+                        // If this was an hourly record (hour > 0), check what the daily status became
+                        // If it's late or early_exit, show time modal to collect the time
+                        if (selectedAttendanceHour && selectedAttendanceHour > 0) {
+                          const newDaily = computeNewDailyStatus(
+                            selectedActionStudent.id,
+                            formatDate(selectedDate),
+                            selectedAttendanceHour,
+                            tempAttendanceStatus
+                          );
+                          if (newDaily === 'late' || newDaily === 'early_exit') {
+                            setPendingTimeType(newDaily);
+                            setPendingTimeStudentId(selectedActionStudent.id);
+                            setPendingTimeDate(formatDate(selectedDate));
+                            setTimeModalSelHour('');
+                            setTimeModalSelMinute('');
+                            setIsTimeModalHourDropdown(false);
+                            setIsTimeModalMinuteDropdown(false);
+                            setIsTimeModalVisible(true);
+                          }
+                        }
+                        setSelectedAttendanceHour(null);
                       }
                     }}
                   >
@@ -1084,32 +1159,32 @@ const TeacherDashboard = ({
                     .filter(a => (a.student_id === selectedActionStudent.id || a.studentId === selectedActionStudent.id) && !a.status.includes('present') && !a.status.includes('justified'))
                     .map(a => a.date)
                   ))
-                  .sort((a,b) => new Date(b) - new Date(a))
-                  .slice(0, 5)
-                  .map(dateStr => {
-                    const isSelected = selectedDateToJustify === dateStr;
-                    return (
-                      <TouchableOpacity
-                        key={dateStr}
-                        style={[
-                          styles.premiumActionCard,
-                          { marginBottom: 8, borderColor: isSelected ? '#2563eb' : '#f1f5f9', backgroundColor: isSelected ? '#eff6ff' : 'white' }
-                        ]}
-                        onPress={() => {
-                          setSelectedDateToJustify(dateStr);
-                          setJustifyReason('');
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <View>
-                            <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 15 }}>{reformatDate(dateStr)}</Text>
-                            <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{t('absence_of_day') || "Mungesë ditore"}</Text>
+                    .sort((a, b) => new Date(b) - new Date(a))
+                    .slice(0, 5)
+                    .map(dateStr => {
+                      const isSelected = selectedDateToJustify === dateStr;
+                      return (
+                        <TouchableOpacity
+                          key={dateStr}
+                          style={[
+                            styles.premiumActionCard,
+                            { marginBottom: 8, borderColor: isSelected ? '#2563eb' : '#f1f5f9', backgroundColor: isSelected ? '#eff6ff' : 'white' }
+                          ]}
+                          onPress={() => {
+                            setSelectedDateToJustify(dateStr);
+                            setJustifyReason('');
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <View>
+                              <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 15 }}>{reformatDate(dateStr)}</Text>
+                              <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{t('absence_of_day') || "Mungesë ditore"}</Text>
+                            </View>
+                            <ChevronRight size={18} color={isSelected ? '#2563eb' : '#cbd5e1'} />
                           </View>
-                          <ChevronRight size={18} color={isSelected ? '#2563eb' : '#cbd5e1'} />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
+                        </TouchableOpacity>
+                      );
+                    })}
 
                   {selectedDateToJustify && (
                     <View style={{ marginTop: 20, padding: 16, backgroundColor: '#f8fafc', borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0' }}>
@@ -1219,6 +1294,14 @@ const TeacherDashboard = ({
                         date: gradeCustomDate || dateStr,
                         teacherId: user.id
                       });
+                      if (isTest && onAddTest) {
+                        onAddTest({
+                          classId: selectedActionStudent.classId,
+                          subject: selectedSubject,
+                          date: gradeCustomDate || dateStr,
+                          description: lessonTopic
+                        });
+                      }
                       setIsActionModalVisible(false);
                       setLessonTopic('');
                       setLessonHomework('');
@@ -1277,7 +1360,7 @@ const TeacherDashboard = ({
                   <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>
                     {formatDisplayDate(lessonDate || selectedDate)}
                   </Text>
-                  
+
                   {Platform.OS === 'web' && (
                     <input
                       id="lesson-date-input"
@@ -1290,7 +1373,6 @@ const TeacherDashboard = ({
                         cursor: 'pointer'
                       }}
                       value={lessonDate || formatDate(selectedDate)}
-                      max={formatDate(new Date())}
                       onChange={(e) => {
                         const text = e.target.value;
                         const picked = new Date(text);
@@ -1378,6 +1460,14 @@ const TeacherDashboard = ({
                       date: lessonDate || formatDate(selectedDate),
                       teacherId: user.id
                     });
+                    if (isTest && onAddTest) {
+                      onAddTest({
+                        classId: currentClass.id,
+                        subject: selectedSubject,
+                        date: lessonDate || formatDate(selectedDate),
+                        description: lessonTopic
+                      });
+                    }
                     setIsLessonModalVisible(false);
                     setLessonTopic('');
                     setLessonHomework('');
@@ -1409,9 +1499,9 @@ const TeacherDashboard = ({
     const allHours = [1, 2, 3, 4, 5, 6, 7].filter(h => dayLessons.some(l => l.topic?.includes(`[Ora ${h}]`)));
 
     const getStatusForHour = (studentId, hour) => {
-      const record = attendance.find(a => 
-        (a.student_id === studentId || a.studentId === studentId) && 
-        a.date === dateStr && 
+      const record = attendance.find(a =>
+        (a.student_id === studentId || a.studentId === studentId) &&
+        a.date === dateStr &&
         parseInt(a.hour) === parseInt(hour)
       );
       if (!record) return 'none';
@@ -1490,20 +1580,20 @@ const TeacherDashboard = ({
                   return (
                     <TouchableOpacity
                       key={btn.tab}
-                      style={{ 
+                      style={{
                         flex: isSmall ? undefined : 1,
                         width: isSmall ? '48%' : undefined,
-                        height: 60, 
-                        borderRadius: 18, 
-                        backgroundColor: btn.bg, 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        gap: 6, 
-                        shadowColor: btn.color, 
-                        shadowOffset: { width: 0, height: 2 }, 
-                        shadowOpacity: 0.1, 
-                        shadowRadius: 4, 
-                        elevation: 2 
+                        height: 60,
+                        borderRadius: 18,
+                        backgroundColor: btn.bg,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        shadowColor: btn.color,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 4,
+                        elevation: 2
                       }}
                       onPress={() => {
                         setSelectedActionStudent(sel);
@@ -1537,9 +1627,9 @@ const TeacherDashboard = ({
                   <Text style={{ fontWeight: '800', color: '#475569', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.8 }}>Nxënësi</Text>
                 </View>
                 <View style={{ width: 130, padding: 16, justifyContent: 'center', alignItems: 'center', borderRightWidth: 1, borderRightColor: '#e2e8f0', backgroundColor: '#fdfcfe', flexDirection: 'row', gap: 8 }}>
-                  <Text style={{ fontWeight: '900', color: '#7c3aed', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 }}>TASHMË</Text>
+                  <Text style={{ fontWeight: '900', color: '#7c3aed', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 }}>Gjendja ditore</Text>
                   {allHours.length > 0 && (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       onPress={() => setShowHourlyAttendance(!showHourlyAttendance)}
                       style={{ padding: 4, borderRadius: 6, backgroundColor: '#f5f3ff' }}
                     >
@@ -1563,7 +1653,7 @@ const TeacherDashboard = ({
                 {classStudents.map((student, idx) => {
                   const isSelected = sel?.id === student.id;
                   const dailyStatus = getStatusForHour(student.id, 0);
-                  
+
                   return (
                     <TouchableOpacity
                       key={student.id}
@@ -1580,25 +1670,8 @@ const TeacherDashboard = ({
                       </View>
 
                       {/* TASHMË Status Column (Merged Daily/Now) */}
-                      <TouchableOpacity 
+                      <View
                         style={{ width: 130, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#e2e8f0' }}
-                        onPress={() => {
-                          setSelectedActionStudent(student);
-                          setActiveActionTab('attendance');
-                          setSelectedAttendanceHour(0);
-                          const initialStatus = dailyStatus !== 'none' ? dailyStatus.split(':')[0] : null;
-                          const timePart = (dailyStatus.includes(':') && dailyStatus.split(':').length >= 2) ? dailyStatus.split(':').slice(1).join(':') : '';
-                          setTempAttendanceStatus(initialStatus);
-                          if (timePart.includes(':')) {
-                            const [h, m] = timePart.split(':');
-                            setSelHour(h || '');
-                            setSelMinute(m || '');
-                          } else {
-                            setSelHour('');
-                            setSelMinute('');
-                          }
-                          setIsActionModalVisible(true);
-                        }}
                       >
                         <View style={{ 
                           width: '88%',
@@ -1609,15 +1682,17 @@ const TeacherDashboard = ({
                           borderColor: dailyStatus === 'present' ? '#22c55e' : (dailyStatus.startsWith('absent') ? '#ef4444' : (dailyStatus !== 'none' ? '#f59e0b' : '#e2e8f0')),
                           alignItems: 'center',
                           justifyContent: 'center',
-                          shadowColor: dailyStatus !== 'none' ? (dailyStatus === 'present' ? '#22c55e' : '#ef4444') : '#000',
-                          shadowOffset: { width: 0, height: 2 },
+                          flexDirection: 'row',
+                          gap: 6,
+                          shadowColor: dailyStatus === 'present' ? '#16a34a' : (dailyStatus.startsWith('absent') ? '#dc2626' : (dailyStatus !== 'none' ? '#d97706' : '#94a3b8')),
+                          shadowOffset: { width: 0, height: dailyStatus !== 'none' ? 3 : 1 },
                           shadowOpacity: dailyStatus !== 'none' ? 0.2 : 0.05,
                           shadowRadius: 4,
                           elevation: dailyStatus !== 'none' ? 3 : 1
                         }}>
-                          <Text style={{ 
-                            fontSize: 12, 
-                            fontWeight: '900', 
+                          <Text style={{
+                            fontSize: 12,
+                            fontWeight: '900',
                             color: dailyStatus === 'present' ? '#15803d' : (dailyStatus.startsWith('absent') ? '#b91c1c' : (dailyStatus !== 'none' ? '#b45309' : '#64748b')),
                             textTransform: 'uppercase',
                             letterSpacing: 0.8
@@ -1625,7 +1700,7 @@ const TeacherDashboard = ({
                             {dailyStatus === 'none' ? '—' : t(dailyStatus)}
                           </Text>
                         </View>
-                      </TouchableOpacity>
+                      </View>
 
                       {/* Hourly Cells */}
                       {showHourlyAttendance && allHours.map((hour) => {
@@ -1643,12 +1718,12 @@ const TeacherDashboard = ({
                           <TouchableOpacity
                             key={hour}
                             disabled={isLocked}
-                            style={{ 
-                              width: 68, 
-                              alignItems: 'center', 
-                              justifyContent: 'center', 
-                              borderRightWidth: 1, 
-                              borderRightColor: '#f1f5f9', 
+                            style={{
+                              width: 68,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRightWidth: 1,
+                              borderRightColor: '#f1f5f9',
                               paddingVertical: 12,
                               opacity: isLocked ? 0.6 : 1
                             }}
@@ -1670,14 +1745,14 @@ const TeacherDashboard = ({
                               setIsActionModalVisible(true);
                             }}
                           >
-                            <View style={{ 
-                              width: 42, 
-                              height: 42, 
-                              borderRadius: 14, 
-                              alignItems: 'center', 
-                              justifyContent: 'center', 
-                              backgroundColor: bgColor, 
-                              borderWidth: 1, 
+                            <View style={{
+                              width: 42,
+                              height: 42,
+                              borderRadius: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: bgColor,
+                              borderWidth: 1,
                               borderColor: status && status !== 'none' ? '#e2e8f0' : (isLocked ? '#f1f5f9' : 'transparent'),
                               borderStyle: isLocked && status === 'none' ? 'dashed' : 'solid'
                             }}>
@@ -2194,8 +2269,8 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, height: 60, marginBottom: 24 }}>
-          <TouchableOpacity 
-            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }]} 
+          <TouchableOpacity
+            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }]}
             onPress={() => setNavigation({ view: 'my-classes', data: null })}
           >
             <ArrowLeft size={18} color="#1e293b" />
@@ -2209,18 +2284,18 @@ const TeacherDashboard = ({
               const topicParts = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
               const hourNum = topicParts ? topicParts[1] : null;
               const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
-              
+
               const teacher = user.teacherProfiles?.find(p => p.id === lesson.teacher_id) || user;
 
               return (
                 <View key={lesson.id} style={[styles.premiumCard, { marginBottom: 16, padding: 20, borderLeftWidth: 4, borderLeftColor: lesson.is_test ? '#ef4444' : '#2563eb' }]}>
                   <View style={{ flexDirection: 'row', gap: 16 }}>
-                    <View style={{ 
-                      width: 60, 
-                      height: 60, 
-                      borderRadius: 18, 
-                      backgroundColor: lesson.is_test ? '#fee2e2' : '#f8fafc', 
-                      alignItems: 'center', 
+                    <View style={{
+                      width: 60,
+                      height: 60,
+                      borderRadius: 18,
+                      backgroundColor: lesson.is_test ? '#fee2e2' : '#f8fafc',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       borderWidth: 1.5,
                       borderColor: lesson.is_test ? '#fecaca' : '#f1f5f9'
@@ -2228,15 +2303,15 @@ const TeacherDashboard = ({
                       <Text style={{ fontSize: 24, fontWeight: '900', color: lesson.is_test ? '#b91c1c' : '#1e293b' }}>{hourNum || idx + 1}</Text>
                       <Text style={{ fontSize: 9, fontWeight: '800', color: lesson.is_test ? '#b91c1c' : '#64748b', marginTop: -2, textTransform: 'uppercase' }}>{t('hour') || 'Ora'}</Text>
                     </View>
-                    
+
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 2 }}>{lesson.subject}</Text>
                       <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748b', marginBottom: 10 }}>
                         {teacher.first_name} {teacher.last_name}
                       </Text>
-                      
+
                       <View style={{ height: 1.5, backgroundColor: '#f8fafc', marginBottom: 10 }} />
-                      
+
                       <View style={{ flexDirection: 'row', gap: 8 }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('lesson_topic') || 'Tema'}</Text>
@@ -2500,6 +2575,157 @@ const TeacherDashboard = ({
           </View>
         </Modal>
       )}
+
+      {/* Time Modal: shown when hourly attendance causes late/early_exit */}
+      <Modal visible={isTimeModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.premiumActionModal, { maxHeight: '80%' }]}>
+            {/* Header */}
+            <View style={styles.modalHeaderScroll}>
+              <View>
+                <Text style={styles.modalTitleEmphasized}>
+                  {pendingTimeType === 'late' ? t('time_modal_late_title') || '⏰ Ritardo' : t('time_modal_early_exit_title') || '🚪 Uscita Anticipata'}
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {pendingTimeType === 'late'
+                    ? t('time_modal_late_subtitle') || 'Inserisci l\'orario di entrata'
+                    : t('time_modal_early_exit_subtitle') || 'Inserisci l\'orario di uscita'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsTimeModalVisible(false)}
+                style={styles.closeModalBtn}
+              >
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+              {/* Info banner */}
+              <View style={{ backgroundColor: pendingTimeType === 'late' ? '#fef3c7' : '#fff7ed', borderRadius: 16, padding: 14, marginBottom: 20, flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Clock size={18} color={pendingTimeType === 'late' ? '#d97706' : '#ea580c'} />
+                <Text style={{ fontSize: 13, color: pendingTimeType === 'late' ? '#92400e' : '#7c2d12', fontWeight: '600', flex: 1, lineHeight: 20 }}>
+                  {pendingTimeType === 'late'
+                    ? t('time_modal_late_desc') || 'Lo studente era assente alla prima ora ma è arrivato in seguito. Registra l\'ora di ingresso.'
+                    : t('time_modal_early_exit_desc') || 'Lo studente era presente ma è uscito prima della fine. Registra l\'ora di uscita.'}
+                </Text>
+              </View>
+
+              {/* Hour & Minute selectors */}
+              <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+                {/* Hour */}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase' }}>{t('time_modal_hour') || 'Ora'}</Text>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 14, borderRadius: 14, borderWidth: 1.5, borderColor: isTimeModalHourDropdown ? '#2563eb' : '#e2e8f0' }}
+                    onPress={() => { setIsTimeModalHourDropdown(!isTimeModalHourDropdown); setIsTimeModalMinuteDropdown(false); }}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: timeModalSelHour ? '#1e293b' : '#94a3b8' }}>{timeModalSelHour || t('time_modal_hour') || 'Ora'}</Text>
+                    <ChevronDown size={18} color="#64748b" />
+                  </TouchableOpacity>
+                  {isTimeModalHourDropdown && (
+                    <View style={{ marginTop: 6, backgroundColor: 'white', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 4, maxHeight: 180 }}>
+                      <ScrollView nestedScrollEnabled>
+                        {['07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19'].map(h => (
+                          <TouchableOpacity
+                            key={h}
+                            style={{ padding: 13, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: timeModalSelHour === h ? '#eff6ff' : 'white' }}
+                            onPress={() => { setTimeModalSelHour(h); setIsTimeModalHourDropdown(false); }}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: timeModalSelHour === h ? '700' : '500', color: timeModalSelHour === h ? '#2563eb' : '#475569' }}>{h}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                {/* Minute */}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase' }}>{t('time_modal_minute') || 'Minuto'}</Text>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 14, borderRadius: 14, borderWidth: 1.5, borderColor: isTimeModalMinuteDropdown ? '#2563eb' : '#e2e8f0' }}
+                    onPress={() => { setIsTimeModalMinuteDropdown(!isTimeModalMinuteDropdown); setIsTimeModalHourDropdown(false); }}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: timeModalSelMinute ? '#1e293b' : '#94a3b8' }}>{timeModalSelMinute || t('time_modal_minute') || 'Min'}</Text>
+                    <ChevronDown size={18} color="#64748b" />
+                  </TouchableOpacity>
+                  {isTimeModalMinuteDropdown && (
+                    <View style={{ marginTop: 6, backgroundColor: 'white', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 4, maxHeight: 180 }}>
+                      <ScrollView nestedScrollEnabled>
+                        {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map(m => (
+                          <TouchableOpacity
+                            key={m}
+                            style={{ padding: 13, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: timeModalSelMinute === m ? '#eff6ff' : 'white' }}
+                            onPress={() => { setTimeModalSelMinute(m); setIsTimeModalMinuteDropdown(false); }}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: timeModalSelMinute === m ? '700' : '500', color: timeModalSelMinute === m ? '#2563eb' : '#475569' }}>{m}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              {/* Time preview */}
+              <View style={{ alignItems: 'center', backgroundColor: pendingTimeType === 'late' ? '#fef3c7' : '#fff7ed', paddingVertical: 10, borderRadius: 14, marginBottom: 20 }}>
+                <Text style={{ fontSize: 28, fontWeight: '900', color: pendingTimeType === 'late' ? '#d97706' : '#ea580c', letterSpacing: 2 }}>
+                  {timeModalSelHour && timeModalSelMinute ? `${timeModalSelHour}:${timeModalSelMinute}` : '--:--'}
+                </Text>
+              </View>
+
+              {/* Save button */}
+              <TouchableOpacity
+                style={[styles.premiumSubmitButton,
+                { backgroundColor: pendingTimeType === 'late' ? '#d97706' : '#ea580c' },
+                (!timeModalSelHour || !timeModalSelMinute) && { opacity: 0.5 }
+                ]}
+                disabled={!timeModalSelHour || !timeModalSelMinute || isTimeSaving}
+                onPress={async () => {
+                  setIsTimeSaving(true);
+                  const finalTime = `${timeModalSelHour}:${timeModalSelMinute}`;
+                  const result = await onToggleAttendance(
+                    pendingTimeStudentId,
+                    pendingTimeDate,
+                    pendingTimeType,
+                    0, // hour 0 = daily summary
+                    finalTime
+                  );
+                  setIsTimeSaving(false);
+                  if (result?.error) {
+                    showAlert(result.error.message, 'error');
+                  } else {
+                    setIsTimeModalVisible(false);
+                    setPendingTimeType(null);
+                    setPendingTimeStudentId(null);
+                    setPendingTimeDate(null);
+                    setTimeModalSelHour('');
+                    setTimeModalSelMinute('');
+                  }
+                }}
+              >
+                <Text style={styles.premiumSubmitButtonText}>
+                  {isTimeSaving ? '...' : t('time_modal_save') || 'Salva Orario'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Skip button */}
+              <TouchableOpacity
+                style={{ alignItems: 'center', paddingVertical: 14 }}
+                onPress={() => {
+                  setIsTimeModalVisible(false);
+                  setPendingTimeType(null);
+                  setPendingTimeStudentId(null);
+                  setPendingTimeDate(null);
+                }}
+              >
+                <Text style={{ color: '#94a3b8', fontWeight: '700', fontSize: 14 }}>{t('time_modal_skip') || 'Salta (senza orario)'}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );

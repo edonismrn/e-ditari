@@ -20,10 +20,10 @@ function AppContent() {
     addGrade, addLesson, toggleAttendance, addHomework, addNote, addNotice,
     activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, deleteNotice, updateGrade,
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, deleteNotice, updateGrade,
     initializeDailyAttendance,
     justifyAttendance,
-    markNoticeRead, noticeReads, uploadFile,
+    markNoticeRead, noticeReads, uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, tests, updateCurrentTerm, updateTermStartDate,
     loading: dataLoading,
     refreshData
   } = useDatabase();
@@ -110,12 +110,17 @@ function AppContent() {
           onRemoveStudentFromClass={removeStudentFromClass}
           onArchiveYear={archiveCurrentYear}
           onPromoteStudents={promoteStudents}
+          onPromoteStudentToClass={promoteStudentToClass}
           notices={notices}
           onAddNotice={addNotice}
           onDeleteNotice={deleteNotice}
           schoolAdmins={schoolAdmins}
           onRefresh={refreshData}
           onUploadFile={uploadFile}
+          onDeleteAllData={deleteAllData}
+          onUpdateSchoolStatus={updateSchoolStatus}
+          onUpdateCurrentTerm={updateCurrentTerm}
+          onUpdateTermStartDate={updateTermStartDate}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -136,6 +141,7 @@ function AppContent() {
           homework={homework}
           notes={notes}
           notices={notices}
+          tests={tests}
           onAddGrade={addGrade}
           onUpdateGrade={updateGrade}
           onAddLesson={addLesson}
@@ -144,6 +150,8 @@ function AppContent() {
           onInitializeAttendance={initializeDailyAttendance}
           onAddHomework={addHomework}
           onAddNote={addNote}
+          onAddTest={addTest}
+          onDeleteTest={deleteTest}
           onRefresh={refreshData}
         />
         <StatusBar barStyle="dark-content" />
@@ -164,6 +172,7 @@ function AppContent() {
           homework={homework}
           notes={notes}
           notices={notices}
+          tests={tests}
           noticeReads={noticeReads}
           onMarkNoticeRead={markNoticeRead}
           onRefresh={refreshData}

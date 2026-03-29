@@ -58,6 +58,13 @@ export const AuthProvider = ({ children }) => {
         await supabase.auth.signOut();
         throw new Error("Llogaria juaj nuk është aktive. Ju lutem kontaktoni administratorin për të përfunduar konfigurimin e klasës tuaj.");
       }
+
+      // Check if the school is active
+      const isSuperAdmin = profile.email === 'admin@ditari-elektronik.com';
+      if (!isSuperAdmin && profile.schools && profile.schools.is_active === false) {
+        await supabase.auth.signOut();
+        throw new Error("Shkolla juaj momentalisht është e çaktivizuar. Ju lutem kontaktoni administratorin suprem.");
+      }
       
       setUser(profile);
     } catch (error) {

@@ -62,7 +62,7 @@ const getSemester = (dateStr) => {
   return month >= 9 || month === 1 ? 1 : 2;
 };
 
-const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance, homework, notes, notices, noticeReads, onMarkNoticeRead, onRefresh }) => {
+const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance, homework, notes, notices, tests, noticeReads, onMarkNoticeRead, onRefresh }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
@@ -449,56 +449,148 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           );
         })()}
 
-        {/* Disciplinary Notes - Premium Red Cards */}
-        {userNotes.length > 0 && (
-          <View style={{ marginTop: 8, marginBottom: 4 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
-              <Text style={{ fontSize: 13, fontWeight: '800', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                {t('njoftim_disiplinor') || 'Njoftim Disiplinor'}
-              </Text>
-            </View>
-            {userNotes.map((note, idx) => (
-              <View key={note.id || idx} style={{
-                backgroundColor: '#fff1f2',
-                borderRadius: 20,
-                padding: 16,
-                marginBottom: 10,
-                borderWidth: 1.5,
-                borderColor: '#fecaca',
-                shadowColor: '#ef4444',
-                shadowOffset: { width: 0, height: 3 },
-                shadowOpacity: 0.1,
-                shadowRadius: 8,
-                elevation: 3,
-              }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                  <View style={{
-                    width: 36, height: 36, borderRadius: 18,
-                    backgroundColor: '#ef4444',
-                    alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0
+        {/* Disciplinary Notes ... */}
+        {(() => {
+          const selectedDateStr = formatDateString(selectedDate);
+          const selectedDateNotes = userNotes.filter(n => n.date === selectedDateStr || (n.created_at && n.created_at.startsWith(selectedDateStr)));
+          
+          if (selectedDateNotes.length > 0) {
+            return (
+              <View style={{ marginTop: 8, marginBottom: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                    {t('njoftim_disiplinor') || 'Njoftim Disiplinor'}
+                  </Text>
+                </View>
+                {selectedDateNotes.map((note, idx) => (
+                  <View key={note.id || idx} style={{
+                    backgroundColor: '#fff1f2',
+                    borderRadius: 20,
+                    padding: 16,
+                    marginBottom: 10,
+                    borderWidth: 1.5,
+                    borderColor: '#fecaca',
+                    shadowColor: '#ef4444',
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 8,
+                    elevation: 3,
                   }}>
-                    <AlertTriangle size={18} color="white" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 1 }}>
-                        {note.is_class_note ? (t('class_note') || 'Klasa') : (t('personal_note') || 'Personale')}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600' }}>
-                        {note.date ? new Date(note.date).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
-                      </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                      <View style={{
+                        width: 36, height: 36, borderRadius: 18,
+                        backgroundColor: '#ef4444',
+                        alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <AlertTriangle size={18} color="white" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 1 }}>
+                            {note.is_class_note ? (t('class_note') || 'Klasa') : (t('personal_note') || 'Personale')}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 14, color: '#7f1d1d', fontWeight: '600', lineHeight: 20 }}>
+                          {note.content}
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={{ fontSize: 14, color: '#7f1d1d', fontWeight: '600', lineHeight: 20 }}>
-                      {note.content}
+                  </View>
+                ))}
+              </View>
+            );
+          }
+          return null;
+        })()}
+
+        {/* Scheduled Tests (Verifiche) */}
+        {(() => {
+          const selectedDateStr = formatDateString(selectedDate);
+          const dateTests = (tests || []).filter(t => t.date === selectedDateStr && t.class_id === user.classId);
+          
+          if (dateTests.length > 0) {
+            return (
+              <View style={{ marginTop: 8, marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                    {t('test_exam') || 'Verifica / Provim'}
+                  </Text>
+                </View>
+                {dateTests.map((test, idx) => (
+                  <View key={test.id || idx} style={{
+                    backgroundColor: 'white',
+                    borderRadius: 20,
+                    padding: 18,
+                    marginBottom: 10,
+                    borderWidth: 2,
+                    borderColor: '#f43f5e',
+                    borderLeftWidth: 8,
+                    shadowColor: '#f43f5e',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 10,
+                    elevation: 4,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                       <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337' }}>{test.subject}</Text>
+                       <View style={{ backgroundColor: '#fff1f2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
+                         <Text style={{ fontSize: 10, fontWeight: '800', color: '#f43f5e' }}>URGJENTE</Text>
+                       </View>
+                    </View>
+                    <Text style={{ fontSize: 15, color: '#4c0519', fontWeight: '600', lineHeight: 22 }}>
+                      {test.description}
                     </Text>
                   </View>
-                </View>
+                ))}
               </View>
-            ))}
-          </View>
-        )}
+            );
+          }
+          return null;
+        })()}
+
+        {/* Dedicated Homework Section */}
+        {(() => {
+          const selectedDateStr = formatDateString(selectedDate);
+          const dateHomework = (homework || []).filter(hw => hw.due_date === selectedDateStr && hw.class_id === user.classId);
+          
+          if (dateHomework.length > 0) {
+            return (
+              <View style={{ marginTop: 8, marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#2563eb' }} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                    {t('homework_label') || 'Detyrat e shtëpisë'}
+                  </Text>
+                </View>
+                {dateHomework.map((hw, idx) => (
+                  <View key={hw.id || idx} style={{
+                    backgroundColor: '#f0f9ff',
+                    borderRadius: 20,
+                    padding: 16,
+                    marginBottom: 10,
+                    borderWidth: 1.5,
+                    borderColor: '#bae6fd',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12
+                  }}>
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#3b82f6', shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 }}>
+                       <Book size={20} color="#2563eb" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>{hw.subject}</Text>
+                      <Text style={{ fontSize: 15, color: '#0c4a6e', fontWeight: '600' }}>{hw.description}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+          return null;
+        })()}
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>{t('lessons') || 'Mësimi'}</Text>
@@ -552,78 +644,7 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           )}
         />
 
-        {selectedDateGrades.length > 0 && (
-          <>
-            <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
-              <Text style={styles.sectionTitle}>{t('notat')}</Text>
-              <ClipboardCheck size={20} color="#2563eb" />
-            </View>
-            
-            <FlatList
-              data={selectedDateGrades}
-              keyExtractor={item => item.id}
-              scrollEnabled={false}
-              renderItem={({ item }) => {
-                const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
-                let rawType = item.grade_type || (legacyParts ? legacyParts[1] : '');
-                const gradeType = rawType ? rawType.replace(/[\[\]]/g, '').trim() : '';
-                const gradeNotes = item.description ? (legacyParts ? legacyParts[2] : item.description) : '';
-                const gradeColors = getGradeColor(item.grade);
-
-                return (
-                <View style={[styles.gradeCard, { borderColor: gradeColors.border, padding: 16 }]}>
-                  <Text style={[styles.gradeDate, { marginBottom: 10 }]}>{reformatDate(item.date)}</Text>
-                  
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
-                    <GradeRing value={item.grade} size={48} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.gradeSubject}>{item.subject}</Text>
-                      {gradeType ? <Text style={styles.typeLabelText}>{gradeType}</Text> : null}
-                      {gradeNotes ? (
-                        <Text style={styles.gradeComment} numberOfLines={3}>
-                          {gradeNotes}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
-              );}}
-            />
-          </>
-        )}
-
-        {/* Disciplinary Notifications for selected date */}
-        {userNotes.length > 0 && (
-          <View>
-            <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
-              <Text style={[styles.sectionTitle, { color: '#991b1b' }]}>{t('njoftim_disiplinor')}</Text>
-              <Bell size={20} color="#ef4444" />
-            </View>
-            {userNotes.map((note, idx) => {
-              const isClassNote = note.is_class_note || (note.comment || note.topic || '').includes('[CLASS_NOTE]');
-              const cleanNote = note.content 
-                || (note.comment || note.topic || '').replace('[NOTE]', '').replace('[CLASS_NOTE]', '').trim();
-
-              return (
-                <View key={idx} style={[styles.premiumCard, styles.notifCard, { borderColor: '#ef4444' }]}>
-                  <View style={[styles.cardAccent, { backgroundColor: '#ef4444' }]} />
-                  <View style={styles.cardContent}>
-                    <View style={styles.lessonHeader}>
-                      <View style={styles.notifBadge}>
-                        <Bell size={12} color="#ef4444" />
-                        <Text style={styles.notifBadgeText}>
-                          {isClassNote ? t('njoftim_per_klase') : t('njoftim_disiplinor')}
-                        </Text>
-                      </View>
-                      <Text style={styles.lessonDate}>{note.date ? reformatDate(note.date) : ''}</Text>
-                    </View>
-                    <Text style={[styles.lessonTopic, { color: '#ef4444', fontWeight: '800' }]}>{cleanNote}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
+        {/* Legacy Grades and duplicate notifications removed from here */}
 
         <View style={{ height: 100 }} />
       </View>
