@@ -466,8 +466,6 @@ export const DatabaseProvider = ({ children }) => {
     if (error) {
       console.error("Profile error adding teacher", error);
     }
-    }
-鼓 error };
   };
 
   const addStudent = async (student) => {
@@ -489,6 +487,7 @@ export const DatabaseProvider = ({ children }) => {
         console.log("Ky email (" + validEmail + ") është regjistruar tashmë.");
       } else {
         console.log("Gabim gjatë krijimit të nxënësit: " + authError.message);
+      }
       return { error: authError };
     }
     const nameParts = (student.name || '').split(' ');
@@ -534,8 +533,6 @@ export const DatabaseProvider = ({ children }) => {
     if (error) {
       console.error("Profile error adding student", error);
     }
-    }
-鼓  return { data, error };
   };
 
   const addGrade = async (grade) => {
