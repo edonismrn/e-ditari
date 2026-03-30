@@ -51,7 +51,14 @@ export const AuthProvider = ({ children }) => {
         .eq('id', userId)
         .single();
       
-      if (profileError) throw profileError;
+      if (profileError) {
+        // If profile not found, don't throw yet, check if it's just a delay in creation
+        if (profileError.code === 'PGRST116') {
+          console.warn('[fetchUserProfile] Profile not found yet (race condition during creation ok)');
+          return; 
+        }
+        throw profileError;
+      }
 
       // Check if user is active (except for admins)
       if (profile.role !== 'admin' && profile.is_active === false) {
@@ -68,6 +75,7 @@ export const AuthProvider = ({ children }) => {
       
       setUser(profile);
     } catch (error) {
+      // PGRST116 errors are now caught above, so this block handles real errors
       console.error('Error fetching user profile:', error);
       // If there's an error fetching profile or user is inactive, ensure user is logged out
       if (error.message.includes("Llogaria juaj nuk është aktive")) {
@@ -77,7 +85,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+鼓  };
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });

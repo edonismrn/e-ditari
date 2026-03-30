@@ -25,7 +25,7 @@ function AppContent() {
     justifyAttendance,
     markNoticeRead, noticeReads, uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, tests, updateCurrentTerm, updateTermStartDate,
     loading: dataLoading,
-    refreshData
+    refreshData, bulkPromoteStudents, currentTerm
   } = useDatabase();
   const { t } = useLanguage();
   const { showAlert } = useAlert();
@@ -121,6 +121,7 @@ function AppContent() {
           onUpdateSchoolStatus={updateSchoolStatus}
           onUpdateCurrentTerm={updateCurrentTerm}
           onUpdateTermStartDate={updateTermStartDate}
+          onBulkPromoteStudents={bulkPromoteStudents}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -167,6 +168,7 @@ function AppContent() {
           onLogout={handleLogout}
           grades={grades}
           classes={classes}
+          schools={schools}
           lessons={lessons}
           attendance={attendance}
           homework={homework}
@@ -176,6 +178,7 @@ function AppContent() {
           noticeReads={noticeReads}
           onMarkNoticeRead={markNoticeRead}
           onRefresh={refreshData}
+          currentTerm={currentTerm}
         />
         <StatusBar barStyle="dark-content" />
       </View>

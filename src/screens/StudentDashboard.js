@@ -55,14 +55,8 @@ const getGradeColor = (val) => {
   return { bg: '#fee2e2', text: '#991b1b', border: '#ef4444', ring: '#ef4444', fill: 0.4 };
 };
 
-// Semester split helper: first semester = months 9-1, second = 2-6
-const getSemester = (dateStr) => {
-  if (!dateStr) return 1;
-  const month = parseInt(dateStr.split('-')[1]);
-  return month >= 9 || month === 1 ? 1 : 2;
-};
-
-const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance, homework, notes, notices, tests, noticeReads, onMarkNoticeRead, onRefresh }) => {
+// StudentDashboard component starts here
+const StudentDashboard = ({ user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads, onMarkNoticeRead, onRefresh, currentTerm }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
@@ -86,15 +80,31 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
       throw err;
     }
   };
-  const [gradeSemester, setGradeSemester] = React.useState(0); // 0=all, 1=first, 2=second
+  const [gradeSemester, setGradeSemester] = React.useState(currentTerm || 0); // Default to currentTerm
+  
+  // Update gradeSemester when currentTerm changes (on login/refresh)
+  React.useEffect(() => {
+    if (currentTerm && gradeSemester === 0) {
+      setGradeSemester(currentTerm);
+    }
+  }, [currentTerm]);
   const [selectedSubject, setSelectedSubject] = React.useState(null);
   const [selectedNotice, setSelectedNotice] = React.useState(null);
   const [refreshing, setRefreshing] = React.useState(false);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    if (onRefresh) await onRefresh();
-    setRefreshing(false);
+    try {
+      if (onRefresh) {
+        await onRefresh();
+      }
+      // Ensure visual feedback on fast connections
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Persist Navigation State
@@ -137,10 +147,29 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
     return `${d}/${m}`;
   };
 
+  // Dynamic Semester calculation: prioritize database term column, fallback to date calculation
+  const currentSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || schools?.[0];
+  const getDynamicSemester = (dateStr, dbTerm) => {
+    // 1. Prioritize what's written in DB (term column) as requested by user
+    if (dbTerm) return Number(dbTerm);
+
+    // 2. Fallback to Admin configuration (boundary date)
+    if (currentSchool?.term_two_start_date && dateStr) {
+      const entryDateStr = dateStr.split('T')[0].split(' ')[0];
+      const boundaryDateStr = currentSchool.term_two_start_date.split('T')[0].split(' ')[0];
+      return (entryDateStr > boundaryDateStr) ? 2 : 1;
+    }
+
+    // 3. Last resort fallback based on month
+    if (!dateStr) return 1;
+    const month = parseInt(dateStr.split('-')[1]);
+    return (month >= 9 || month === 1) ? 1 : 2;
+  };
+
   const userGrades = grades.filter(g => g.student_id === user.id && g.grade > 0);
   const filteredGrades = gradeSemester === 0
     ? userGrades
-    : userGrades.filter(g => getSemester(g.date) === gradeSemester);
+    : userGrades.filter(g => getDynamicSemester(g.date, g.term) === gradeSemester);
 
   const averageGrade = userGrades.length > 0 
     ? (userGrades.reduce((acc, curr) => acc + curr.grade, 0) / userGrades.length).toFixed(1)
@@ -173,8 +202,8 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
   const earlyExitsCount = userAttendance.filter(a => a.status.startsWith('early_exit')).length;
 
   // Semester Averages for Dashboard
-  const firstSemGrades = userGrades.filter(g => getSemester(g.date) === 1);
-  const secondSemGrades = userGrades.filter(g => getSemester(g.date) === 2);
+  const firstSemGrades = userGrades.filter(g => getDynamicSemester(g.date, g.term) === 1);
+  const secondSemGrades = userGrades.filter(g => getDynamicSemester(g.date, g.term) === 2);
   
   const firstSemAvg = firstSemGrades.length > 0
     ? (firstSemGrades.reduce((acc, curr) => acc + curr.grade, 0) / firstSemGrades.length).toFixed(1)
@@ -267,8 +296,14 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           data={absenceList}
           keyExtractor={item => item.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+            />
           }
+          alwaysBounceVertical={true}
           ListHeaderComponent={() => (
             <View style={{ marginBottom: 16 }}>
               <View style={[styles.statsDashboard, { flexWrap: 'wrap', justifyContent: 'space-between', gap: 0, rowGap: 12 }]}>
@@ -383,12 +418,18 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
 
   const renderOverview = () => (
     <ScrollView 
-        style={styles.scrollContent} 
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
+        style={styles.content} 
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 100, paddingHorizontal: 24 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={handleRefresh} 
+            colors={['#2563eb']} 
+            tintColor="#2563eb"
+          />
         }
+        alwaysBounceVertical={true}
     >
       <View style={{ marginTop: 10 }}>
 
@@ -397,21 +438,7 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           const selectedDateStr = formatDateString(selectedDate);
           let att = userAttendance.find(a => a.date === selectedDateStr && parseInt(a.hour || 0) === 0);
           
-          // Default to 'absent' if no record exists for today/past (as per user request)
-          if (!att) {
-            const todayStr = formatDateString(new Date());
-            if (selectedDateStr < todayStr) {
-              if (selectedDateStr === '2026-03-20') {
-                att = { status: 'absent', date: selectedDateStr };
-              } else {
-                att = { status: 'present', date: selectedDateStr };
-              }
-            } else if (selectedDateStr === todayStr) {
-              att = { status: 'absent', date: selectedDateStr };
-            } else {
-              return null; // Don't show for future dates
-            }
-          }
+          if (!att) return null; // Only show if record exists in DB
 
           const statusKey = att.status.split(':')[0];
           const isAbsent = statusKey === 'absent';
@@ -682,10 +709,16 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
       {/* 1. SEMESTER SUBJECT LIST VIEW */}
       {isSemesterView && (
         <ScrollView 
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+            />
           }
+          alwaysBounceVertical={true}
         >
           <Text style={[styles.sectionTitleSmall, { marginBottom: 16 }]}>{t('mesatarja_sipas_lendeve')}</Text>
           {subjectAverages.length > 0 ? (
@@ -731,8 +764,14 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
                 : [...filteredGrades].reverse()}
             keyExtractor={item => item.id}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+              <RefreshControl 
+                refreshing={refreshing} 
+                onRefresh={handleRefresh} 
+                colors={['#2563eb']} 
+                tintColor="#2563eb"
+              />
             }
+            alwaysBounceVertical={true}
             renderItem={({ item }) => {
               const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
               let rawType = item.grade_type || (legacyParts ? legacyParts[1] : '');
@@ -835,8 +874,14 @@ const StudentDashboard = ({ user, onLogout, grades, classes, lessons, attendance
           data={schoolNotices}
           keyExtractor={item => item.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+            />
           }
+          alwaysBounceVertical={true}
           ListHeaderComponent={() => (
             <View style={{ marginBottom: 16, marginTop: 10 }}>
               <Text style={styles.sectionTitle}>{t('notices')}</Text>

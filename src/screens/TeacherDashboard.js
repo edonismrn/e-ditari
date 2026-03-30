@@ -181,11 +181,20 @@ const TeacherDashboard = ({
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
   const [refreshing, setRefreshing] = useState(false);
 
-  const handleRefresh = async () => {
+  const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    if (onRefresh) await onRefresh();
-    setRefreshing(false);
-  };
+    try {
+      // Ensure at least 1s of refresh time for smooth UX on mobile
+      await Promise.all([
+        onRefresh ? onRefresh() : Promise.resolve(),
+        new Promise(resolve => setTimeout(resolve, 1000))
+      ]);
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
 
   const [classSearchText, setClassSearchText] = useState('');
 
@@ -609,8 +618,15 @@ const TeacherDashboard = ({
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 20 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+              progressViewOffset={50}
+            />
           }
+          alwaysBounceVertical={true}
           renderItem={({ item }) => (
             <View style={{
               backgroundColor: 'white',
@@ -720,8 +736,15 @@ const TeacherDashboard = ({
         keyExtractor={item => item.id}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={handleRefresh} 
+            colors={['#2563eb']} 
+            tintColor="#2563eb"
+            progressViewOffset={50}
+          />
         }
+        alwaysBounceVertical={true}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.premiumCard}
@@ -759,7 +782,7 @@ const TeacherDashboard = ({
     const tabs = [
       { id: 'grade', label: t('student_grades'), icon: ClipboardList },
       { id: 'attendance', label: t('attendance'), icon: UserCheck },
-      { id: 'justify', label: t('giustifica'), icon: Pencil },
+      { id: 'justify', label: t('justify'), icon: Pencil },
       { id: 'note', label: t('disciplinary_note'), icon: ShieldCheck },
     ];
 
@@ -1850,7 +1873,13 @@ const TeacherDashboard = ({
           contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 120 }}
           columnWrapperStyle={{ justifyContent: 'space-between' }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+              progressViewOffset={50}
+            />
           }
           renderItem={({ item }) => {
             const avg = getSubjectAverage(data.student.id, item);
@@ -2081,7 +2110,13 @@ const TeacherDashboard = ({
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+              progressViewOffset={50}
+            />
           }
           renderItem={({ item }) => {
             const gradeColors = getGradeColor(item.grade);
@@ -2370,7 +2405,13 @@ const TeacherDashboard = ({
           data={visibleNotices}
           keyExtractor={item => item.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh} 
+              colors={['#2563eb']} 
+              tintColor="#2563eb"
+              progressViewOffset={50}
+            />
           }
           ListHeaderComponent={() => (
             <View style={{ marginBottom: 16, marginTop: 10 }}>
