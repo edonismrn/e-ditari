@@ -49,6 +49,7 @@ import {
   FileText,
   X,
   Link,
+  List,
   Trash,
   Upload,
   Paperclip,
@@ -62,6 +63,7 @@ import { useAlert } from '../context/AlertContext';
 import { KOSOVO_DATA } from '../data/kosovoSchools';
 import { KOSOVO_SUBJECTS } from '../data/kosovoSubjects';
 import { formatClassName } from '../utils/stringUtils';
+import { formatDate, formatDisplayDate } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 import ProfileDropdown from '../components/ProfileDropdown';
 import PasswordChangeModal from '../components/PasswordChangeModal';
@@ -78,7 +80,8 @@ const AdminDashboard = ({
   onDeleteTeacher, onDeleteStudent, onArchiveYear, onPromoteStudents,
   notices, onAddNotice, onDeleteNotice,
   schoolAdmins, onRefresh, onUploadFile, onDeleteAllData, onUpdateSchoolStatus, onUpdateCurrentTerm,
-  onPromoteStudentToClass, onUpdateTermStartDate, onBulkPromoteStudents
+  onPromoteStudentToClass, onUpdateTermStartDate, onBulkPromoteStudents,
+  schoolCalendar, onUpdateSchoolDates, onAddCalendarEvent, onAddCalendarEvents, onDeleteCalendarEvent
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
@@ -95,7 +98,7 @@ const AdminDashboard = ({
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeView, setActiveView] = useState('home');
-  const [academicSubTab, setAcademicSubTab] = useState('terms'); // 'terms', 'archive'
+  const [academicSubTab, setAcademicSubTab] = useState('setup'); // 'setup', 'calendar', 'history'
   const [hasArchived, setHasArchived] = useState(false); // unlocks promotion after archive
   const [promoClassId, setPromoClassId] = useState(null); // currently selected class for promotion
   const [promoSourceClass, setPromoSourceClass] = useState(null);
@@ -140,6 +143,82 @@ const AdminDashboard = ({
     }
   };
 
+  const renderDatePickerModal = () => {
+    if (!showYearDatePicker) return null;
+
+    const year = tempDatePickerDate.getFullYear();
+    const month = tempDatePickerDate.getMonth();
+    const monthName = new Intl.DateTimeFormat(useLanguage().language === 'sq' ? 'sq-AL' : 'sr-RS', { month: 'long' }).format(tempDatePickerDate);
+    const dayLabels = useLanguage().language === 'sq' ? ['Hën', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht', 'Die'] : ['Pon', 'Uto', 'Sre', 'Čet', 'Pet', 'Sub', 'Ned'];
+
+    const firstDay = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    return (
+      <Modal visible={!!showYearDatePicker} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 400, backgroundColor: 'white', borderRadius: 32, overflow: 'hidden' }}>
+            <View style={{ padding: 24, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', textTransform: 'capitalize' }}>{monthName} {year}</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => setTempDatePickerDate(new Date(year, month - 1, 1))}
+                    style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}
+                  >
+                    <ChevronRight size={18} color="#64748b" style={{ transform: [{ rotate: '180deg' }] }} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setTempDatePickerDate(new Date(year, month + 1, 1))}
+                    style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}
+                  >
+                    <ChevronRight size={18} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row' }}>
+                {dayLabels.map(l => <Text key={l} style={{ flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>{l}</Text>)}
+              </View>
+            </View>
+
+            <View style={{ padding: 16 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                {Array.from({ length: firstDay }).map((_, i) => <View key={`e-${i}`} style={{ width: `${100 / 7}%`, height: 44 }} />)}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const date = new Date(year, month, day);
+                  const isSelected = formatDate(date) === (showYearDatePicker === 'start' ? schoolYearStart : schoolYearEnd);
+                  return (
+                    <TouchableOpacity
+                      key={day}
+                      onPress={() => {
+                        const formatted = formatDate(date);
+                        if (showYearDatePicker === 'start') setSchoolYearStart(formatted);
+                        else setSchoolYearEnd(formatted);
+                        setShowYearDatePicker(null);
+                      }}
+                      style={{ width: `${100 / 7}%`, height: 44, alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isSelected ? '#2563eb' : 'transparent' }}>
+                        <Text style={{ fontSize: 14, fontWeight: isSelected ? '900' : '600', color: isSelected ? 'white' : '#1e293b' }}>{day}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowYearDatePicker(null)}
+                style={{ marginTop: 24, paddingVertical: 14, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#ef4444', fontWeight: '900' }}>{t('cancel')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   // Notice Form State
   const [isNoticeModalVisible, setIsNoticeModalVisible] = useState(false);
   const [noticeTitle, setNoticeTitle] = useState('');
@@ -158,8 +237,62 @@ const AdminDashboard = ({
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState('');
 
+  // Calendar Management State
+  const [selectedCalendarSchool, setSelectedCalendarSchool] = useState(user.school_id || null);
+  const [calendarDate, setCalendarDate] = useState('');
+  const [calendarType, setCalendarType] = useState('holiday'); // 'holiday', 'work_day'
+  const [calendarDescription, setCalendarDescription] = useState('');
+  const [schoolYearStart, setSchoolYearStart] = useState('');
+  const [schoolYearEnd, setSchoolYearEnd] = useState('');
+
   const [refreshing, setRefreshing] = useState(false);
   const isSuperAdmin = user?.email === 'admin@ditari-elektronik.com';
+
+  // Enhanced Calendar State
+  const [selectionMode, setSelectionMode] = useState('single'); // 'single', 'multi', 'range'
+  const [selectedDates, setSelectedDates] = useState(new Set());
+  const [rangeStart, setRangeStart] = useState(null);
+  const [viewDate, setViewDate] = useState(new Date());
+  const [calendarSubTab, setCalendarSubTab] = useState('setup'); // 'setup', 'calendar', 'history'
+  const [calendarStep, setCalendarStep] = useState(1); // 1: Select dates, 2: Set type/desc
+  const [showYearDatePicker, setShowYearDatePicker] = useState(null); // 'start', 'end'
+  const [tempDatePickerDate, setTempDatePickerDate] = useState(new Date());
+
+  const toggleDateSelection = (dateStr) => {
+    if (selectionMode === 'single') {
+      setSelectedDates(new Set([dateStr]));
+    } else if (selectionMode === 'multi') {
+      const newSet = new Set(selectedDates);
+      if (newSet.has(dateStr)) newSet.delete(dateStr);
+      else newSet.add(dateStr);
+      setSelectedDates(newSet);
+    } else if (selectionMode === 'range') {
+      if (!rangeStart || (rangeStart && dateStr < rangeStart)) {
+        setRangeStart(dateStr);
+        setSelectedDates(new Set([dateStr]));
+      } else {
+        // Generate range
+        const start = new Date(rangeStart);
+        const end = new Date(dateStr);
+        const newSet = new Set();
+        let current = new Date(start);
+        while (current <= end) {
+          newSet.add(current.toISOString().split('T')[0]);
+          current.setDate(current.getDate() + 1);
+        }
+        setSelectedDates(newSet);
+        setRangeStart(null);
+      }
+    }
+  };
+
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return { firstDay, daysInMonth, year, month };
+  };
 
   const handleFilePick = async () => {
     try {
@@ -713,6 +846,17 @@ const AdminDashboard = ({
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.actionTile}
+          onPress={() => setNavigation({ view: 'calendar_mgmt', data: null })}
+        >
+          <View style={[styles.actionIconContainer, { backgroundColor: '#fff7ed' }]}>
+            <Calendar size={24} color="#f97316" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('manage_calendar')}</Text>
+          <ChevronRight size={20} color="#94a3b8" />
+        </TouchableOpacity>
+
         {isSuperAdmin && (
           <TouchableOpacity
             style={styles.actionTile}
@@ -1079,49 +1223,50 @@ const AdminDashboard = ({
             Viti aktual: <Text style={{ fontWeight: '800', color: '#6366f1' }}>{activeSchool?.current_year || '2025/2026'}</Text>
           </Text>
 
-          {/* Tab Selection */}
-          <View style={{
-            flexDirection: 'row',
-            backgroundColor: '#fff',
-            borderRadius: 20,
-            padding: 6,
+          {/* Tab Selection - Redesigned for Premium Style and Mobile Responsiveness */}
+          <View style={{ 
+            flexDirection: 'row', 
+            padding: 5, 
+            backgroundColor: '#f1f5f9', 
+            borderRadius: 22, 
             marginTop: 20,
-            marginBottom: 20,
+            marginBottom: 24,
+            height: 56,
+            alignItems: 'center',
             borderWidth: 1,
-            borderColor: '#f1f5f9',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.05,
-            shadowRadius: 5,
-            elevation: 2
+            borderColor: '#e2e8f0'
           }}>
             {[
-              { id: 'terms', label: t('terms_tab'), icon: Hash, color: '#0284c7' },
-              { id: 'archive', label: t('archive_tab'), icon: Archive, color: '#d97706' }
-            ].map(tab => {
+              { id: 'setup', label: t('setup_tab'), icon: Settings, color: '#6366f1' },
+              { id: 'calendar', label: t('calendar_tab'), icon: Calendar, color: '#0ea5e9' },
+              { id: 'history', label: t('history_tab'), icon: List, color: '#f43f5e' }
+            ].map((tab) => {
               const isActive = academicSubTab === tab.id;
               return (
                 <TouchableOpacity
                   key={tab.id}
                   style={{
                     flex: 1,
+                    height: '100%',
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
-                    paddingVertical: 12,
-                    borderRadius: 16,
-                    backgroundColor: isActive ? '#f8fafc' : 'transparent',
-                    borderWidth: isActive ? 1 : 0,
-                    borderColor: isActive ? '#e2e8f0' : 'transparent',
+                    borderRadius: 18,
+                    backgroundColor: isActive ? 'white' : 'transparent',
+                    shadowColor: isActive ? '#000' : 'transparent',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: isActive ? 0.08 : 0,
+                    shadowRadius: 4,
+                    elevation: isActive ? 2 : 0,
                   }}
                   onPress={() => setAcademicSubTab(tab.id)}
                 >
-                  <tab.icon size={16} color={isActive ? tab.color : '#94a3b8'} />
+                  <tab.icon size={18} color={isActive ? tab.color : '#64748b'} strokeWidth={isActive ? 2.5 : 2} />
                   <Text style={{
                     fontSize: 13,
-                    fontWeight: isActive ? '800' : '600',
-                    color: isActive ? '#1e293b' : '#94a3b8'
+                    fontWeight: isActive ? '900' : '700',
+                    color: isActive ? '#0f172a' : '#64748b',
                   }}>
                     {tab.label}
                   </Text>
@@ -1131,434 +1276,489 @@ const AdminDashboard = ({
           </View>
 
           <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-            {/* TAB: Terms Management */}
-            {academicSubTab === 'terms' && (
-              <View style={[styles.card, { flexDirection: 'column', padding: 24, borderRadius: 32 }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                  <View style={[styles.actionIconContainer, { backgroundColor: '#e0f2fe', width: 48, height: 48, borderRadius: 16 }]}>
-                    <Hash size={24} color="#0284c7" />
-                  </View>
-                  <View>
-                    <Text style={[styles.cardTitle, { fontSize: 18 }]}>{t('active_term')}</Text>
-                  </View>
-                </View>
-
-                {/* Term Transition Date */}
-                <View style={{ backgroundColor: '#f8fafc', padding: 22, borderRadius: 28, marginBottom: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
-
-                  <View style={{ marginBottom: 20 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Viti Akademik (p.sh. 2025/2026)
-                    </Text>
-                    <View style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: 'white',
-                      padding: 16,
-                      borderRadius: 18,
-                      borderWidth: 1.5,
-                      borderColor: '#f1f5f9',
-                      gap: 12
-                    }}>
-                      <BookOpen size={20} color="#0284c7" />
-                      <TextInput
-                        style={{ fontSize: 16, fontWeight: '800', color: '#1e293b', padding: 0, flex: 1 }}
-                        placeholder="2025/2026"
-                        value={termAcademicYear}
-                        onChangeText={setTermAcademicYear}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Data (Fundi i Gjysmëvjetorit I)
-                    </Text>
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor: 'white',
-                        padding: 16,
-                        borderRadius: 18,
-                        borderWidth: 1.5,
-                        borderColor: '#f1f5f9',
-                        gap: 12,
-                        position: 'relative'
-                      }}
-                      onPress={() => {
-                        if (Platform.OS === 'web') {
-                          const el = document.getElementById('term-date-input');
-                          if (el && el.showPicker) {
-                            try { el.showPicker(); } catch (e) { }
-                          }
-                        }
-                      }}
-                    >
-                      <Calendar size={20} color="#0284c7" />
-                      <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b', flex: 1 }}>
-                        {termTwoDate ? termTwoDate.split('-').reverse().join('/') : 'VVVV-MM-DD'}
-                      </Text>
-
-                      {Platform.OS === 'web' ? (
-                        <input
-                          id="term-date-input"
-                          type="date"
-                          style={{
-                            position: 'absolute',
-                            opacity: 0,
-                            top: 0, left: 0, right: 0, bottom: 0,
-                            width: '100%',
-                            height: '100%',
-                            cursor: 'pointer'
-                          }}
-                          value={termTwoDate}
-                          onChange={(e) => setTermTwoDate(e.target.value)}
-                        />
-                      ) : (
-                        <TextInput
-                          style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%' }}
-                          value={termTwoDate}
-                          onChangeText={setTermTwoDate}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.submitButton, { backgroundColor: '#0284c7', borderColor: '#0284c7', height: 56, borderRadius: 18, shadowColor: '#0284c7' }]}
-                    onPress={async () => {
-                      const activeSchoolId = isSuperAdmin ? selectedAcademicSchoolId : user.school_id;
-                      if (!activeSchoolId) {
-                        showAlert("Nuk u gjet shkolla aktive!", "error");
-                        return;
-                      }
-                      if (!termTwoDate || !termAcademicYear) {
-                        showAlert("Ju lutem plotësoni vitin akademik dhe datën!", "error");
-                        return;
-                      }
-
-                      setIsProcessing(true);
-                      const result = await onUpdateTermStartDate(activeSchoolId, termTwoDate, termAcademicYear);
-                      setIsProcessing(false);
-                      if (result?.error) {
-                        showAlert("Gabim gjatë ruajtjes: " + (result.error.message || JSON.stringify(result.error)), "error");
-                      } else {
-                        showAlert("Konfigurimi i gjysmëvjetorit u ruajt me sukses! Të gjitha të dhënat u sinkronizuan.", "success");
-                      }
-                    }}
-                  >
-                    <Text style={[styles.submitButtonText, { fontSize: 16 }]}>Përditëso Konfigurimin</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={{
-                  marginTop: 24,
-                  padding: 16,
-                  backgroundColor: '#fff9eb',
-                  borderRadius: 20,
-                  borderWidth: 1,
-                  borderColor: '#fef3c7',
-                  flexDirection: 'row',
-                  gap: 12
-                }}>
-                  <AlertCircle size={20} color="#d97706" />
-                  <Text style={{ fontSize: 13, color: '#92400e', lineHeight: 20, flex: 1, fontWeight: '500' }}>
-                    Ndryshimi i gjysmëvjetorit do të ndikojë në llogaritjen e notave për mësuesit dhe nxënësit e kësaj shkolle.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* TAB: Archive & Promotion */}
-            {academicSubTab === 'archive' && (
-              <View style={[styles.card, { flexDirection: 'column', padding: 24, borderRadius: 32 }]}>
-                {/* 1. Archive Phase */}
-                <View style={{ marginBottom: hasArchived ? 24 : 0, opacity: hasArchived ? 0.6 : 1 }}>
+            {/* TAB 1: Setup (Konfigurimi) */}
+            {academicSubTab === 'setup' && (
+              <View>
+                <View style={[styles.card, { flexDirection: 'column', padding: 24, borderRadius: 32, marginBottom: 16 }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                    <View style={[styles.actionIconContainer, { backgroundColor: '#fff7ed', width: 48, height: 48, borderRadius: 16 }]}>
-                      <Archive size={24} color="#d97706" />
+                    <View style={[styles.actionIconContainer, { backgroundColor: '#e0f2fe', width: 48, height: 48, borderRadius: 16 }]}>
+                      <Settings size={24} color="#0284c7" />
                     </View>
                     <View>
-                      <Text style={[styles.cardTitle, { fontSize: 18 }]}>Faza 1: Arkivimi i Vitit</Text>
-                      <Text style={{ fontSize: 13, color: '#64748b' }}>Mbyll vitin shkollor aktual përpara promovimit</Text>
+                      <Text style={[styles.cardTitle, { fontSize: 18 }]}>{t('school_year_setup')}</Text>
+                      <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>{t('tab_setup_desc')}</Text>
                     </View>
                   </View>
-                  <View style={{ backgroundColor: '#f8fafc', padding: 20, borderRadius: 24, marginBottom: 24, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#1e293b', marginBottom: 4 }}>
-                      Emri i vitit që po mbyllet (p.sh. 2025/2026)
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-                      Viti i ri do të fillojë automatikisht (1 Shtator - 31 Korrik).
-                    </Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: 'white', marginBottom: 0, height: 56, fontSize: 16, fontWeight: '700' }]}
-                      placeholder="2025/2026"
-                      value={academicYearName}
-                      onChangeText={setAcademicYearName}
-                      editable={!hasArchived}
-                    />
+
+                  {/* Term Transition Date */}
+                  <View style={{ backgroundColor: '#f8fafc', padding: 22, borderRadius: 28, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={styles.label}>{t('academic_year_label')}</Text>
+                      <View style={[styles.inputContainer, { backgroundColor: 'white', borderRadius: 16 }]}>
+                        <BookOpen size={20} color="#0284c7" />
+                        <TextInput
+                          style={[styles.input, { flex: 1, marginBottom: 0, borderWidth: 0, fontWeight: '800', color: '#1e293b' }]}
+                          placeholder="2025/2026"
+                          value={termAcademicYear}
+                          onChangeText={setTermAcademicYear}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={{ marginBottom: 24 }}>
+                      <Text style={styles.label}>{t('end_first_term_label')}</Text>
+                      <TouchableOpacity
+                        style={[styles.inputContainer, { backgroundColor: 'white', borderRadius: 16, position: 'relative' }]}
+                        onPress={() => {
+                          if (Platform.OS === 'web') {
+                            const el = document.getElementById('term-date-input');
+                            if (el && el.showPicker) { try { el.showPicker(); } catch (e) { } }
+                          }
+                        }}
+                      >
+                        <Calendar size={20} color="#0284c7" />
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b', flex: 1 }}>
+                          {termTwoDate ? termTwoDate.split('-').reverse().join('/') : 'VVVV-MM-DD'}
+                        </Text>
+                        {Platform.OS === 'web' && (
+                          <input id="term-date-input" type="date" style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
+                            value={termTwoDate} onChange={(e) => setTermTwoDate(e.target.value)} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.submitButton, { backgroundColor: '#0284c7', borderColor: '#0284c7', height: 60, borderRadius: 20, shadowColor: '#0284c7', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 }]}
+                      onPress={async () => {
+                        if (!activeSchoolId) return showAlert(t('error'), "error");
+                        if (!termTwoDate || !termAcademicYear) return showAlert(t('fill_all_fields'), "error");
+                        setIsProcessing(true);
+                        const result = await onUpdateTermStartDate(activeSchoolId, termTwoDate, termAcademicYear);
+                        setIsProcessing(false);
+                        if (!result?.error) showAlert(t('setup_saved_success'), "success");
+                      }}
+                    >
+                      <Text style={styles.submitButtonText}>{t('update_setup')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Archive Section - Refined Styles */}
+                <View style={[styles.card, { flexDirection: 'column', padding: 24, borderRadius: 32, borderColor: hasArchived ? '#f1f5f9' : '#fee2e2' }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <View style={[styles.actionIconContainer, { backgroundColor: hasArchived ? '#f0fdf4' : '#fff1f1', width: 48, height: 48, borderRadius: 16 }]}>
+                      {hasArchived ? <CheckCircle size={24} color="#16a34a" /> : <Archive size={24} color="#ef4444" />}
+                    </View>
+                    <View>
+                      <Text style={[styles.cardTitle, { fontSize: 18, color: hasArchived ? '#16a34a' : '#ef4444' }]}>{t('archive_year')}</Text>
+                      <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>{t('archive_desc')}</Text>
+                    </View>
                   </View>
 
                   {!hasArchived ? (
                     <TouchableOpacity
-                      style={[styles.submitButton, { backgroundColor: '#d97706', borderColor: '#d97706', borderRadius: 24, height: 60 }]}
+                      style={[styles.submitButton, { backgroundColor: '#ef4444', borderColor: '#ef4444', borderRadius: 24, height: 60, shadowColor: '#ef4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 }]}
                       onPress={() => {
-                        confirmDelete(`Ju po arkivoni vitin ${academicYearName}. Të gjitha të dhënat aktuale do të ruhen në arkiv dhe do të fillojë viti i ri akademik (1 Shtator - 31 Korrik). Vazhdoni?`, async () => {
+                        confirmDelete(`${t('confirm_archive')} (${activeSchool?.current_year})?`, async () => {
                           setIsProcessing(true);
-                          const res = await onArchiveYear(activeSchoolId, academicYearName);
+                          const res = await onArchiveYear(activeSchoolId, activeSchool?.current_year);
                           setIsProcessing(false);
-
-                          if (res?.error) {
-                            showAlert("Gabim gjatë arkivimit: " + res.error.message, "error");
-                            return;
+                          if (!res?.error) {
+                            // Pre-fill promoMap based on roman numerals
+                            const activeClasses = classes.filter(c => c.school_id === activeSchoolId).sort(sortClassesByRoman);
+                            const newPromoMap = {};
+                            activeClasses.forEach((cls, idx) => {
+                              newPromoMap[cls.id] = {};
+                              const clsStudents = students.filter(s => s.classId === cls.id);
+                              if (idx === activeClasses.length - 1) clsStudents.forEach(s => newPromoMap[cls.id][s.id] = null);
+                              else if (idx === 0) clsStudents.forEach(s => newPromoMap[cls.id][s.id] = null);
+                              else {
+                                const nextClass = activeClasses[idx + 1];
+                                clsStudents.forEach(s => newPromoMap[cls.id][s.id] = nextClass.id);
+                              }
+                            });
+                            setPromoMap(newPromoMap);
+                            if (activeClasses.length > 0) setPromoClassId(activeClasses[0].id);
+                            setHasArchived(true);
+                            showAlert(t('archive_success_msg'), "success");
                           }
-
-                          // Pre-fill promoMap based on roman numerals
-                          const activeClasses = classes.filter(c => c.school_id === activeSchoolId).sort(sortClassesByRoman);
-                          const newPromoMap = {};
-
-                          activeClasses.forEach((cls, idx) => {
-                            newPromoMap[cls.id] = {};
-                            const clsStudents = students.filter(s => s.classId === cls.id);
-
-                            // Last class -> everyone graduates/clears
-                            if (idx === activeClasses.length - 1) {
-                              clsStudents.forEach(s => newPromoMap[cls.id][s.id] = null);
-                            }
-                            // First class -> clear, waiting for new students
-                            else if (idx === 0) {
-                              clsStudents.forEach(s => newPromoMap[cls.id][s.id] = null);
-                            }
-                            // Middle classes -> promote to next (idx + 1)
-                            else {
-                              const nextClass = activeClasses[idx + 1];
-                              clsStudents.forEach(s => newPromoMap[cls.id][s.id] = nextClass.id);
-                            }
-                          });
-
-                          setPromoMap(newPromoMap);
-                          // Select the first class by default for the UI
-                          if (activeClasses.length > 0) setPromoClassId(activeClasses[0].id);
-
-                          setHasArchived(true);
-                          const nextYearMsg = res.nextYear ? `\nViti i ri akademik: ${res.nextYear}` : "";
-                          showAlert(`${academicYearName} u arkivua! ${nextYearMsg}\nTani vazhdoni me Faza 2 (Promovimi).`, "success");
                         });
                       }}
-                      disabled={isProcessing}
                     >
-                      <Text style={[styles.submitButtonText, { fontSize: 17 }]}>Arkivo & Fillo Promovimin</Text>
+                      <Text style={styles.submitButtonText}>{t('archive_btn')}</Text>
                     </TouchableOpacity>
                   ) : (
                     <View style={{ padding: 16, backgroundColor: '#f0fdf4', borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <Check size={20} color="#16a34a" />
-                      <Text style={{ fontSize: 14, color: '#15803d', fontWeight: '700' }}>Viti u arkivua. Vazhdoni poshtë.</Text>
+                      <CheckCircle size={20} color="#16a34a" />
+                      <Text style={{ fontSize: 14, color: '#16a34a', fontWeight: '800' }}>{t('archive_success_msg')}</Text>
+                    </View>
+                  )}
+
+                  {/* Promotion Phase (Embedded inside Archive card when active) */}
+                  {hasArchived && (
+                    <View style={{ borderTopWidth: 2, borderTopColor: '#f1f5f9', marginTop: 24, paddingTop: 24 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                        <ArrowUpCircle size={24} color="#16a34a" />
+                        <View>
+                          <Text style={[styles.cardTitle, { fontSize: 18 }]}>{t('promotion_phase_title')}</Text>
+                          <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '500' }}>{t('promotion_phase_desc')}</Text>
+                        </View>
+                      </View>
+
+                      {/* Class Selector Scroll */}
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 10 }}>
+                        {classes.filter(c => c.school_id === activeSchoolId).sort(sortClassesByRoman).map((cls, idx, arr) => {
+                          const isFirst = idx === 0;
+                          const isLast = idx === arr.length - 1;
+                          let badgeText = isFirst ? t('new_entry_badge') : isLast ? t('graduation_badge') : t('promotion_badge');
+                          let badgeColor = isFirst ? '#3b82f6' : isLast ? '#d946ef' : '#16a34a';
+
+                          return (
+                            <TouchableOpacity
+                              key={cls.id}
+                              style={{
+                                paddingHorizontal: 20, paddingVertical: 14, borderRadius: 20,
+                                backgroundColor: promoClassId === cls.id ? '#f0fdf4' : '#fff',
+                                borderWidth: 2, borderColor: promoClassId === cls.id ? '#16a34a' : '#f1f5f9',
+                                shadowColor: promoClassId === cls.id ? '#16a34a' : 'transparent',
+                                shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 2,
+                                alignItems: 'center',
+                                minWidth: 100
+                              }}
+                              onPress={() => setPromoClassId(cls.id)}
+                            >
+                              <Text style={{ fontSize: 15, fontWeight: '900', color: promoClassId === cls.id ? '#16a34a' : '#475569', marginBottom: 4 }}>{cls.name}</Text>
+                              <Text style={{ fontSize: 10, fontWeight: '900', color: badgeColor, letterSpacing: 0.5 }}>{badgeText}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+
+                      {/* Class Content logic restored */}
+                      {promoClassId && classes.find(c => c.id === promoClassId) && (() => {
+                        const activeClassesArr = classes.filter(c => c.school_id === activeSchoolId).sort(sortClassesByRoman);
+                        const clsIdx = activeClassesArr.findIndex(c => c.id === promoClassId);
+                        const isFirst = clsIdx === 0;
+                        const isLast = clsIdx === activeClassesArr.length - 1;
+                        const nextClass = (!isFirst && !isLast) ? activeClassesArr[clsIdx + 1] : null;
+                        const classStudents = students.filter(s => s.classId === promoClassId);
+                        const allPromoting = classStudents.every(s => promoMap[promoClassId]?.[s.id] !== 'skip');
+
+                        return (
+                          <View style={{ backgroundColor: '#fff', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                              <Text style={{ fontSize: 16, fontWeight: '900', color: '#0f172a' }}>{t('class_students_label')} ({classStudents.length})</Text>
+                              {!isFirst && !isLast && classStudents.length > 0 && (
+                                <TouchableOpacity
+                                  style={{ backgroundColor: '#f8fafc', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}
+                                  onPress={() => {
+                                    const newMap = { ...promoMap };
+                                    if (!newMap[promoClassId]) newMap[promoClassId] = {};
+                                    if (allPromoting) classStudents.forEach(s => newMap[promoClassId][s.id] = 'skip');
+                                    else classStudents.forEach(s => newMap[promoClassId][s.id] = nextClass.id);
+                                    setPromoMap(newMap);
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b' }}>{allPromoting ? t('remove_all_btn') : t('select_all_btn')}</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+
+                            {classStudents.map(student => {
+                              const isPromote = promoMap[promoClassId]?.[student.id] !== 'skip';
+                              return (
+                                <View key={student.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 14, fontWeight: '800', color: isPromote || isFirst || isLast ? '#0f172a' : '#94a3b8' }}>{student.name}</Text>
+                                    <Text style={{ fontSize: 12, color: isPromote || isFirst || isLast ? '#16a34a' : '#64748b', marginTop: 2, fontWeight: '600' }}>
+                                      {isFirst ? t('is_removed_status') : isLast ? t('is_graduated_status') : (isPromote ? `${t('promotion_badge')} ➔ ${nextClass?.name}` : t('stays_status'))}
+                                    </Text>
+                                  </View>
+                                  {!isFirst && !isLast && (
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        const newMap = { ...promoMap };
+                                        if (!newMap[promoClassId]) newMap[promoClassId] = {};
+                                        newMap[promoClassId][student.id] = isPromote ? 'skip' : nextClass.id;
+                                        setPromoMap(newMap);
+                                      }}
+                                      style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: isPromote ? '#16a34a' : '#cbd5e1', backgroundColor: isPromote ? '#16a34a' : 'transparent', alignItems: 'center', justifyContent: 'center' }}
+                                    >
+                                      {isPromote && <Check size={14} color="white" />}
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        );
+                      })()}
+
+                      <TouchableOpacity
+                        style={[styles.submitButton, { backgroundColor: '#16a34a', borderColor: '#16a34a', marginTop: 24, borderRadius: 24, height: 64, shadowColor: '#16a34a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 }]}
+                        onPress={async () => {
+                          const finalMap = {};
+                          Object.keys(promoMap).forEach(cId => {
+                            if (promoMap[cId]) {
+                              Object.entries(promoMap[cId]).forEach(([sId, toClassId]) => { if (toClassId !== 'skip') finalMap[sId] = toClassId; });
+                            }
+                          });
+                          setIsProcessing(true);
+                          const res = await onBulkPromoteStudents(finalMap);
+                          setIsProcessing(false);
+                          if (!res?.error) {
+                            showAlert(t('success'), "success");
+                            setHasArchived(false);
+                            setAcademicSubTab('setup');
+                          }
+                        }}
+                      >
+                        <Text style={[styles.submitButtonText, { fontSize: 17 }]}>{t('finish_promotion_btn')}</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
+              </View>
+            )}
 
-                {/* 2. Promotion Phase (Visible only after archive) */}
-                {hasArchived && (
-                  <View style={{ borderTopWidth: 2, borderTopColor: '#f1f5f9', paddingTop: 24 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                      <View style={[styles.actionIconContainer, { backgroundColor: '#dcfce7', width: 48, height: 48, borderRadius: 16 }]}>
-                        <ArrowUpCircle size={24} color="#16a34a" />
-                      </View>
-                      <View>
-                        <Text style={[styles.cardTitle, { fontSize: 18 }]}>Faza 2: Promovimi i Nxënësve</Text>
-                        <Text style={{ fontSize: 13, color: '#64748b' }}>Sistemi ka sugjeruar kalimet sipas klasave.</Text>
-                      </View>
-                    </View>
+            {/* TAB 2: Calendar (Kalendari) */}
+            {academicSubTab === 'calendar' && (() => {
+              const { firstDay, daysInMonth, year, month } = getDaysInMonth(viewDate);
+              const monthName = new Intl.DateTimeFormat('sq-AL', { month: 'long' }).format(viewDate);
+              const dayLabels = ['Hën', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht', 'Die'];
+              const todayStr = formatDate(new Date());
 
-                    {/* Class Selector Scroll */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 20 }}>
-                      {classes.filter(c => c.school_id === activeSchoolId).sort(sortClassesByRoman).map((cls, idx, arr) => {
-                        const isFirst = idx === 0;
-                        const isLast = idx === arr.length - 1;
-                        let badgeText = '';
-                        let badgeColor = '';
-                        if (isFirst) { badgeText = 'HYRJA E RE'; badgeColor = '#3b82f6'; }
-                        else if (isLast) { badgeText = 'DIPLOMIMI'; badgeColor = '#d946ef'; }
-                        else { badgeText = 'KALIM'; badgeColor = '#16a34a'; }
-
-                        return (
+              return (
+                <View>
+                  {/* Calendar Card */}
+                  <View style={[styles.card, { flexDirection: 'column', padding: 0, borderRadius: 32, overflow: 'hidden', marginBottom: 20 }]}>
+                    {/* Header - Glassmorphism Style */}
+                    <LinearGradient
+                      colors={['#f8fafc', '#f1f5f9']}
+                      style={{ padding: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <View>
+                          <Text style={{ fontSize: 20, fontWeight: '900', color: '#0f172a', textTransform: 'capitalize' }}>
+                            {monthName} {year}
+                          </Text>
+                          <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
+                            {selectedDates.size} {t('selected_dates_count')}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
                           <TouchableOpacity
-                            key={cls.id}
+                            onPress={() => setViewDate(new Date(year, month - 1, 1))}
+                            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 }}
+                          >
+                            <ChevronLeft size={20} color="#1e293b" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => setViewDate(new Date(year, month + 1, 1))}
+                            style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 }}
+                          >
+                            <ChevronRight size={20} color="#1e293b" />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {/* Selection Mode Controls */}
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {['single', 'multi', 'range'].map(m => (
+                          <TouchableOpacity
+                            key={m}
+                            onPress={() => { setSelectionMode(m); setRangeStart(null); }}
                             style={{
                               paddingHorizontal: 16,
-                              paddingVertical: 12,
-                              borderRadius: 14,
-                              backgroundColor: promoClassId === cls.id ? '#f0fdf4' : '#fff',
-                              borderWidth: 1.5,
-                              borderColor: promoClassId === cls.id ? '#16a34a' : '#f1f5f9',
-                              alignItems: 'center'
+                              paddingVertical: 8,
+                              borderRadius: 12,
+                              backgroundColor: selectionMode === m ? '#0ea5e9' : 'white',
+                              borderWidth: 1,
+                              borderColor: selectionMode === m ? '#0ea5e9' : '#e2e8f0'
                             }}
-                            onPress={() => setPromoClassId(cls.id)}
                           >
-                            <Text style={{ fontSize: 14, fontWeight: '800', color: promoClassId === cls.id ? '#16a34a' : '#475569', marginBottom: 4 }}>
-                              {cls.name}
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: selectionMode === m ? 'white' : '#64748b', textTransform: 'uppercase' }}>
+                              {t(`${m}_select_mode`) || m}
                             </Text>
-                            <Text style={{ fontSize: 10, fontWeight: '800', color: badgeColor }}>{badgeText}</Text>
                           </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                        ))}
+                      </View>
+                    </LinearGradient>
 
-                    {/* Class Content */}
-                    {promoClassId && classes.find(c => c.id === promoClassId) && (() => {
-                      const activeClasses = classes.filter(c => c.school_id === activeSchoolId).sort(sortClassesByRoman);
-                      const currentClass = classes.find(c => c.id === promoClassId);
-                      const clsIdx = activeClasses.findIndex(c => c.id === promoClassId);
-                      const isFirst = clsIdx === 0;
-                      const isLast = clsIdx === activeClasses.length - 1;
-                      const nextClass = (!isFirst && !isLast) ? activeClasses[clsIdx + 1] : null;
+                    {/* Day Names */}
+                    <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, backgroundColor: 'white' }}>
+                      {dayLabels.map(l => (
+                        <Text key={l} style={{ flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>{l}</Text>
+                      ))}
+                    </View>
 
-                      const classStudents = students.filter(s => s.classId === promoClassId);
+                    {/* Days Grid */}
+                    <View style={{ padding: 12, paddingBottom: 24, backgroundColor: 'white' }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                        {Array.from({ length: firstDay }).map((_, i) => (
+                          <View key={`empty-${i}`} style={{ width: `${100 / 7}%`, height: 50 }} />
+                        ))}
+                        {Array.from({ length: daysInMonth }).map((_, i) => {
+                          const day = i + 1;
+                          const dateObj = new Date(year, month, day);
+                          const dateStr = formatDate(dateObj);
+                          const isSelected = selectedDates.has(dateStr);
+                          const isToday = dateStr === todayStr;
+                          const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
 
-                      const allPromoting = classStudents.every(s => promoMap[promoClassId]?.[s.id] !== 'skip');
-
-                      return (
-                        <View style={{ backgroundColor: '#f8fafc', borderRadius: 20, padding: 16 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                            <Text style={{ fontSize: 15, fontWeight: '800', color: '#1e293b' }}>
-                              Nxënësit ({classStudents.length})
-                            </Text>
-
-                            {/* Only show 'Select All / None' for middle classes */}
-                            {!isFirst && !isLast && classStudents.length > 0 && (
-                              <TouchableOpacity
-                                style={{ backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' }}
-                                onPress={() => {
-                                  const newMap = { ...promoMap };
-                                  if (!newMap[promoClassId]) newMap[promoClassId] = {};
-
-                                  if (allPromoting) {
-                                    // Deselect all
-                                    classStudents.forEach(s => newMap[promoClassId][s.id] = 'skip');
-                                  } else {
-                                    // Select all
-                                    classStudents.forEach(s => newMap[promoClassId][s.id] = nextClass.id);
-                                  }
-                                  setPromoMap(newMap);
-                                }}
-                              >
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>
-                                  {allPromoting ? 'Hiq Të Gjithë' : 'Zgjidh Të Gjithë'}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-
-                          {(isFirst || isLast) && (
-                            <View style={{ padding: 12, backgroundColor: '#eff6ff', borderRadius: 12, marginBottom: 16 }}>
-                              <Text style={{ fontSize: 13, color: '#1d4ed8', fontWeight: '500' }}>
-                                {isFirst
-                                  ? 'Kjo është klasa e parë. Do të zbrazet plotësisht për të pritur nxënësit e rinj manualisht.'
-                                  : 'Kjo është klasa e fundit. Të gjithë nxënësit këtu quhen të diplomuar dhe hiqen nga klasa.'}
-                              </Text>
-                            </View>
-                          )}
-
-                          {classStudents.map(student => {
-                            const isPromote = promoMap[promoClassId]?.[student.id] !== 'skip';
-
-                            return (
-                              <View key={student.id} style={{
-                                flexDirection: 'row',
+                          return (
+                            <TouchableOpacity
+                              key={day}
+                              onPress={() => toggleDateSelection(dateStr)}
+                              style={{ width: `${100 / 7}%`, height: 50, alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              <View style={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: 12,
                                 alignItems: 'center',
-                                paddingVertical: 12,
-                                borderBottomWidth: 1,
-                                borderBottomColor: '#f1f5f9'
+                                justifyContent: 'center',
+                                backgroundColor: isSelected ? '#0ea5e9' : 'transparent',
+                                borderWidth: isToday ? 2 : 0,
+                                borderColor: isToday ? '#0ea5e9' : 'transparent',
+                                shadowColor: isSelected ? '#0ea5e9' : 'transparent',
+                                shadowOffset: { width: 0, height: 4 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 8,
+                                elevation: isSelected ? 4 : 0
                               }}>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={{ fontSize: 14, fontWeight: '700', color: isPromote || isFirst || isLast ? '#1e293b' : '#94a3b8' }}>
-                                    {student.name}
-                                  </Text>
-                                  <Text style={{ fontSize: 12, color: isPromote || isFirst || isLast ? '#16a34a' : '#64748b', marginTop: 2 }}>
-                                    {isFirst ? 'Hiqet (Zbrazje)' : isLast ? 'Diplomohet (Hiqet)' : (isPromote ? `Kalon në ${nextClass?.name}` : 'Mbetet / Nuk kalon')}
-                                  </Text>
-                                </View>
-
-                                {!isFirst && !isLast && (
-                                  <TouchableOpacity
-                                    onPress={() => {
-                                      const newMap = { ...promoMap };
-                                      if (!newMap[promoClassId]) newMap[promoClassId] = {};
-
-                                      if (isPromote) {
-                                        newMap[promoClassId][student.id] = 'skip';
-                                      } else {
-                                        newMap[promoClassId][student.id] = nextClass.id;
-                                      }
-                                      setPromoMap(newMap);
-                                    }}
-                                    style={{
-                                      width: 24,
-                                      height: 24,
-                                      borderRadius: 6,
-                                      borderWidth: 2,
-                                      borderColor: isPromote ? '#16a34a' : '#cbd5e1',
-                                      backgroundColor: isPromote ? '#16a34a' : 'transparent',
-                                      alignItems: 'center',
-                                      justifyContent: 'center'
-                                    }}
-                                  >
-                                    {isPromote && <Check size={14} color="white" />}
-                                  </TouchableOpacity>
-                                )}
-                                {(isFirst || isLast) && (
-                                  <View style={{ width: 24, height: 24, borderRadius: 6, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Trash2 size={12} color="#94a3b8" />
-                                  </View>
-                                )}
+                                <Text style={{
+                                  fontSize: 15,
+                                  fontWeight: isSelected || isToday ? '900' : '600',
+                                  color: isSelected ? 'white' : (isWeekend ? '#94a3b8' : '#1e293b')
+                                }}>
+                                  {day}
+                                </Text>
                               </View>
-                            );
-                          })}
-                          {classStudents.length === 0 && (
-                            <Text style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>Klasa është bosh.</Text>
-                          )}
-                        </View>
-                      );
-                    })()}
-
-                    <TouchableOpacity
-                      style={[styles.submitButton, { backgroundColor: '#16a34a', borderColor: '#16a34a', marginTop: 24, borderRadius: 24, height: 60 }]}
-                      onPress={async () => {
-                        // Build the final flat map for bulkPromoteStudents
-                        const finalMap = {};
-                        Object.keys(promoMap).forEach(cId => {
-                          Object.entries(promoMap[cId]).forEach(([sId, toClassId]) => {
-                            if (toClassId !== 'skip') {
-                              // null means remove from class (graduation / first class clear)
-                              finalMap[sId] = toClassId;
-                            }
-                          });
-                        });
-
-                        setIsProcessing(true);
-                        const res = await onBulkPromoteStudents(finalMap);
-                        setIsProcessing(false);
-
-                        if (res?.error) {
-                          showAlert("Gabim gjatë promovimit: " + res.error.message, "error");
-                        } else {
-                          showAlert("Promovimi u regjistrua me sukses në bazën e të dhënave!", "success");
-                          setHasArchived(false); // reset flow
-                          setAcademicSubTab('terms');
-                        }
-                      }}
-                      disabled={isProcessing}
-                    >
-                      <Text style={[styles.submitButtonText, { fontSize: 17 }]}>Përfundo & Ruaj Promovimet</Text>
-                    </TouchableOpacity>
-
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
                   </View>
+
+                  {/* Action Section */}
+                  {selectedDates.size > 0 && (
+                    <View style={[styles.card, { flexDirection: 'column', padding: 24, borderRadius: 32 }]}>
+                      <Text style={[styles.label, { color: '#0ea5e9', fontWeight: '800' }]}>
+                        {t('event_desc_label')} ({selectedDates.size} {t('dates_label')})
+                      </Text>
+                      <View style={[styles.inputContainer, { backgroundColor: '#f8fafc', marginBottom: 20, borderRadius: 16, height: 60 }]}>
+                        <FileText size={22} color="#0ea5e9" />
+                        <TextInput
+                          style={[styles.input, { flex: 1, marginBottom: 0, borderWidth: 0, fontWeight: '800', color: '#1e293b' }]}
+                          placeholder={t('holiday_desc_placeholder')}
+                          value={calendarDescription}
+                          onChangeText={setCalendarDescription}
+                        />
+                      </View>
+
+                      <TouchableOpacity
+                        style={[styles.submitButton, { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9', height: 60, borderRadius: 24 }]}
+                        onPress={async () => {
+                          if (!calendarDescription) return showAlert("Shkruani një përshkrim!", "error");
+                          setIsProcessing(true);
+                          
+                          // Prepare events in bulk
+                          const events = Array.from(selectedDates).map(date => ({
+                            school_id: activeSchoolId,
+                            date,
+                            type: 'holiday',
+                            description: calendarDescription
+                          }));
+                          
+                          const res = await onAddCalendarEvents(events);
+                          setIsProcessing(false);
+                          
+                          if (!res?.error) {
+                            setSelectedDates(new Set());
+                            setCalendarDescription('');
+                            showAlert("Kalendari u përditësua!", "success");
+                          }
+                        }}
+                      >
+                        <Plus size={20} color="white" />
+                        <span style={{ width: 8 }} />
+                        <Text style={styles.submitButtonText}>
+                          {t('add_to_calendar') || 'Shto në Kalendar'}
+                        </Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        onPress={() => setSelectedDates(new Set())}
+                        style={{ alignSelf: 'center', marginTop: 16 }}
+                      >
+                        <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 13, textTransform: 'uppercase' }}>
+                          {t('clear_selection') || 'Pastro zgjedhjen'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
+            {/* TAB 3: History (Lista) */}
+            {academicSubTab === 'history' && (
+              <View style={[styles.card, { flexDirection: 'column', padding: 24, borderRadius: 32 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                  <View style={[styles.actionIconContainer, { backgroundColor: '#fff1f2', width: 48, height: 48, borderRadius: 16 }]}>
+                    <List size={24} color="#f43f5e" />
+                  </View>
+                  <View>
+                    <Text style={[styles.cardTitle, { fontSize: 18 }]}>{t('events_list_title') || 'Lista e Ngjarjeve'}</Text>
+                    <Text style={{ fontSize: 13, color: '#64748b' }}>Menaxhoni pushimet e regjistruara</Text>
+                  </View>
+                </View>
+
+                {(schoolCalendar || []).filter(e => e.school_id === activeSchoolId).length === 0 ? (
+                  <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                    <Calendar size={48} color="#e2e8f0" strokeWidth={1} />
+                    <Text style={{ color: '#94a3b8', marginTop: 12, fontWeight: '600' }}>Nuk ka ngjarje të regjistruara.</Text>
+                  </View>
+                ) : (
+                  (schoolCalendar || [])
+                    .filter(e => e.school_id === activeSchoolId)
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map(event => (
+                      <View key={event.id} style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: '#f8fafc',
+                        padding: 16,
+                        borderRadius: 20,
+                        marginBottom: 10,
+                        borderWidth: 1,
+                        borderColor: '#f1f5f9'
+                      }}>
+                        <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '900', color: '#f43f5e' }}>
+                            {event.date.split('-').slice(1).reverse().join('/')}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '800', color: '#1e293b' }}>{event.description}</Text>
+                          <Text style={{ fontSize: 12, color: '#64748b' }}>{event.date.split('-')[0]}</Text>
+                        </View>
+                        <TouchableOpacity 
+                          onPress={() => confirmDelete(t('confirm_delete_event') || 'Fshini këtë ngjarje?', async () => {
+                            await onDeleteCalendarEvent(event.id);
+                          })}
+                          style={{ padding: 8, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#fee2e2' }}
+                        >
+                          <Trash2 size={16} color="#ef4444" />
+                        </TouchableOpacity>
+                      </View>
+                    ))
                 )}
               </View>
             )}
           </ScrollView>
-
 
           {/* Student Promotion Selection Modal */}
           <Modal visible={isPromoModalVisible} animationType="fade" transparent>
@@ -1604,7 +1804,7 @@ const AdminDashboard = ({
 
                   <View style={{ height: 1, backgroundColor: '#f1f5f9', marginVertical: 10 }} />
 
-                  {classes.filter(c => c.school_id === (isSuperAdmin ? selectedAcademicSchoolId : user.school_id)).sort(sortClassesByRoman).map(c => (
+                  {(classes || []).filter(c => c.school_id === (isSuperAdmin ? selectedAcademicSchoolId : user.school_id)).sort(sortClassesByRoman).map(c => (
                     <TouchableOpacity
                       key={c.id}
                       style={{
@@ -2175,6 +2375,439 @@ const AdminDashboard = ({
             </View>
           </View>
         )}
+      </View>
+    );
+  };
+
+  const renderCalendarMgmt = () => {
+    const activeSchoolId = isSuperAdmin ? selectedCalendarSchool : user.school_id;
+    const currentSchool = schools.find(s => s.id === activeSchoolId);
+    const calendarEvents = (schoolCalendar || []).filter(e => e.school_id === activeSchoolId);
+
+    const { firstDay, daysInMonth, year, month } = getDaysInMonth(viewDate);
+    const monthName = viewDate.toLocaleString(useLanguage().language === 'sq' ? 'sq-AL' : 'sr-RS', { month: 'long', year: 'numeric' });
+    const dayLabels = useLanguage().language === 'sq' ? ['Hën', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht', 'Die'] : ['Pon', 'Uto', 'Sre', 'Čet', 'Pet', 'Sub', 'Ned'];
+
+    // 1. School Selection Screen (Super Admin Only)
+    if (isSuperAdmin && !selectedCalendarSchool) {
+      return (
+        <View style={styles.viewContainer}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.scrollContent} contentContainerStyle={{ padding: 20 }}>
+            <View style={{ marginBottom: 32, alignItems: 'center', marginTop: 20 }}>
+              <View style={{ width: 80, height: 80, borderRadius: 28, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                <Building2 size={40} color="#2563eb" />
+              </View>
+              <Text style={{ fontSize: 24, fontWeight: '900', color: '#0f172a', textAlign: 'center' }}>{t('select_school_first')}</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 8 }}>{t('select_school_to_manage_calendar') || 'Zgjidhni një shkollë për të menaxhuar kalendarin'}</Text>
+            </View>
+            <View style={{ gap: 16 }}>
+              {schools.map(s => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.card, { padding: 20, marginBottom: 0, flexDirection: 'row', alignItems: 'center', borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }]}
+                  onPress={() => {
+                    setSelectedCalendarSchool(s.id);
+                    setCalendarSubTab('setup');
+                  }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <School size={24} color="#64748b" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 17, fontWeight: '800', color: '#1e293b' }}>{s.name}</Text>
+                    <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontWeight: '600' }}>{s.city}</Text>
+                  </View>
+                  <ChevronRight size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.viewContainer}>
+        <View style={styles.navigationHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <TouchableOpacity
+              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}
+              onPress={() => isSuperAdmin ? setSelectedCalendarSchool(null) : setNavigation({ view: 'home', data: null })}
+            >
+              <ArrowLeft size={18} color="#1e293b" />
+            </TouchableOpacity>
+            <View>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('manage_calendar')}</Text>
+              {currentSchool && (
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>{currentSchool.name}</Text>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* Premium Stats Banner + Pill Tab Switcher (Light Theme) */}
+        <View style={{ backgroundColor: '#ffffff', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20 }}>
+          {/* Stats Row */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+            {[
+              { label: t('total') || 'Totale', value: calendarEvents.length, accent: '#6366f1', bg: '#eef2ff' },
+              { label: t('holiday') || 'Pushime', value: calendarEvents.filter(e => e.type === 'holiday').length, accent: '#ef4444', bg: '#fef2f2' },
+              { label: t('work_day') || 'Pune', value: calendarEvents.filter(e => e.type === 'work_day').length, accent: '#10b981', bg: '#ecfdf5' },
+            ].map(stat => (
+              <View key={stat.label} style={{ flex: 1, backgroundColor: stat.bg, borderRadius: 18, padding: 14, alignItems: 'center' }}>
+                <Text style={{ fontSize: 26, fontWeight: '900', color: stat.accent }}>{stat.value}</Text>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: '#64748b', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</Text>
+              </View>
+            ))}
+          </View>
+          {/* Pill Tabs */}
+          <View style={{ flexDirection: 'row', padding: 5, backgroundColor: '#f1f5f9', borderRadius: 22, height: 52, alignItems: 'center', marginBottom: 0 }}>
+            {[
+              { id: 'setup', label: t('setup_tab'), icon: Settings },
+              { id: 'calendar', label: t('calendar_tab'), icon: Calendar },
+              { id: 'history', label: t('history_tab'), icon: List },
+            ].map(tab => {
+              const isActive = calendarSubTab === tab.id;
+              return (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={{ flex: 1, height: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 18, backgroundColor: isActive ? 'white' : 'transparent', shadowColor: isActive ? '#000' : 'transparent', shadowOffset: { width: 0, height: 2 }, shadowOpacity: isActive ? 0.08 : 0, shadowRadius: 4, elevation: isActive ? 1 : 0 }}
+                  onPress={() => { setCalendarSubTab(tab.id); setCalendarStep(1); }}
+                >
+                  <tab.icon size={14} color={isActive ? '#2563eb' : '#64748b'} strokeWidth={isActive ? 2.5 : 2} />
+                  <Text style={{ fontSize: 12, fontWeight: '900', color: isActive ? '#2563eb' : '#64748b' }}>{tab.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+        <ScrollView style={[styles.scrollContent, { backgroundColor: '#f8fafc' }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 100 }}>
+
+          {calendarSubTab === 'setup' && (
+            <View>
+              {/* Current dates info banner */}
+              {(currentSchool?.school_year_start || currentSchool?.school_year_end) && (
+                <View style={{ backgroundColor: '#eff6ff', borderRadius: 24, padding: 20, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: '#dbeafe' }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
+                    <Info size={22} color="#2563eb" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{t('current_school_year') || 'Viti shkollor aktual'}</Text>
+                    <Text style={{ fontSize: 15, fontWeight: '900', color: '#1e293b' }}>
+                      {(currentSchool?.school_year_start ? currentSchool.school_year_start.split('-').reverse().join('/') : '—')} {'→'} {(currentSchool?.school_year_end ? currentSchool.school_year_end.split('-').reverse().join('/') : '—')}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Date pickers card */}
+              <View style={{ backgroundColor: 'white', borderRadius: 28, overflow: 'hidden', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 4 }}>
+                {/* Start date */}
+                <TouchableOpacity
+                  onPress={() => {
+                    const current = schoolYearStart || currentSchool?.school_year_start;
+                    setTempDatePickerDate(current ? new Date(current) : new Date());
+                    setShowYearDatePicker('start');
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}
+                >
+                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <Calendar size={22} color="#2563eb" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{t('start_date')}</Text>
+                    <Text style={{ fontSize: 17, fontWeight: '900', color: (schoolYearStart || currentSchool?.school_year_start) ? '#1e293b' : '#cbd5e1' }}>
+                      {((schoolYearStart || currentSchool?.school_year_start) ? (schoolYearStart || currentSchool?.school_year_start).split('-').reverse().join('/') : 'DD/MM/YYYY')}
+                    </Text>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                    <ChevronRight size={18} color="#64748b" />
+                  </View>
+                </TouchableOpacity>
+
+                {/* End date */}
+                <TouchableOpacity
+                  onPress={() => {
+                    const current = schoolYearEnd || currentSchool?.school_year_end;
+                    setTempDatePickerDate(current ? new Date(current) : new Date());
+                    setShowYearDatePicker('end');
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', padding: 20 }}
+                >
+                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#fdf4ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <Calendar size={22} color="#a21caf" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{t('end_date')}</Text>
+                    <Text style={{ fontSize: 17, fontWeight: '900', color: (schoolYearEnd || currentSchool?.school_year_end) ? '#1e293b' : '#cbd5e1' }}>
+                      {((schoolYearEnd || currentSchool?.school_year_end) ? (schoolYearEnd || currentSchool?.school_year_end).split('-').reverse().join('/') : 'DD/MM/YYYY')}
+                    </Text>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                    <ChevronRight size={18} color="#64748b" />
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Save button */}
+              <TouchableOpacity
+                style={{ height: 60, borderRadius: 22, marginTop: 16, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8, flexDirection: 'row', gap: 10 }}
+                onPress={async () => {
+                  const start = schoolYearStart || currentSchool?.school_year_start;
+                  const end = schoolYearEnd || currentSchool?.school_year_end;
+                  if (!start || !end) { showAlert(t('fill_all_fields'), 'error'); return; }
+                  const res = await onUpdateSchoolDates(activeSchoolId, start, end);
+                  if (res?.error) showAlert(res.error.message, 'error');
+                  else showAlert(t('success'), 'success');
+                }}
+              >
+                <Check size={20} color="white" />
+                <Text style={{ color: 'white', fontWeight: '900', fontSize: 17 }}>{t('save')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {calendarSubTab === 'calendar' && (
+            <View style={[styles.card, { flexDirection: 'column', padding: 0, borderRadius: 32, overflow: 'hidden', borderBottomWidth: 0, shadowColor: '#94a3b8', shadowRadius: 25, shadowOpacity: 0.12 }]}>
+              {calendarStep === 1 ? (
+                <>
+                  {/* Sleek Header & Controls */}
+                  <View style={{ paddingVertical: 16, paddingHorizontal: 20, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      {/* Month Navigator */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <TouchableOpacity onPress={() => setViewDate(new Date(year, month - 1, 1))} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
+                          <ChevronRight size={18} color="#64748b" style={{ transform: [{ rotate: '180deg' }] }} />
+                        </TouchableOpacity>
+                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b', textTransform: 'capitalize', minWidth: 100, textAlign: 'center' }}>{monthName}</Text>
+                        <TouchableOpacity onPress={() => setViewDate(new Date(year, month + 1, 1))} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
+                          <ChevronRight size={18} color="#64748b" />
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Floating CTA (Inline) */}
+                      {selectedDates.size > 0 ? (
+                        <TouchableOpacity
+                          style={{ paddingHorizontal: 16, height: 36, borderRadius: 12, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowRadius: 6, shadowOpacity: 0.25, elevation: 4, flexDirection: 'row', gap: 6 }}
+                          onPress={() => setCalendarStep(2)}
+                        >
+                          <Text style={{ color: 'white', fontWeight: '900', fontSize: 13 }}>{t('continue')} ({selectedDates.size})</Text>
+                          <ChevronRight size={14} color="white" />
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={{ paddingHorizontal: 16, height: 36, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: '#94a3b8', fontWeight: '800', fontSize: 12 }}>{t('select_dates') || 'Selekto'}</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Mode Segmented Control */}
+                    <View style={{ flexDirection: 'row', padding: 4, backgroundColor: '#e2e8f0', borderRadius: 12, marginTop: 16 }}>
+                      {[
+                        { id: 'single', label: t('single_select_mode'), icon: Search },
+                        { id: 'multi', label: t('multi_select_mode'), icon: Plus },
+                        { id: 'range', label: t('select_range'), icon: Calendar }
+                      ].map(mode => {
+                        const modeActive = selectionMode === mode.id;
+                        return (
+                          <TouchableOpacity
+                            key={mode.id}
+                            onPress={() => { setSelectionMode(mode.id); setSelectedDates(new Set()); setRangeStart(null); }}
+                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, backgroundColor: modeActive ? 'white' : 'transparent', shadowColor: modeActive ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: modeActive ? 0.05 : 0, shadowRadius: 2, elevation: modeActive ? 1 : 0 }}
+                          >
+                            <mode.icon size={13} color={modeActive ? '#2563eb' : '#64748b'} strokeWidth={modeActive ? 2.5 : 2} />
+                            <Text style={{ fontSize: 11, fontWeight: '900', color: modeActive ? '#2563eb' : '#64748b' }}>{mode.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Compact Grid */}
+                  <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, backgroundColor: 'white' }}>
+                    <View style={{ flexDirection: 'row', marginBottom: 10 }}>
+                      {dayLabels.map(label => (
+                        <Text key={label} style={{ flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>{label}</Text>
+                      ))}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                      {Array.from({ length: firstDay }).map((_, i) => (
+                        <View key={`empty-${i}`} style={{ width: `${100 / 7}%`, height: 42 }} />
+                      ))}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const isSelected = selectedDates.has(dateStr);
+                        const isToday = dateStr === new Date().toISOString().split('T')[0];
+                        const existingEvent = calendarEvents.find(e => e.date === dateStr);
+
+                        return (
+                          <TouchableOpacity
+                            key={day}
+                            style={{ width: `${100 / 7}%`, height: 42, alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+                            onPress={() => toggleDateSelection(dateStr)}
+                          >
+                            <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isSelected ? '#2563eb' : (existingEvent ? (existingEvent.type === 'holiday' ? '#fee2e2' : '#dcfce7') : 'transparent'), borderWidth: isToday ? 1.5 : 0, borderColor: '#2563eb' }}>
+                              <Text style={{ fontSize: 13, fontWeight: (isSelected || isToday) ? '900' : '700', color: isSelected ? 'white' : (existingEvent ? (existingEvent.type === 'holiday' ? '#ef4444' : '#16a34a') : '#1e293b') }}>{day}</Text>
+                            </View>
+                            {existingEvent && !isSelected && (
+                              <View style={{ position: 'absolute', bottom: 3, width: 4, height: 4, borderRadius: 2, backgroundColor: existingEvent.type === 'holiday' ? '#ef4444' : '#16a34a' }} />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    {/* Quick clear embedded inside grid bottom corner subtly */}
+                    {selectedDates.size > 0 && (
+                      <View style={{ alignItems: 'center', marginTop: 12 }}>
+                        <TouchableOpacity style={{ padding: 6 }} onPress={() => setSelectedDates(new Set())}>
+                          <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('clear_selection')}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </>
+              ) : (
+                <View style={{ paddingBottom: 32 }}>
+                  {/* Step 2 Header */}
+                  <View style={{ padding: 20, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                    <TouchableOpacity onPress={() => setCalendarStep(1)} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
+                      <ArrowLeft size={20} color="#1e293b" />
+                    </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 17, fontWeight: '900', color: '#0f172a' }}>{t('event_details') || 'Detajet e ngjarjes'}</Text>
+                      <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{selectedDates.size} {t('selected_dates') || 'data të zgjedhura'}</Text>
+                    </View>
+                    {/* Date count badge */}
+                    <View style={{ backgroundColor: '#2563eb', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }}>
+                      <Text style={{ color: 'white', fontWeight: '900', fontSize: 14 }}>{selectedDates.size}</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ padding: 20 }}>
+                    {/* Type selector */}
+                    <Text style={{ fontSize: 12, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 }}>{t('type')}</Text>
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                      <TouchableOpacity
+                        onPress={() => setCalendarType('holiday')}
+                        style={{ flex: 1, borderRadius: 20, padding: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: calendarType === 'holiday' ? '#fee2e2' : '#f8fafc', borderWidth: 2, borderColor: calendarType === 'holiday' ? '#ef4444' : '#e2e8f0', shadowColor: calendarType === 'holiday' ? '#ef4444' : 'transparent', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: calendarType === 'holiday' ? 4 : 0 }}
+                      >
+                        <Text style={{ fontSize: 28, marginBottom: 8 }}>🔴</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '900', color: calendarType === 'holiday' ? '#ef4444' : '#94a3b8' }}>{t('holiday')}</Text>
+                        {calendarType === 'holiday' && (
+                          <View style={{ marginTop: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' }}>
+                            <Check size={14} color="white" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setCalendarType('work_day')}
+                        style={{ flex: 1, borderRadius: 20, padding: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: calendarType === 'work_day' ? '#dcfce7' : '#f8fafc', borderWidth: 2, borderColor: calendarType === 'work_day' ? '#16a34a' : '#e2e8f0', shadowColor: calendarType === 'work_day' ? '#16a34a' : 'transparent', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: calendarType === 'work_day' ? 4 : 0 }}
+                      >
+                        <Text style={{ fontSize: 28, marginBottom: 8 }}>🟢</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '900', color: calendarType === 'work_day' ? '#16a34a' : '#94a3b8' }}>{t('work_day')}</Text>
+                        {calendarType === 'work_day' && (
+                          <View style={{ marginTop: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' }}>
+                            <Check size={14} color="white" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Description */}
+                    <Text style={{ fontSize: 12, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 }}>{t('calendar_description')}</Text>
+                    <View style={{ backgroundColor: '#f8fafc', borderRadius: 18, borderWidth: 1.5, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'flex-start', padding: 16, gap: 12 }}>
+                      <FileText size={20} color="#94a3b8" style={{ marginTop: 2 }} />
+                      <TextInput
+                        style={{ flex: 1, fontSize: 15, fontWeight: '600', color: '#1e293b', minHeight: 40 }}
+                        placeholder={t('holiday_desc_placeholder') || 'ex. Festa e Pavarësisë...'}
+                        value={calendarDescription}
+                        onChangeText={setCalendarDescription}
+                        multiline
+                        placeholderTextColor="#cbd5e1"
+                      />
+                    </View>
+
+                    {/* Save button */}
+                    <TouchableOpacity
+                      style={{ height: 60, borderRadius: 22, marginTop: 28, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8, flexDirection: 'row', gap: 10 }}
+                      onPress={async () => {
+                        const events = Array.from(selectedDates).map(date => ({ school_id: activeSchoolId, date, type: calendarType, description: calendarDescription }));
+                        if (onAddCalendarEvents) {
+                          const res = await onAddCalendarEvents(events);
+                          if (res?.error) showAlert(res.error.message, 'error');
+                          else { showAlert(t('bulk_save_success'), 'success'); setSelectedDates(new Set()); setCalendarDescription(''); setCalendarStep(1); setCalendarSubTab('history'); }
+                        }
+                      }}
+                    >
+                      <Check size={22} color="white" />
+                      <Text style={{ color: 'white', fontWeight: '900', fontSize: 17 }}>{t('save_selection')} ({selectedDates.size})</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
+          {calendarSubTab === 'history' && (
+            <View>
+              <View style={{ marginBottom: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{t('events') || 'Ngjarjet'}</Text>
+                <View style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 14, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#dbeafe' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '900', color: '#2563eb' }}>{calendarEvents.length} {t('total') || 'Total'}</Text>
+                </View>
+              </View>
+
+              {calendarEvents.sort((a, b) => b.date.localeCompare(a.date)).map(event => (
+                <View key={event.id} style={{ backgroundColor: 'white', borderRadius: 22, marginBottom: 12, flexDirection: 'row', alignItems: 'center', overflow: 'hidden', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 2 }}>
+                  <View style={{ width: 6, alignSelf: 'stretch', backgroundColor: event.type === 'holiday' ? '#ef4444' : '#16a34a' }} />
+                  <View style={{ width: 58, alignItems: 'center', paddingVertical: 18, paddingLeft: 8 }}>
+                    <Text style={{ fontSize: 22, fontWeight: '900', color: event.type === 'holiday' ? '#ef4444' : '#16a34a' }}>{event.date.split('-')[2]}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>
+                      {new Intl.DateTimeFormat('sq-AL', { month: 'short' }).format(new Date(event.date + 'T00:00:00'))}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1, paddingVertical: 14, paddingLeft: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: event.type === 'holiday' ? '#fee2e2' : '#dcfce7' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '900', color: event.type === 'holiday' ? '#ef4444' : '#16a34a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          {event.type === 'holiday' ? t('holiday') : t('work_day')}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#1e293b' }}>{event.description || '—'}</Text>
+                    <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 2, fontWeight: '600' }}>{event.date.split('-').reverse().join('/')}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', marginRight: 14 }}
+                    onPress={() => confirmDelete(t('confirm_delete_event') || 'Fshini këtë ngjarje?', async () => { await onDeleteCalendarEvent(event.id); })}
+                  >
+                    <Trash2 size={18} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {calendarEvents.length === 0 && (
+                <View style={{ padding: 60, alignItems: 'center', backgroundColor: 'white', borderRadius: 32 }}>
+                  <View style={{ width: 72, height: 72, borderRadius: 24, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                    <Calendar size={36} color="#cbd5e1" strokeWidth={1.5} />
+                  </View>
+                  <Text style={{ color: '#94a3b8', fontWeight: '800', fontSize: 16, textAlign: 'center' }}>{t('no_events') || 'Ska ngjarje të planifikuara'}</Text>
+                  <Text style={{ color: '#cbd5e1', fontWeight: '600', fontSize: 13, textAlign: 'center', marginTop: 6 }}>Shko te Kalendari për të shtuar</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+        </ScrollView>
       </View>
     );
   };
@@ -3240,8 +3873,10 @@ const AdminDashboard = ({
       {navigation.view === 'codes' && renderCodes()}
       {navigation.view === 'settings' && renderSettings()}
       {navigation.view === 'notices' && renderNotices()}
+      {navigation.view === 'calendar_mgmt' && renderCalendarMgmt()}
 
       {renderModals()}
+      {renderDatePickerModal()}
 
       <PasswordChangeModal
         visible={isPasswordModalVisible}

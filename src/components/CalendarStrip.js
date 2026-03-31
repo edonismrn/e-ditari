@@ -5,16 +5,29 @@ import { getDayName, getMonthName } from '../utils/dateUtils';
 import { useLanguage } from '../context/LanguageContext';
 
 const { width } = Dimensions.get('window');
-const ITEM_WIDTH = 60;
-const ITEM_MARGIN = 12;
+const ITEM_WIDTH = 48;
+const ITEM_MARGIN = 14;
 const TOTAL_ITEM_WIDTH = ITEM_WIDTH + ITEM_MARGIN;
 
 const CalendarStrip = ({ selectedDate, onDateSelect }) => {
   const { t } = useLanguage();
   const days = t('days');
+  const full_days = t('full_days');
   const months = t('months');
+  const full_months = t('full_months');
   const flatListRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
+  const [visibleDate, setVisibleDate] = useState(selectedDate);
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems && viewableItems.length > 0) {
+      const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
+      if (centerItem && centerItem.item) {
+        setVisibleDate(centerItem.item);
+      }
+    }
+  }).current;
 
   // Generate school year dates: Sept 1 to Jun 30
   const dates = useMemo(() => {
@@ -69,31 +82,33 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
     index,
   });
 
-  const renderItem = ({ item, index }) => {
+  const renderItem = ({ item }) => {
     const isSelected = item.toDateString() === selectedDate.toDateString();
-    
-    // Dim weekends slightly
     const isWeekend = item.getDay() === 0 || item.getDay() === 6;
+    
+    // Alternate month backgrounds (light gray vs dark blue)
+    const isAlternateMonth = item.getMonth() % 2 === 0;
+    const monthBg = isAlternateMonth ? '#93c5fd' : '#f1f5f9';
 
     return (
-      <TouchableOpacity 
-        style={[
-          styles.dateCard, 
-          isSelected && styles.selectedCard,
-          isWeekend && !isSelected && styles.weekendCard
-        ]}
-        onPress={() => onDateSelect(item)}
-      >
-        <Text style={[styles.dayName, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
-          {getDayName(item, days)}
-        </Text>
-        <Text style={[styles.dateNumber, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
-          {item.getDate()}
-        </Text>
-        <Text style={[styles.monthName, isSelected && styles.selectedText]}>
-          {getMonthName(item, months)}
-        </Text>
-      </TouchableOpacity>
+      <View style={{ width: TOTAL_ITEM_WIDTH, backgroundColor: monthBg, paddingVertical: 14, alignItems: 'center' }}>
+        <TouchableOpacity 
+          style={[
+            styles.dateCard, 
+            { marginRight: 0 }, // Center safely inside the uniform 62px width
+            isSelected && styles.selectedCard,
+            isWeekend && !isSelected && styles.weekendCard
+          ]}
+          onPress={() => onDateSelect(item)}
+        >
+          <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.dayName, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
+            {getDayName(item, full_days || days)}
+          </Text>
+          <Text style={[styles.dateNumber, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
+            {item.getDate()}
+          </Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -122,15 +137,23 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
 
   return (
     <View style={styles.container}>
+      {/* Prominent Month Header */}
+      <View style={{ paddingHorizontal: 20, marginBottom: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b', flex: 1, textAlign: 'center', letterSpacing: 1 }}>
+          {(full_months[visibleDate.getMonth()] || months[visibleDate.getMonth()]).toUpperCase()}
+        </Text>
+      </View>
+
       <View style={styles.navRow}>
-        {/* Left Navigation Button */}
-        <TouchableOpacity 
-          style={styles.navButton} 
-          onPress={scrollLeft}
-          activeOpacity={0.7}
-        >
-          <ChevronLeft size={22} color="#64748b" />
-        </TouchableOpacity>
+        {Platform.OS === 'web' && (
+          <TouchableOpacity 
+            style={styles.navButton} 
+            onPress={scrollLeft}
+            activeOpacity={0.7}
+          >
+            <ChevronLeft size={18} color="#64748b" />
+          </TouchableOpacity>
+        )}
 
         <View style={{ flex: 1 }}>
           <FlatList
@@ -148,17 +171,20 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
             scrollEventThrottle={16}
             decelerationRate="fast"
             snapToInterval={TOTAL_ITEM_WIDTH}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
           />
         </View>
 
-        {/* Right Navigation Button */}
-        <TouchableOpacity 
-          style={styles.navButton} 
-          onPress={scrollRight}
-          activeOpacity={0.7}
-        >
-          <ChevronRight size={22} color="#64748b" />
-        </TouchableOpacity>
+        {Platform.OS === 'web' && (
+          <TouchableOpacity 
+            style={styles.navButton} 
+            onPress={scrollRight}
+            activeOpacity={0.7}
+          >
+            <ChevronRight size={18} color="#64748b" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -166,7 +192,8 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 12,
+    paddingTop: 16,
+    paddingBottom: 4,
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
@@ -177,12 +204,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   scrollContent: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 0,
   },
   dateCard: {
     width: ITEM_WIDTH,
-    height: 75,
-    borderRadius: 16,
+    height: 60,
+    borderRadius: 14,
     backgroundColor: '#f8fafc',
     alignItems: 'center',
     justifyContent: 'center',
@@ -204,14 +231,14 @@ const styles = StyleSheet.create({
     borderColor: '#fee2e2',
   },
   dayName: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#64748b',
-    fontWeight: '700',
+    fontWeight: '800',
     marginBottom: 2,
     textTransform: 'uppercase',
   },
   dateNumber: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     color: '#1e293b',
   },
@@ -229,16 +256,16 @@ const styles = StyleSheet.create({
     color: '#ef4444',
   },
   navButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     backgroundColor: '#f8fafc',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#f1f5f9',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 3 },
       android: { elevation: 2 },
       web: { boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }
     }),

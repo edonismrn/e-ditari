@@ -1,5 +1,5 @@
 {
-  "name": "Ditari Elektronik",
+  "name": "ditari-elektronik",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -16,7 +16,7 @@
     "@react-navigation/stack": "^7.8.5",
     "@supabase/supabase-js": "^2.99.2",
     "expo": "~54.0.0",
-    "expo-document-picker": "^55.0.9",
+    "expo-document-picker": "~14.0.8",
     "expo-file-system": "^19.0.21",
     "expo-modules-core": "~3.0.29",
     "expo-sharing": "^14.0.8",
@@ -32,5 +32,9 @@
     "react-native-url-polyfill": "^3.0.0",
     "react-native-web": "^0.21.0"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
+  }
 }

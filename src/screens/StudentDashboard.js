@@ -56,7 +56,10 @@ const getGradeColor = (val) => {
 };
 
 // StudentDashboard component starts here
-const StudentDashboard = ({ user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads, onMarkNoticeRead, onRefresh, currentTerm }) => {
+const StudentDashboard = ({ 
+  user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads, 
+  onMarkNoticeRead, onRefresh, currentTerm, schoolCalendar, onInitializeAttendance 
+}) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
@@ -139,6 +142,48 @@ const StudentDashboard = ({ user, onLogout, grades, classes, schools, lessons, a
     const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
     const dd = String(dateObj.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
+  };
+
+  // Auto-initialize attendance for today if school day
+  React.useEffect(() => {
+    if (user.classId && onInitializeAttendance) {
+      const todayStr = formatDateString(new Date());
+      const selectedDateStr = formatDateString(selectedDate);
+      if (selectedDateStr === todayStr && isSchoolDay(selectedDate).isWork) {
+        onInitializeAttendance(user.classId, todayStr);
+      }
+    }
+  }, [user.classId, selectedDate]);
+
+  const isSchoolDay = (date) => {
+    const dateStr = formatDateString(date);
+    const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+    
+    const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
+    
+    // 1. Check school year boundaries
+    if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
+    if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
+
+    // 2. Check explicit calendar overrides
+    // Prioritize class-specific holidays, then school-wide
+    const calendarEvent = (schoolCalendar || []).find(e => 
+      e.school_id === user.school_id && 
+      e.date === dateStr &&
+      (!e.is_class_specific || e.class_id === user.classId)
+    );
+
+    if (calendarEvent) {
+      if (calendarEvent.type === 'holiday') return { isWork: false, reason: calendarEvent.description || t('holiday') };
+      if (calendarEvent.type === 'work_day') return { isWork: true, reason: calendarEvent.description || t('work_day') };
+    }
+
+    // 3. Default weekend logic
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return { isWork: false, reason: t('weekend') };
+    }
+
+    return { isWork: true };
   };
 
   const reformatDate = (isoDate) => {
@@ -432,6 +477,27 @@ const StudentDashboard = ({ user, onLogout, grades, classes, schools, lessons, a
         alwaysBounceVertical={true}
     >
       <View style={{ marginTop: 10 }}>
+        {/* School Calendar Status (Holiday/Weekend) */}
+        {(() => {
+          const dayStatus = isSchoolDay(selectedDate);
+          if (dayStatus.isWork) return null;
+
+          return (
+            <View style={[styles.statusBanner, { backgroundColor: '#f8fafc', borderColor: '#cbd5e1', marginBottom: 24, borderStyle: 'dashed' }]}>
+              <View style={[styles.statusCircle, { backgroundColor: '#94a3b8' }]}>
+                <Calendar size={22} color="white" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.statusBannerText, { color: '#475569', fontSize: 20, textTransform: 'uppercase' }]}>
+                  {t('holiday') || 'Pushim'}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
+                  {dayStatus.reason}
+                </Text>
+              </View>
+            </View>
+          );
+        })()}
 
         {/* Attendance Status for selected date */}
         {(() => {
@@ -514,62 +580,21 @@ const StudentDashboard = ({ user, onLogout, grades, classes, schools, lessons, a
                         <AlertTriangle size={18} color="white" />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                           <Text style={{ fontSize: 11, fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 1 }}>
                             {note.is_class_note ? (t('class_note') || 'Klasa') : (t('personal_note') || 'Personale')}
                           </Text>
                         </View>
+                        {note.profiles && (
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#b91c1c', marginBottom: 4 }}>
+                            {note.profiles.first_name} {note.profiles.last_name}
+                          </Text>
+                        )}
                         <Text style={{ fontSize: 14, color: '#7f1d1d', fontWeight: '600', lineHeight: 20 }}>
                           {note.content}
                         </Text>
                       </View>
                     </View>
-                  </View>
-                ))}
-              </View>
-            );
-          }
-          return null;
-        })()}
-
-        {/* Scheduled Tests (Verifiche) */}
-        {(() => {
-          const selectedDateStr = formatDateString(selectedDate);
-          const dateTests = (tests || []).filter(t => t.date === selectedDateStr && t.class_id === user.classId);
-          
-          if (dateTests.length > 0) {
-            return (
-              <View style={{ marginTop: 8, marginBottom: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                    {t('test_exam') || 'Verifica / Provim'}
-                  </Text>
-                </View>
-                {dateTests.map((test, idx) => (
-                  <View key={test.id || idx} style={{
-                    backgroundColor: 'white',
-                    borderRadius: 20,
-                    padding: 18,
-                    marginBottom: 10,
-                    borderWidth: 2,
-                    borderColor: '#f43f5e',
-                    borderLeftWidth: 8,
-                    shadowColor: '#f43f5e',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 10,
-                    elevation: 4,
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                       <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337' }}>{test.subject}</Text>
-                       <View style={{ backgroundColor: '#fff1f2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
-                         <Text style={{ fontSize: 10, fontWeight: '800', color: '#f43f5e' }}>URGJENTE</Text>
-                       </View>
-                    </View>
-                    <Text style={{ fontSize: 15, color: '#4c0519', fontWeight: '600', lineHeight: 22 }}>
-                      {test.description}
-                    </Text>
                   </View>
                 ))}
               </View>
@@ -663,13 +688,74 @@ const StudentDashboard = ({ user, onLogout, grades, classes, schools, lessons, a
             </View>
             );
           }}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyStateContainer}>
-              <BookIcon size={32} color="#e2e8f0" />
-              <Text style={styles.emptyText}>{t('nuk_ka_ore')}</Text>
-            </View>
-          )}
+          ListEmptyComponent={() => {
+            const dayStatus = isSchoolDay(selectedDate);
+            return (
+              <View style={styles.emptyStateContainer}>
+                {dayStatus.isWork ? (
+                  <>
+                    <BookIcon size={32} color="#e2e8f0" />
+                    <Text style={styles.emptyText}>{t('nuk_ka_ore')}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Calendar size={32} color="#94a3b8" />
+                    <Text style={[styles.emptyText, { color: '#64748b', fontWeight: '700' }]}>{dayStatus.reason}</Text>
+                  </>
+                )}
+              </View>
+            );
+          }}
         />
+
+        {/* Scheduled Tests (Verifiche) */}
+        {(() => {
+          const selectedDateStr = formatDateString(selectedDate);
+          const dateTests = (tests || []).filter(t => t.date === selectedDateStr && t.class_id === user.classId);
+          
+          if (dateTests.length > 0) {
+            return (
+              <View style={{ marginTop: 24, marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                    {t('test_exam') || 'Verifica / Provim'}
+                  </Text>
+                </View>
+                {dateTests.map((test, idx) => (
+                  <View key={test.id || idx} style={{
+                    backgroundColor: 'white',
+                    borderRadius: 20,
+                    padding: 18,
+                    marginBottom: 10,
+                    borderWidth: 2,
+                    borderColor: '#f43f5e',
+                    borderLeftWidth: 8,
+                    shadowColor: '#f43f5e',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 10,
+                    elevation: 4,
+                  }}>
+                     <View style={{ marginBottom: 8 }}>
+                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
+                        {test.profiles && (
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
+                            {test.profiles.first_name} {test.profiles.last_name}
+                          </Text>
+                        )}
+                     </View>
+                     <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
+                     <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
+                       {test.description}
+                     </Text>
+                   </View>
+                ))}
+              </View>
+            );
+          }
+          return null;
+        })()}
 
         {/* Legacy Grades and duplicate notifications removed from here */}
 

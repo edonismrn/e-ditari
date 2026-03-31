@@ -24,6 +24,7 @@ import {
   ArrowLeft,
   CheckCircle,
   XCircle,
+  AlertTriangle,
   Clock,
   BookOpen as BookIcon,
   Save,
@@ -130,14 +131,25 @@ const GradeRing = ({ value, size = 64, showProgress = false }) => {
 
 const TeacherDashboard = ({
   user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices, tests,
-  onAddGrade, onUpdateGrade, onAddLesson, onToggleAttendance, onJustifyAttendance,
-  onInitializeAttendance, onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh
+  onAddGrade, onUpdateGrade, onAddLesson, onUpdateLesson, onDeleteLesson, onUpdateAttendanceHour, onToggleAttendance, onJustifyAttendance,
+  onInitializeAttendance, onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh,
+  schoolCalendar, schools, onMarkDayAsRest, onUndoRestDay
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
   const [activeView, setActiveView] = useState('home');
   const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const getOccupiedHours = (classId, dateStr) => {
+    return (lessons || [])
+      .filter(l => (l.class_id === classId || l.classId === classId) && l.date === dateStr)
+      .map(l => {
+        const match = l.topic?.match(/^\[Ora (\d+)\]/);
+        return match ? match[1] : null;
+      })
+      .filter(h => h !== null);
+  };
 
   const getCurrentHour = () => {
     const now = new Date();
@@ -198,6 +210,46 @@ const TeacherDashboard = ({
 
   const [classSearchText, setClassSearchText] = useState('');
 
+  const formatDateString = (dateObj) => {
+    const yyyy = dateObj.getFullYear();
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const dd = String(dateObj.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const isSchoolDay = (date) => {
+    const dateStr = formatDateString(date);
+    const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+    
+    const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
+    
+    // 1. Check school year boundaries
+    if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
+    if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
+
+    // 2. Check explicit calendar overrides
+    // Look for class-specific holidays first (if viewing a class), then school-wide
+    const currentClassId = navigation.view === 'class-detail' || navigation.view === 'class-agenda' ? navigation.data?.id : null;
+    
+    const calendarEvent = (schoolCalendar || []).find(e => 
+      e.school_id === user.school_id && 
+      e.date === dateStr &&
+      (!e.is_class_specific || (currentClassId && e.class_id === currentClassId))
+    );
+
+    if (calendarEvent) {
+      if (calendarEvent.type === 'holiday') return { isWork: false, reason: calendarEvent.description || t('holiday') };
+      if (calendarEvent.type === 'work_day') return { isWork: true, reason: calendarEvent.description || t('work_day') };
+    }
+
+    // 3. Default weekend logic
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return { isWork: false, reason: t('weekend') };
+    }
+
+    return { isWork: true };
+  };
+
   const reformatDate = (isoDate) => {
     if (!isoDate) return '';
     const [y, m, d] = isoDate.split('-');
@@ -221,6 +273,10 @@ const TeacherDashboard = ({
   // Modal State
   const [selectedNotice, setSelectedNotice] = useState(null);
   const [isLessonModalVisible, setIsLessonModalVisible] = useState(false);
+  const [isTestModalVisible, setIsTestModalVisible] = useState(false);
+  const [testDescription, setTestDescription] = useState('');
+  const [isEditLessonModalVisible, setIsEditLessonModalVisible] = useState(false);
+  const [editLessonData, setEditLessonData] = useState(null);
   const [isGradeModalVisible, setIsGradeModalVisible] = useState(false);
   const [isActionModalVisible, setIsActionModalVisible] = useState(false);
   const [selectedActionStudent, setSelectedActionStudent] = useState(null);
@@ -237,8 +293,14 @@ const TeacherDashboard = ({
   const [noteText, setNoteText] = useState('');
   const [isClassNote, setIsClassNote] = useState(false);
   const [isSelectionModalVisible, setIsSelectionModalVisible] = useState(false);
+  const [confirmState, setConfirmState] = useState({
+    visible: false,
+    message: '',
+    onConfirm: null
+  });
   const [tempAttendanceStatus, setTempAttendanceStatus] = useState(null);
   const [isAttendanceSaving, setIsAttendanceSaving] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [selectedRegistryStudent, setSelectedRegistryStudent] = useState(null);
   const [selectedAttendanceHour, setSelectedAttendanceHour] = useState(null);
 
@@ -308,7 +370,7 @@ const TeacherDashboard = ({
 
       // Only auto-initialize for today's date
       if (selectedDateStr === todayStr) {
-        // onInitializeAttendance(navigation.data.id, selectedDateStr); // Disabled per user request: do not pre-fill attendance
+        onInitializeAttendance(navigation.data.id, selectedDateStr); // Re-enabled: default to 'absent' per new policy
       }
     }
   }, [navigation, selectedDate]);
@@ -392,9 +454,7 @@ const TeacherDashboard = ({
   };
 
   const isWeekend = (dateString) => {
-    const date = new Date(dateString);
-    const day = date.getDay();
-    return day === 0 || day === 6; // 0 is Sunday, 6 is Saturday
+    return !isSchoolDay(new Date(dateString)).isWork;
   };
 
   const renderHome = () => {
@@ -406,6 +466,38 @@ const TeacherDashboard = ({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
       >
+        {/* School Calendar Status (Holiday/Weekend) */}
+        {(() => {
+          const dayStatus = isSchoolDay(selectedDate);
+          if (dayStatus.isWork) return null;
+
+          return (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              padding: 20,
+              backgroundColor: 'white',
+              borderRadius: 24,
+              borderWidth: 1.5,
+              borderColor: '#e2e8f0',
+              borderStyle: 'dashed',
+              marginBottom: 24,
+              gap: 16
+            }}>
+              <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                <Calendar size={24} color="#64748b" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#475569', textTransform: 'uppercase' }}>
+                  {t('holiday') || 'Pushim'}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
+                  {dayStatus.reason}
+                </Text>
+              </View>
+            </View>
+          );
+        })()}
         {/* Stats Grid */}
         <View style={{ flexDirection: 'row', gap: 16, marginBottom: 24 }}>
           <View style={{ flex: 1, backgroundColor: 'white', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 4 }}>
@@ -708,6 +800,20 @@ const TeacherDashboard = ({
                   <Award size={18} color="#c026d3" />
                   <Text style={[styles.classActionText, { color: '#c026d3' }]} numberOfLines={1} adjustsFontSizeToFit>{t('grades') || 'Notat'}</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.classActionButton, { backgroundColor: '#fffbeb' }]}
+                  onPress={() => {
+                    setNavigation({ view: 'my-classes', data: item });
+                    setIsTestModalVisible(true);
+                    if (item.subjects && item.subjects.length > 0) {
+                      setSelectedSubject(item.subjects[0]);
+                    }
+                  }}
+                >
+                  <BookIcon size={18} color="#d97706" />
+                  <Text style={[styles.classActionText, { color: '#d97706' }]} numberOfLines={1} adjustsFontSizeToFit>{t('test_exam') || 'Test/Provim'}</Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -931,6 +1037,11 @@ const TeacherDashboard = ({
                     style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]}
                     disabled={!gradeValue}
                     onPress={() => {
+                      const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
+                      if (!dayStatus.isWork) {
+                        showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                        return;
+                      }
                       onAddGrade({
                         studentId: selectedActionStudent.id,
                         subject: selectedSubject,
@@ -1069,6 +1180,12 @@ const TeacherDashboard = ({
                     style={[styles.premiumSubmitButton, (!tempAttendanceStatus || (['late', 'early_exit'].includes(tempAttendanceStatus) && (!selHour || !selMinute))) && { opacity: 0.5 }]}
                     disabled={!tempAttendanceStatus || (['late', 'early_exit'].includes(tempAttendanceStatus) && (!selHour || !selMinute)) || isAttendanceSaving}
                     onPress={async () => {
+                      const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
+                      if (!dayStatus.isWork) {
+                        showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                        return;
+                      }
+                      
                       setIsAttendanceSaving(true);
                       const finalTime = (tempAttendanceStatus === 'late' || tempAttendanceStatus === 'early_exit') ? `${selHour}:${selMinute}` : '';
                       const result = await onToggleAttendance(
@@ -1149,6 +1266,12 @@ const TeacherDashboard = ({
                     style={[styles.premiumSubmitButton, { backgroundColor: '#dc2626' }, !noteText && { opacity: 0.5 }]}
                     disabled={!noteText}
                     onPress={async () => {
+                      const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
+                      if (!dayStatus.isWork) {
+                        showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                        return;
+                      }
+                      
                       if (onAddNote) {
                         const result = await onAddNote({
                           studentId: isClassNote ? null : selectedActionStudent.id,
@@ -1292,20 +1415,7 @@ const TeacherDashboard = ({
                   />
 
                   <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 }}
-                    onPress={() => setIsTest(!isTest)}
-                  >
-                    <View style={[
-                      { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
-                      isTest && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
-                    ]}>
-                      {isTest && <CheckCircle size={14} color="white" />}
-                    </View>
-                    <Text style={{ fontSize: 15, color: '#475569', fontWeight: '600' }}>{t('test_exam')}</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }]}
+                    style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }, { marginTop: 16 }]}
                     disabled={!lessonTopic}
                     onPress={() => {
                       onAddLesson({
@@ -1313,22 +1423,13 @@ const TeacherDashboard = ({
                         subject: selectedSubject,
                         topic: `[Ora ${lessonHour}] ${lessonTopic}`.trim(),
                         homework: lessonHomework,
-                        isTest: isTest,
+                        isTest: false,
                         date: gradeCustomDate || dateStr,
                         teacherId: user.id
                       });
-                      if (isTest && onAddTest) {
-                        onAddTest({
-                          classId: selectedActionStudent.classId,
-                          subject: selectedSubject,
-                          date: gradeCustomDate || dateStr,
-                          description: lessonTopic
-                        });
-                      }
                       setIsActionModalVisible(false);
                       setLessonTopic('');
                       setLessonHomework('');
-                      setIsTest(false);
                       setGradeCustomDate(null);
                     }}
                   >
@@ -1430,15 +1531,28 @@ const TeacherDashboard = ({
 
                 <Text style={styles.label}>{t('hour')}</Text>
                 <View style={styles.gradeButtonGrid}>
-                  {['1', '2', '3', '4', '5', '6', '7'].map(hour => (
-                    <TouchableOpacity
-                      key={hour}
-                      style={[styles.gradeButton, { flex: 1 }, lessonHour === hour && styles.activeGradeButton]}
-                      onPress={() => setLessonHour(hour)}
-                    >
-                      <Text style={[styles.gradeButtonText, lessonHour === hour && styles.activeGradeButtonText]}>{hour}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  {['1', '2', '3', '4', '5', '6', '7'].map(hour => {
+                    const occupied = getOccupiedHours(currentClass.id, lessonDate || formatDate(selectedDate));
+                    const isOccupied = occupied.includes(hour);
+                    return (
+                      <TouchableOpacity
+                        key={hour}
+                        style={[
+                          styles.gradeButton, { flex: 1 }, 
+                          lessonHour === hour && styles.activeGradeButton,
+                          isOccupied && { backgroundColor: '#f1f5f9', opacity: 0.5 }
+                        ]}
+                        disabled={isOccupied}
+                        onPress={() => setLessonHour(hour)}
+                      >
+                        <Text style={[
+                          styles.gradeButtonText, 
+                          lessonHour === hour && styles.activeGradeButtonText,
+                          isOccupied && { color: '#94a3b8' }
+                        ]}>{hour}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
                 <Text style={styles.label}>{t('lesson_topic')}</Text>
@@ -1458,43 +1572,26 @@ const TeacherDashboard = ({
                 />
 
                 <TouchableOpacity
-                  style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, marginTop: 8, gap: 10 }}
-                  onPress={() => setIsTest(!isTest)}
-                >
-                  <View style={[
-                    { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
-                    isTest && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
-                  ]}>
-                    {isTest && <CheckCircle size={14} color="white" />}
-                  </View>
-                  <Text style={{ fontSize: 15, color: '#475569', fontWeight: '600' }}>{t('test_exam')}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }]}
+                  style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }, { marginTop: 16 }]}
                   disabled={!lessonTopic}
                   onPress={() => {
+                    const dayStatus = isSchoolDay(new Date(lessonDate || selectedDate));
+                    if (!dayStatus.isWork) {
+                      showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                      return;
+                    }
                     onAddLesson({
                       classId: currentClass.id,
                       subject: selectedSubject,
                       topic: `[Ora ${lessonHour}] ${lessonTopic}`,
                       homework: lessonHomework,
-                      isTest: isTest,
+                      isTest: false,
                       date: lessonDate || formatDate(selectedDate),
                       teacherId: user.id
                     });
-                    if (isTest && onAddTest) {
-                      onAddTest({
-                        classId: currentClass.id,
-                        subject: selectedSubject,
-                        date: lessonDate || formatDate(selectedDate),
-                        description: lessonTopic
-                      });
-                    }
                     setIsLessonModalVisible(false);
                     setLessonTopic('');
                     setLessonHomework('');
-                    setIsTest(false);
                     setLessonDate(null);
                   }}
                 >
@@ -1507,6 +1604,271 @@ const TeacherDashboard = ({
       </Modal>
     );
   };
+
+  const renderTestRegistrationModal = (currentClass) => {
+    if (!currentClass) return null;
+    return (
+      <Modal visible={isTestModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.premiumActionModal, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeaderScroll}>
+              <View>
+                <Text style={styles.modalTitleEmphasized}>{t('regjistro_test_provim') || 'Regjistro Test/Provim'}</Text>
+                <Text style={styles.modalSubtitle}>{formatClassName(currentClass)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsTestModalVisible(false)} style={styles.closeModalBtn}>
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+              <View style={{ marginBottom: 24 }}>
+                <Text style={styles.label}>{t('zgjidh_daten') || 'Zgjidh datën'}</Text>
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: 16,
+                    padding: 16,
+                    borderWidth: 1.5,
+                    borderColor: '#e2e8f0',
+                    gap: 12
+                  }}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      document.getElementById('test-date-input').showPicker();
+                    }
+                  }}
+                >
+                  <Calendar size={20} color="#f43f5e" />
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>
+                    {formatDisplayDate(lessonDate || selectedDate)}
+                  </Text>
+
+                  {Platform.OS === 'web' && (
+                    <input
+                      id="test-date-input"
+                      type="date"
+                      style={{
+                        position: 'absolute',
+                        opacity: 0,
+                        width: '100%',
+                        height: '100%',
+                        cursor: 'pointer'
+                      }}
+                      value={lessonDate || formatDate(selectedDate)}
+                      onChange={(e) => setLessonDate(e.target.value)}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View>
+                <Text style={styles.label}>{t('lesson_subject')}</Text>
+                <View style={styles.chipGrid}>
+                  {getAvailableSubjects(currentClass).map(subject => (
+                    <TouchableOpacity
+                      key={subject}
+                      style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, selectedSubject === subject && { backgroundColor: '#f43f5e', borderColor: '#f43f5e' }]}
+                      onPress={() => setSelectedSubject(subject)}
+                    >
+                      <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{subject}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.label}>{t('test_description') || 'Përshkrimi i testit'}</Text>
+                <TextInput
+                  style={styles.premiumInput}
+                  placeholder={t('test_description_placeholder') || 'Psh: Provim i dytë periodik...'}
+                  value={testDescription}
+                  onChangeText={setTestDescription}
+                  multiline
+                />
+
+                <TouchableOpacity
+                  style={[styles.premiumSubmitButton, !testDescription && { opacity: 0.5 }, { backgroundColor: '#f43f5e', marginTop: 20 }]}
+                  disabled={!testDescription}
+                  onPress={async () => {
+                    const dateToUse = lessonDate || formatDate(selectedDate);
+                    const dayStatus = isSchoolDay(new Date(dateToUse));
+                    if (!dayStatus.isWork) {
+                      showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                      return;
+                    }
+                    await onAddTest({
+                      classId: currentClass.id,
+                      subject: selectedSubject,
+                      date: dateToUse,
+                      description: testDescription
+                    });
+                    setIsTestModalVisible(false);
+                    setTestDescription('');
+                    setLessonDate(null);
+                  }}
+                >
+                  <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  const renderEditLessonModal = () => {
+    if (!editLessonData) return null;
+    return (
+      <Modal visible={isEditLessonModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.premiumActionModal, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeaderScroll}>
+              <View>
+                <Text style={styles.modalTitleEmphasized}>{t('edit_lesson') || 'Ndrysho Orën'}</Text>
+                <Text style={styles.modalSubtitle}>{editLessonData.subject}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsEditLessonModalVisible(false)} style={styles.closeModalBtn}>
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+              <View>
+                <Text style={styles.label}>{t('hour')}</Text>
+                <View style={styles.gradeButtonGrid}>
+                  {['1', '2', '3', '4', '5', '6', '7'].map(hour => {
+                    const topicParts = editLessonData.topic?.match(/^\[Ora (\d+)\]/);
+                    const originalHour = topicParts ? topicParts[1] : null;
+
+                    const occupied = getOccupiedHours(editLessonData.class_id || editLessonData.classId, editLessonData.date);
+                    // An hour is considered blocked if it's occupied AND it's not the original hour of this lesson
+                    const isBlocked = occupied.includes(hour) && hour !== originalHour;
+
+                    return (
+                      <TouchableOpacity
+                        key={hour}
+                        style={[
+                          styles.gradeButton, { flex: 1 }, 
+                          lessonHour === hour && styles.activeGradeButton,
+                          isBlocked && { backgroundColor: '#f1f5f9', opacity: 0.5 }
+                        ]}
+                        disabled={isBlocked}
+                        onPress={() => setLessonHour(hour)}
+                      >
+                        <Text style={[
+                          styles.gradeButtonText, 
+                          lessonHour === hour && styles.activeGradeButtonText,
+                          isBlocked && { color: '#94a3b8' }
+                        ]}>{hour}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.label}>{t('lesson_topic')}</Text>
+                <TextInput
+                  style={styles.premiumInput}
+                  placeholder={t('lesson_topic_placeholder')}
+                  value={lessonTopic}
+                  onChangeText={setLessonTopic}
+                />
+
+                <Text style={styles.label}>{t('homework')}</Text>
+                <TextInput
+                  style={styles.premiumInput}
+                  placeholder={t('homework_placeholder')}
+                  value={lessonHomework}
+                  onChangeText={setLessonHomework}
+                />
+
+                <TouchableOpacity
+                  style={[styles.premiumSubmitButton, (isUpdating || !lessonTopic) && { opacity: 0.5 }, { marginTop: 20 }]}
+                  disabled={isUpdating || !lessonTopic}
+                  onPress={async () => {
+                    setIsUpdating(true);
+
+                    // Check if hour changed to migrate attendance
+                    const topicParts = editLessonData.topic?.match(/^\[Ora (\d+)\]/);
+                    const originalHour = topicParts ? topicParts[1] : null;
+                    
+                    if (originalHour && lessonHour !== originalHour) {
+                      await onUpdateAttendanceHour(
+                        editLessonData.class_id || editLessonData.classId,
+                        editLessonData.date,
+                        parseInt(originalHour),
+                        parseInt(lessonHour)
+                      );
+                    }
+
+                    const result = await onUpdateLesson(editLessonData.id, {
+                      topic: `[Ora ${lessonHour}] ${lessonTopic}`
+                    });
+                    
+                    setIsUpdating(false);
+
+                    if (result?.error) {
+                      showAlert(result.error.message, 'error');
+                    } else {
+                      showAlert(t('lesson_updated_success') || 'Ora u përditësua me sukses!', 'success');
+                      setIsEditLessonModalVisible(false);
+                      setEditLessonData(null);
+                      setLessonTopic('');
+                      setLessonHomework('');
+                    }
+                  }}
+                >
+                  <Text style={styles.premiumSubmitButtonText}>{isUpdating ? (t('saving') || 'Duke ruajtur...') : (t('save_changes') || 'Ruaj Ndryshimet')}</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  const confirmDelete = (msg, callback) => {
+    setConfirmState({
+      visible: true,
+      message: msg,
+      onConfirm: callback
+    });
+  };
+
+  const renderConfirmModal = () => (
+    <Modal visible={confirmState.visible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.confirmModal}>
+          <View style={[styles.actionIconContainer, { backgroundColor: '#fff1f2', marginBottom: 20 }]}>
+            <AlertTriangle size={28} color="#ef4444" />
+          </View>
+          <Text style={styles.confirmTitle}>{t('confirm_action') || 'Konfirmoni Veprimin'}</Text>
+          <Text style={styles.confirmMessage}>{confirmState.message}</Text>
+          <View style={styles.confirmActions}>
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.cancelButton]}
+              onPress={() => setConfirmState({ ...confirmState, visible: false })}
+            >
+              <Text style={styles.cancelButtonText}>{t('cancel') || 'Anulo'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.confirmButton, styles.deleteButton]}
+              onPress={async () => {
+                if (confirmState.onConfirm) {
+                  await confirmState.onConfirm();
+                }
+                setConfirmState({ ...confirmState, visible: false });
+              }}
+            >
+              <Text style={styles.deleteButtonText}>{t('confirm') || 'Konfirmo'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   const renderStudentSelection = (currentClass) => {
     const classStudents = students.filter(s => s.classId === currentClass.id)
@@ -1577,6 +1939,41 @@ const TeacherDashboard = ({
                   <Text style={{ fontSize: 12, fontWeight: '700', color: 'white' }}>Ora {currentHour}</Text>
                 </View>
               )}
+              {/* Rest Day Toggle */}
+              {(() => {
+                const dateStrSelected = formatDate(selectedDate);
+                const holidayEvent = (schoolCalendar || []).find(e => e.school_id === user.school_id && e.date === dateStrSelected && e.type === 'holiday');
+                
+                return (
+                  <TouchableOpacity 
+                    style={{ 
+                      backgroundColor: holidayEvent ? '#ef4444' : '#f1f5f9', 
+                      borderRadius: 20, 
+                      paddingHorizontal: 14, 
+                      paddingVertical: 4,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      borderWidth: 1,
+                      borderColor: holidayEvent ? '#dc2626' : '#e2e8f0'
+                    }}
+                    onPress={async () => {
+                      if (holidayEvent) {
+                        const res = await onUndoRestDay(user.school_id, currentClass.id, dateStrSelected);
+                        if (res.success) showAlert(t('undo_rest_day') || 'Ditë normale e punës', 'success');
+                      } else {
+                        const res = await onMarkDayAsRest(user.school_id, currentClass.id, dateStrSelected);
+                        if (res.success) showAlert(t('absences_annulled') || 'Mungesat u anulluan!', 'success');
+                      }
+                    }}
+                  >
+                    <Calendar size={12} color={holidayEvent ? 'white' : '#64748b'} />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: holidayEvent ? 'white' : '#64748b' }}>
+                      {holidayEvent ? (t('undo_rest_day') || 'Hiq Ripuso') : (t('mark_as_rest') || 'Riposo')}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
             </View>
           </View>
         </View>
@@ -2258,28 +2655,36 @@ const TeacherDashboard = ({
             const hourText = topicParts ? `Ora ${topicParts[1]}` : `Ora ${idx + 1}`;
             const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
 
-            return (
-              <View key={lesson.id} style={styles.nuvolaLessonCard}>
-                <View style={[styles.lessonColorBar, { backgroundColor: lesson.is_test ? '#ef4444' : '#2563eb' }]} />
-                <View style={styles.premiumHourContainer}>
-                  <Text style={styles.premiumHourNumber}>{topicParts ? topicParts[1] : idx + 1}</Text>
-                  <Text style={styles.premiumHourLabel}>{t('hour')}</Text>
-                </View>
-                <View style={styles.lessonContent}>
-                  <Text style={styles.professorName}>
-                    {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.first_name || user.first_name} {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.last_name || user.last_name}
-                  </Text>
-                  <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
-                  <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
-                  {lesson.homework && (
-                    <View style={styles.homeworkContainer}>
-                      <Clock size={12} color="#64748b" />
-                      <Text style={styles.homeworkText}>{lesson.homework}</Text>
+                // Find matching homework from the separate homework table
+                const lessonHomeworkObj = (homework || []).find(hw => 
+                  hw.class_id === lesson.class_id && 
+                  hw.subject === lesson.subject && 
+                  hw.due_date === lesson.date
+                );
+                const currentLessonHomework = lessonHomeworkObj?.description;
+
+                return (
+                  <View key={lesson.id} style={styles.nuvolaLessonCard}>
+                    <View style={[styles.lessonColorBar, { backgroundColor: lesson.is_test ? '#ef4444' : '#2563eb' }]} />
+                    <View style={styles.premiumHourContainer}>
+                      <Text style={styles.premiumHourNumber}>{topicParts ? topicParts[1] : idx + 1}</Text>
+                      <Text style={styles.premiumHourLabel}>{t('hour')}</Text>
                     </View>
-                  )}
-                </View>
-              </View>
-            );
+                    <View style={styles.lessonContent}>
+                      <Text style={styles.professorName}>
+                        {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.first_name || user.first_name} {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.last_name || user.last_name}
+                      </Text>
+                      <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
+                      <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
+                      {currentLessonHomework && (
+                        <View style={styles.homeworkContainer}>
+                          <Clock size={12} color="#64748b" />
+                          <Text style={styles.homeworkText}>{currentLessonHomework}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
           }) : (
             <View style={styles.emptyStateContainer}>
               <BookIcon size={40} color="#e2e8f0" />
@@ -2293,13 +2698,15 @@ const TeacherDashboard = ({
 
   const renderClassAgenda = (currentClass) => {
     const selectedDateStr = formatDate(selectedDate);
-    const dayLessons = lessons
+     const dayLessons = lessons
       .filter(l => (l.class_id === currentClass?.id || l.classId === currentClass?.id) && l.date === selectedDateStr)
       .sort((a, b) => {
         const aHour = parseInt(a.topic?.match(/^\[Ora (\d+)\]/)?.[1] || 0);
         const bHour = parseInt(b.topic?.match(/^\[Ora (\d+)\]/)?.[1] || 0);
         return aHour - bHour;
       });
+
+    const dateTests = (tests || []).filter(t => t.date === selectedDateStr && t.class_id === currentClass?.id);
 
     return (
       <View style={styles.viewContainer}>
@@ -2314,72 +2721,178 @@ const TeacherDashboard = ({
         </View>
 
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-          {dayLessons.length > 0 ? (
-            dayLessons.map((lesson, idx) => {
-              const topicParts = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
-              const hourNum = topicParts ? topicParts[1] : null;
-              const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
+          {/* Lessons Section */}
+          {dayLessons.length > 0 && (
+            <View style={{ marginBottom: 20 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                 <BookIcon size={18} color="#2563eb" />
+                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('lessons') || 'Mësimi'}</Text>
+              </View>
+              {dayLessons.map((lesson, idx) => {
+                const topicParts = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
+                const hourNum = topicParts ? topicParts[1] : null;
+                const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
+                
+                // Find matching homework from the homework table
+                const lessonHomeworkObj = (homework || []).find(hw => 
+                  hw.class_id === lesson.class_id && 
+                  hw.subject === lesson.subject && 
+                  hw.due_date === lesson.date
+                );
+                const lessonHomework = lessonHomeworkObj?.description;
 
-              const teacher = user.teacherProfiles?.find(p => p.id === lesson.teacher_id) || user;
+                const teacher = user.teacherProfiles?.find(p => p.id === lesson.teacher_id) || (lesson.teacher_id === user.id ? user : { first_name: 'Mësu' + 'es', last_name: '' });
+                const isMyLesson = lesson.teacher_id === user.id;
 
-              return (
-                <View key={lesson.id} style={[styles.premiumCard, { marginBottom: 16, padding: 20, borderLeftWidth: 4, borderLeftColor: lesson.is_test ? '#ef4444' : '#2563eb' }]}>
-                  <View style={{ flexDirection: 'row', gap: 16 }}>
-                    <View style={{
-                      width: 60,
-                      height: 60,
-                      borderRadius: 18,
-                      backgroundColor: lesson.is_test ? '#fee2e2' : '#f8fafc',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderWidth: 1.5,
-                      borderColor: lesson.is_test ? '#fecaca' : '#f1f5f9'
-                    }}>
-                      <Text style={{ fontSize: 24, fontWeight: '900', color: lesson.is_test ? '#b91c1c' : '#1e293b' }}>{hourNum || idx + 1}</Text>
-                      <Text style={{ fontSize: 9, fontWeight: '800', color: lesson.is_test ? '#b91c1c' : '#64748b', marginTop: -2, textTransform: 'uppercase' }}>{t('hour') || 'Ora'}</Text>
-                    </View>
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 2 }}>{lesson.subject}</Text>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748b', marginBottom: 10 }}>
-                        {teacher.first_name} {teacher.last_name}
-                      </Text>
-
-                      <View style={{ height: 1.5, backgroundColor: '#f8fafc', marginBottom: 10 }} />
-
-                      <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('lesson_topic') || 'Tema'}</Text>
-                          <Text style={{ fontSize: 15, color: '#475569', lineHeight: 22, fontWeight: '500' }}>{cleanTopic}</Text>
-                        </View>
+                return (
+                  <View key={lesson.id} style={[styles.premiumCard, { marginBottom: 16, padding: 20, borderLeftWidth: 4, borderLeftColor: '#2563eb' }]}>
+                    <View style={{ flexDirection: 'row', gap: 16 }}>
+                      <View style={{
+                        width: 54,
+                        height: 54,
+                        borderRadius: 16,
+                        backgroundColor: '#f8fafc',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 1.5,
+                        borderColor: '#f1f5f9'
+                      }}>
+                        <Text style={{ fontSize: 22, fontWeight: '900', color: '#1e293b' }}>{hourNum || idx + 1}</Text>
+                        <Text style={{ fontSize: 8, fontWeight: '800', color: '#64748b', marginTop: -2, textTransform: 'uppercase' }}>{t('hour') || 'Ora'}</Text>
                       </View>
 
-                      {lesson.homework ? (
-                        <View style={{ backgroundColor: '#f5f3ff', padding: 12, borderRadius: 12, marginTop: 16, borderWidth: 1, borderColor: '#ddd6fe', borderLeftWidth: 4, borderLeftColor: '#8b5cf6' }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                            <BookIcon size={14} color="#7c3aed" />
-                            <Text style={{ fontWeight: '800', color: '#7c3aed', fontSize: 11, textTransform: 'uppercase' }}>{t('homework_assignment') || 'Detyrat për shtëpi'}</Text>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 17, fontWeight: '800', color: '#0f172a', marginBottom: 2 }}>{lesson.subject}</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: '#64748b', marginBottom: 8 }}>
+                              {teacher.first_name} {teacher.last_name}
+                            </Text>
                           </View>
-                          <Text style={{ color: '#4c1d95', fontSize: 14, lineHeight: 20 }}>{lesson.homework}</Text>
-                        </View>
-                      ) : null}
+                          {isMyLesson && (
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              <TouchableOpacity 
+                                onPress={() => {
+                                  setEditLessonData(lesson);
+                                  setLessonTopic(cleanTopic);
+                                  setLessonHour(hourNum || '1');
+                                  setLessonHomework(lessonHomework || '');
+                                  setSelectedSubject(lesson.subject);
+                                  setIsEditLessonModalVisible(true);
+                                }}
+                                style={{ padding: 8, backgroundColor: '#f1f5f9', borderRadius: 10 }}
+                              >
+                                <Pencil size={16} color="#2563eb" />
+                              </TouchableOpacity>
 
-                      {lesson.is_test && (
-                        <View style={{ alignSelf: 'flex-start', backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginTop: 12 }}>
-                          <Text style={{ fontWeight: '900', color: '#ef4444', fontSize: 11 }}>TEST</Text>
+                              <TouchableOpacity 
+                                onPress={() => {
+                                  confirmDelete(
+                                    t('confirm_delete_lesson_msg') || 'Dëshironi ta fshini këtë orë mësimore?',
+                                    async () => {
+                                      const result = await onDeleteLesson(lesson.id);
+                                      if (result?.error) {
+                                        showAlert(result.error.message, 'error');
+                                      }
+                                    }
+                                  );
+                                }}
+                                style={{ padding: 8, backgroundColor: '#fff1f2', borderRadius: 10 }}
+                              >
+                                <Trash2 size={16} color="#ef4444" />
+                              </TouchableOpacity>
+                            </View>
+                          )}
                         </View>
-                      )}
+
+                        <View style={{ height: 1.5, backgroundColor: '#f8fafc', marginBottom: 10 }} />
+
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('lesson_topic') || 'Tema'}</Text>
+                            <Text style={{ fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' }}>{cleanTopic}</Text>
+                          </View>
+                        </View>
+
+                        {lessonHomework ? (
+                          <View style={{ backgroundColor: '#f5f3ff', padding: 10, borderRadius: 10, marginTop: 12, borderWidth: 1, borderColor: '#ddd6fe', borderLeftWidth: 3, borderLeftColor: '#8b5cf6' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                              <BookIcon size={12} color="#7c3aed" />
+                              <Text style={{ fontWeight: '800', color: '#7c3aed', fontSize: 10, textTransform: 'uppercase' }}>{t('homework_assignment') || 'Detyrat'}</Text>
+                            </View>
+                            <Text style={{ color: '#4c1d95', fontSize: 13, lineHeight: 18 }}>{lessonHomework}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
                   </View>
-                </View>
-              );
-            })
-          ) : (
+                );
+              })}
+            </View>
+          )}
+
+          {/* Tests Section */}
+          {dateTests.length > 0 && (
+            <View style={{ marginTop: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
+                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase' }}>{t('test_exam') || 'Verifica / Provim'}</Text>
+              </View>
+              {dateTests.map((test, idx) => {
+                const teacher = user.teacherProfiles?.find(p => p.id === test.teacher_id) || (test.teacher_id === user.id ? user : { first_name: 'Mësues', last_name: '' });
+                const isMyTest = test.teacher_id === user.id;
+
+                return (
+                  <View key={test.id || idx} style={{
+                    backgroundColor: 'white',
+                    borderRadius: 20,
+                    padding: 18,
+                    marginBottom: 16,
+                    borderWidth: 2,
+                    borderColor: '#f43f5e',
+                    borderLeftWidth: 8,
+                    shadowColor: '#f43f5e',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 10,
+                    elevation: 4,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <View style={{ flex: 1 }}>
+                           <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
+                           <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
+                              {teacher.first_name} {teacher.last_name}
+                           </Text>
+                        </View>
+                        {isMyTest && (
+                          <TouchableOpacity 
+                            onPress={() => {
+                              confirmDelete(t('confirm_delete_test') || 'Dëshironi ta fshini këtë test?', async () => {
+                                await onDeleteTest(test.id);
+                              });
+                            }}
+                            style={{ padding: 6, backgroundColor: '#fff1f2', borderRadius: 8 }}
+                          >
+                            <Trash2 size={16} color="#ef4444" />
+                          </TouchableOpacity>
+                        )}
+                    </View>
+                    <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
+                    <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
+                      {test.description}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {dayLessons.length === 0 && dateTests.length === 0 && (
             <View style={styles.emptyStateContainer}>
               <View style={[styles.avatarPlaceholder, { width: 80, height: 80, borderRadius: 30 }]}>
                 <Calendar size={40} color="#cbd5e1" />
               </View>
-              <Text style={styles.emptyStateTitle}>{t('nuk_ka_ore') || 'Nuk ka orë të regjistruara për këtë ditë.'}</Text>
+              <Text style={styles.emptyStateTitle}>{t('nuk_ka_ore') || 'Nuk ka asgjë të regjistruar për këtë ditë.'}</Text>
             </View>
           )}
         </ScrollView>
@@ -2533,6 +3046,9 @@ const TeacherDashboard = ({
       {renderActionModal()}
       {renderEditGradeModal()}
       {renderLessonForm(navigation.data)}
+      {renderTestRegistrationModal(navigation.data)}
+      {renderEditLessonModal()}
+      {renderConfirmModal()}
 
 
       <View style={styles.bottomNav}>
@@ -3641,6 +4157,62 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
     paddingHorizontal: 2,
+  },
+  // Confirm Modal Styles
+  confirmModal: {
+    backgroundColor: 'white',
+    borderRadius: 32,
+    padding: 32,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.15,
+    shadowRadius: 30,
+  },
+  confirmTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0f172a',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  confirmButton: {
+    flex: 1,
+    height: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#f1f5f9',
+  },
+  deleteButton: {
+    backgroundColor: '#ef4444',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: 'white',
   },
 });
 

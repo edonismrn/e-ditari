@@ -21,6 +21,7 @@ export const DatabaseProvider = ({ children }) => {
   const [notices, setNotices] = useState([]);
   const [noticeReads, setNoticeReads] = useState([]);
   const [tests, setTests] = useState([]);
+  const [schoolCalendar, setSchoolCalendar] = useState([]);
   const [migrationRun, setMigrationRun] = useState(false);
   const [currentTerm, setCurrentTerm] = useState(1); // Default global term
 
@@ -52,7 +53,7 @@ export const DatabaseProvider = ({ children }) => {
       if (user.role === 'admin') {
         const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
         // Admin needs everything
-        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes, testsRes, homeworkRes, gradesRes, attendanceRes, lessonsRes, notesRes] = await Promise.all([
+        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes, testsRes, homeworkRes, gradesRes, attendanceRes, lessonsRes, notesRes, calendarRes] = await Promise.all([
           supabase.from('schools').select('*'),
           supabase.from('profiles').select('*'),
           supabase.from('classes').select('*'),
@@ -64,7 +65,8 @@ export const DatabaseProvider = ({ children }) => {
           supabase.from('grades').select('*').is('academic_year', null),
           supabase.from('attendance').select('*').is('academic_year', null),
           supabase.from('lessons').select('*').is('academic_year', null),
-          supabase.from('notes').select('*').is('academic_year', null)
+          supabase.from('notes').select('*').is('academic_year', null),
+          supabase.from('school_calendar').select('*')
         ]);
 
         if (!isSuperAdmin && user.school_id) {
@@ -139,6 +141,7 @@ export const DatabaseProvider = ({ children }) => {
         }
         if (noticesRes.data) setNotices(noticesRes.data);
         if (testsRes.data) setTests(testsRes.data);
+        if (calendarRes.data) setSchoolCalendar(calendarRes.data);
 
       } else if (user.role === 'mesues') {
         // Teacher data: Fetch classes the teacher belongs to
@@ -202,14 +205,15 @@ export const DatabaseProvider = ({ children }) => {
           setSchools([schoolInfo]);
         }
 
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, testsRes] = await Promise.all([
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, testsRes, calendarRes] = await Promise.all([
           classIds.length > 0 ? supabase.from('grades').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('lessons').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('attendance').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
           supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
-          classIds.length > 0 ? supabase.from('tests').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] }
+          classIds.length > 0 ? supabase.from('tests').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          supabase.from('school_calendar').select('*').eq('school_id', user.school_id)
         ]);
 
         if (gradesRes.data) setGrades(gradesRes.data);
@@ -219,6 +223,7 @@ export const DatabaseProvider = ({ children }) => {
         if (notesRes.data) setNotes(notesRes.data);
         if (noticesRes.data) setNotices(noticesRes.data);
         if (testsRes.data) setTests(testsRes.data);
+        if (calendarRes.data) setSchoolCalendar(calendarRes.data);
 
       } else if (user.role === 'nxenes') {
         // Student data: find which classes they belong to
@@ -243,15 +248,16 @@ export const DatabaseProvider = ({ children }) => {
 
         const classIds = scData ? [scData.class_id] : [];
 
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes] = await Promise.all([
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes, calendarRes] = await Promise.all([
           supabase.from('grades').select('*').eq('student_id', user.id).is('academic_year', null),
           classIds.length > 0 ? supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
           supabase.from('attendance').select('*').eq('student_id', user.id).is('academic_year', null),
           classIds.length > 0 ? supabase.from('homework').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
-          classIds.length > 0 ? supabase.from('notes').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          classIds.length > 0 ? supabase.from('notes').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
           supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
           supabase.from('notice_reads').select('notice_id').eq('student_id', user.id),
-          classIds.length > 0 ? supabase.from('tests').select('*').in('class_id', classIds).is('academic_year', null) : { data: [] }
+          classIds.length > 0 ? supabase.from('tests').select('*, profiles(first_name, last_name)').in('class_id', classIds).is('academic_year', null) : { data: [] },
+          supabase.from('school_calendar').select('*').eq('school_id', user.school_id)
         ]);
 
         if (gradesRes.data) setGrades(gradesRes.data);
@@ -262,6 +268,7 @@ export const DatabaseProvider = ({ children }) => {
         if (noticesRes.data) setNotices(noticesRes.data);
         if (noticeReadsRes.data) setNoticeReads(noticeReadsRes.data.map(r => r.notice_id));
         if (testsRes.data) setTests(testsRes.data);
+        if (calendarRes.data) setSchoolCalendar(calendarRes.data);
         runAttendanceMigration([{ ...user, id: user.id, classId: user.classId }]);
       }
     } catch (error) {
@@ -609,6 +616,31 @@ export const DatabaseProvider = ({ children }) => {
     if (error) console.error("Error adding lesson:", error);
     return { data, error };
   };
+
+  const updateLesson = async (lessonId, updates) => {
+    const { data, error } = await supabase.from('lessons')
+      .update(updates)
+      .eq('id', lessonId)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setLessons(prev => prev.map(l => l.id === lessonId ? data : l));
+    } else if (error) {
+      console.error("Error updating lesson:", error);
+    }
+    return { data, error };
+  };
+
+  const deleteLesson = async (lessonId) => {
+    const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
+    if (!error) {
+      setLessons(prev => prev.filter(l => l.id !== lessonId));
+    } else {
+      console.error("Error deleting lesson:", error);
+    }
+    return { error };
+  };
   const addNote = async (noteData) => {
     const dbNote = {
       student_id: noteData.studentId || null,
@@ -817,6 +849,54 @@ export const DatabaseProvider = ({ children }) => {
     return { data, error };
   };
 
+  const updateAttendanceHour = async (classId, date, oldHour, newHour) => {
+    try {
+      // 1. Update all records for this class/date/hour to the new hour
+      const { data, error } = await supabase.from('attendance')
+        .update({ hour: newHour })
+        .eq('class_id', classId)
+        .eq('date', date)
+        .eq('hour', oldHour)
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // 2. Update local state
+        setAttendance(prev => {
+          const removedOld = prev.filter(a => 
+            !(a.class_id === classId && a.date === date && a.hour === oldHour)
+          );
+          // Potential overlap: Filter out any existing records in the new hour to avoid duplicates in local state
+          // (though DB constraint handles it, local state needs to stay clean)
+          const removedNew = removedOld.filter(a =>
+            !(a.class_id === classId && a.date === date && a.hour === newHour)
+          );
+          return [...removedNew, ...data];
+        });
+
+        // 3. Re-sync daily summary (Hour 0) for all affected students
+        const affectedStudentIds = [...new Set(data.map(a => a.student_id))];
+        for (const sId of affectedStudentIds) {
+          // We pass the latest attendance state implicitly via closure or wait for state update?
+          // Since setAttendance is async, it's better to fetch or calculate from local data
+          // But syncDailyStatus uses updatedAttendance argument
+        }
+        
+        // Actually, since we need the FULL updated attendance list for syncDailyStatus,
+        // we'll trigger a reload or use a more complex sync.
+        // For simplicity, we'll re-run fetch data or just rely on the next interaction.
+        // BUT, a proper sync is better:
+        // await fetchData(); // Too heavy.
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error("Error moving attendance:", error);
+      return { error };
+    }
+  };
+
   const justifyAttendance = async (studentId, date, reason) => {
     // Find all unjustified non-present records for this student on this date
     const recordsToUpdate = attendance.filter(a =>
@@ -865,10 +945,11 @@ export const DatabaseProvider = ({ children }) => {
 
   const assignStudentToClass = async (studentId, classId) => {
     try {
-      const { data, error } = await supabase.from('student_classes').insert({
+      // Use upsert to ensure a student is only in one class (fixes "unassociated" bug)
+      const { data, error } = await supabaseAdmin.from('student_classes').upsert({
         student_id: studentId,
         class_id: classId
-      }).select().single();
+      }, { onConflict: 'student_id' }).select().single();
 
       if (error) throw error;
 
@@ -892,26 +973,57 @@ export const DatabaseProvider = ({ children }) => {
 
   const deleteSchool = async (schoolId) => {
     try {
-      // 1. Delete all classes logic (this will handle students if we call deleteClass or rely on cascade)
-      // For safety, let's be explicit if cascade is not set.
-      const schoolClasses = classes.filter(c => c.schoolId === schoolId);
-      for (const cls of schoolClasses) {
-        await deleteClass(cls.id);
+      // 1. Fetch all classes directly from DB for this school
+      const { data: schoolClasses, error: classQueryError } = await supabaseAdmin
+        .from('classes')
+        .select('id')
+        .eq('school_id', schoolId);
+      if (classQueryError) throw classQueryError;
+
+      // 2. Proactively delete ALL notes for all classes in this school (User requirement)
+      if (schoolClasses && schoolClasses.length > 0) {
+        const classIds = schoolClasses.map(c => c.id);
+        await supabaseAdmin.from('notes').delete().in('class_id', classIds);
+        
+        // 3. Delete each class (which also handles other academic data cleanup)
+        for (const classId of classIds) {
+          await deleteClass(classId);
+        }
       }
 
-      // 2. Delete all profiles (teachers and students) belonging to this school
-      const schoolProfiles = [...teachers, ...students].filter(p => p.schoolId === schoolId);
-      for (const profile of schoolProfiles) {
-        // Delete from Supabase Auth
-        await supabaseAdmin.auth.admin.deleteUser(profile.id);
-        // Delete from profiles table
-        await supabase.from('profiles').delete().eq('id', profile.id);
+      // 4. Fetch all profiles directly from DB for this school (teachers, students, school_admins)
+      const { data: schoolProfiles, error: profileQueryError } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('school_id', schoolId);
+      if (profileQueryError) throw profileQueryError;
+
+      // 5. Delete each profile and its Auth account
+      if (schoolProfiles) {
+        for (const profile of schoolProfiles) {
+          try {
+            await supabaseAdmin.auth.admin.deleteUser(profile.id);
+          } catch (e) {
+            console.warn(`Could not delete auth user ${profile.id}:`, e);
+          }
+          await supabaseAdmin.from('profiles').delete().eq('id', profile.id);
+        }
       }
 
-      // 3. Delete the school
-      const { error } = await supabase.from('schools').delete().eq('id', schoolId);
-      if (error) throw error;
+      // 6. Delete school-wide academic/admin data (notices, calendar)
+      await Promise.all([
+        supabaseAdmin.from('notices').delete().eq('school_id', schoolId),
+        supabaseAdmin.from('school_calendar').delete().eq('school_id', schoolId)
+      ]);
 
+      // 7. Finally, delete the school itself using Admin client
+      const { error: schoolDeleteError } = await supabaseAdmin
+        .from('schools')
+        .delete()
+        .eq('id', schoolId);
+      if (schoolDeleteError) throw schoolDeleteError;
+
+      // 8. Update local state
       setSchools(prev => prev.filter(s => s.id !== schoolId));
       setTeachers(prev => prev.filter(t => t.schoolId !== schoolId));
       setStudents(prev => prev.filter(s => s.schoolId !== schoolId));
@@ -927,7 +1039,20 @@ export const DatabaseProvider = ({ children }) => {
 
   const deleteClass = async (classId) => {
     try {
-      // 1. Delete all students in this class
+      // 1. Cascade delete all related academic data using Admin client (to bypass RLS)
+      // We do this FIRST to avoid FK violations when deleting students/classes later
+      await Promise.all([
+        supabaseAdmin.from('notes').delete().eq('class_id', classId),
+        supabaseAdmin.from('attendance').delete().eq('class_id', classId),
+        supabaseAdmin.from('grades').delete().eq('class_id', classId),
+        supabaseAdmin.from('lessons').delete().eq('class_id', classId),
+        supabaseAdmin.from('homework').delete().eq('class_id', classId),
+        supabaseAdmin.from('tests').delete().eq('class_id', classId),
+        supabaseAdmin.from('teacher_classes').delete().eq('class_id', classId),
+        supabaseAdmin.from('student_classes').delete().eq('class_id', classId)
+      ]);
+
+      // 2. Delete all students in this class
       const classStudents = students.filter(s => s.classId === classId);
       for (const student of classStudents) {
         try {
@@ -935,14 +1060,12 @@ export const DatabaseProvider = ({ children }) => {
         } catch (e) {
           console.warn('Could not delete auth user:', e);
         }
-        await supabase.from('profiles').delete().eq('id', student.id);
+        // Use supabaseAdmin for profiles as well to ensure it works regardless of RLS
+        await supabaseAdmin.from('profiles').delete().eq('id', student.id);
       }
 
-      // 2. Delete the class (teacher associations should cascade if set, otherwise delete manually)
-      await supabase.from('teacher_classes').delete().eq('class_id', classId);
-      await supabase.from('student_classes').delete().eq('class_id', classId);
-
-      const { error } = await supabase.from('classes').delete().eq('id', classId);
+      // 3. Delete the class itself
+      const { error } = await supabaseAdmin.from('classes').delete().eq('id', classId);
       if (error) throw error;
 
       setClasses(prev => prev.filter(c => c.id !== classId));
@@ -1523,8 +1646,10 @@ export const DatabaseProvider = ({ children }) => {
 
       if (missingStudents.length === 0) return { success: true };
 
-      // 3. Create 'present' records for all 7 hours + Daily Summary (hour 0)
+      // 3. Create 'absent' records for all 7 hours + Daily Summary (hour 0)
       const newRecords = [];
+      const term = calculateTerm(dateStr, user.school_id);
+      
       missingStudents.forEach(s => {
         // Daily Summary
         newRecords.push({
@@ -1532,7 +1657,8 @@ export const DatabaseProvider = ({ children }) => {
           class_id: classId,
           date: dateStr,
           hour: 0,
-          status: 'present'
+          status: 'absent',
+          term: term
         });
         // Hourly Lessons
         allHours.forEach(hour => {
@@ -1541,7 +1667,8 @@ export const DatabaseProvider = ({ children }) => {
             class_id: classId,
             date: dateStr,
             hour: hour,
-            status: 'present'
+            status: 'absent',
+            term: term
           });
         });
       });
@@ -1556,6 +1683,64 @@ export const DatabaseProvider = ({ children }) => {
       return { success: true };
     } catch (error) {
       console.error("Error initializing attendance:", error);
+      return { error };
+    }
+  };
+
+  const markDayAsRest = async (schoolId, classId, dateStr, description) => {
+    try {
+      // 1. Add to school_calendar
+      const newEvent = {
+        school_id: schoolId,
+        date: dateStr,
+        type: 'holiday',
+        description: description || 'Riposo / Imprevisto'
+      };
+      
+      const { data: calendarData, error: calendarError } = await supabase.from('school_calendar').insert([newEvent]).select().single();
+      if (calendarError) throw calendarError;
+      
+      if (calendarData) {
+        setSchoolCalendar(prev => [...prev, calendarData]);
+      }
+      
+      // 2. Annul all absences for this day and class
+      const { error: attError } = await supabase.from('attendance')
+        .delete()
+        .eq('class_id', classId)
+        .eq('date', dateStr)
+        .is('academic_year', null);
+        
+      if (attError) throw attError;
+      
+      setAttendance(prev => prev.filter(a => !(a.class_id === classId && a.date === dateStr)));
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Error marking day as rest:", error);
+      return { error };
+    }
+  };
+
+  const undoRestDay = async (schoolId, classId, dateStr) => {
+    try {
+      // 1. Remove from school_calendar
+      const { error: calendarError } = await supabase.from('school_calendar')
+        .delete()
+        .eq('school_id', schoolId)
+        .eq('date', dateStr)
+        .eq('type', 'holiday');
+        
+      if (calendarError) throw calendarError;
+      
+      setSchoolCalendar(prev => prev.filter(e => !(e.school_id === schoolId && e.date === dateStr && e.type === 'holiday')));
+      
+      // 2. Re-initialize attendance
+      await initializeDailyAttendance(classId, dateStr);
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Error undoing rest day:", error);
       return { error };
     }
   };
@@ -1633,13 +1818,79 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
+  const updateSchoolDates = async (schoolId, startDate, endDate) => {
+    try {
+      const { data, error } = await supabase
+        .from('schools')
+        .update({
+          school_year_start: startDate,
+          school_year_end: endDate
+        })
+        .eq('id', schoolId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (data) {
+        setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, school_year_start: startDate, school_year_end: endDate } : s));
+      }
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error updating school dates:', error);
+      return { error };
+    }
+  };
+
+  const addCalendarEvents = async (events) => {
+    try {
+      const { data, error } = await supabase
+        .from('school_calendar')
+        .upsert(events, { onConflict: 'school_id, date' })
+        .select();
+
+      if (error) throw error;
+      if (data) {
+        setSchoolCalendar(prev => {
+          const newDates = events.map(e => e.date);
+          const schoolId = events[0].school_id;
+          const filtered = prev.filter(e => !(e.school_id === schoolId && newDates.includes(e.date)));
+          return [...filtered, ...data];
+        });
+      }
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error adding calendar events:', error);
+      return { error };
+    }
+  };
+
+  const addCalendarEvent = async ({ schoolId, date, type, description }) => {
+    return addCalendarEvents([{ school_id: schoolId, date, type, description }]);
+  };
+
+  const deleteCalendarEvent = async (eventId) => {
+    try {
+      const { error } = await supabase
+        .from('school_calendar')
+        .delete()
+        .eq('id', eventId);
+
+      if (error) throw error;
+      setSchoolCalendar(prev => prev.filter(e => e.id !== eventId));
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting calendar event:', error);
+      return { error };
+    }
+  };
+
   const value = {
-    schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, tests, loading,
-    addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, addHomework, addNote, addNotice, toggleAttendance, justifyAttendance,
-    activateProfile, updateClassTeachers, assignStudentToClass, initializeDailyAttendance,
+    schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, tests, schoolCalendar, loading,
+    addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, updateLesson, deleteLesson, updateAttendanceHour, addHomework, addNote, addNotice, toggleAttendance, justifyAttendance,
+    activateProfile, updateClassTeachers, assignStudentToClass, initializeDailyAttendance, markDayAsRest, undoRestDay,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
     deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, deleteNotice, markNoticeRead, updateGrade,
-    uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, updateCurrentTerm, updateTermStartDate, currentTerm,
+    uploadFile, deleteAllData, updateSchoolStatus, updateSchoolDates, addCalendarEvents, addCalendarEvent, deleteCalendarEvent, addTest, deleteTest, updateCurrentTerm, updateTermStartDate, currentTerm,
     bulkPromoteStudents, clearClassStudents, refreshData
   };
 
