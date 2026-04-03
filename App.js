@@ -26,8 +26,10 @@ function AppContent() {
     markNoticeRead, noticeReads, uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, tests, updateCurrentTerm, updateTermStartDate,
     schoolCalendar, updateSchoolDates, addCalendarEvent, addCalendarEvents, deleteCalendarEvent,
     markDayAsRest, undoRestDay,
+    updateAttendanceHour,
     loading: dataLoading,
-    refreshData, bulkPromoteStudents, currentTerm
+    refreshData, bulkPromoteStudents, currentTerm,
+    availableAcademicYears, selectedGlobalAcademicYear, changeAcademicYear
   } = useDatabase();
   const { t } = useLanguage();
   const { showAlert } = useAlert();
@@ -93,6 +95,9 @@ function AppContent() {
         <AdminDashboard
           user={user}
           onLogout={handleLogout}
+          availableAcademicYears={availableAcademicYears}
+          selectedGlobalAcademicYear={selectedGlobalAcademicYear}
+          onChangeAcademicYear={changeAcademicYear}
           schools={schools}
           teachers={teachers}
           classes={classes}
@@ -141,6 +146,9 @@ function AppContent() {
         <TeacherDashboard
           user={user}
           onLogout={handleLogout}
+          availableAcademicYears={availableAcademicYears}
+          selectedGlobalAcademicYear={selectedGlobalAcademicYear}
+          onChangeAcademicYear={changeAcademicYear}
           classes={classes}
           students={students}
           grades={grades}
@@ -179,6 +187,9 @@ function AppContent() {
         <StudentDashboard
           user={user}
           onLogout={handleLogout}
+          availableAcademicYears={availableAcademicYears}
+          selectedGlobalAcademicYear={selectedGlobalAcademicYear}
+          onChangeAcademicYear={changeAcademicYear}
           grades={grades}
           classes={classes}
           schools={schools}

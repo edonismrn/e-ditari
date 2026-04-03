@@ -133,13 +133,29 @@ const TeacherDashboard = ({
   user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices, tests,
   onAddGrade, onUpdateGrade, onAddLesson, onUpdateLesson, onDeleteLesson, onUpdateAttendanceHour, onToggleAttendance, onJustifyAttendance,
   onInitializeAttendance, onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh,
-  schoolCalendar, schools, onMarkDayAsRest, onUndoRestDay
+  schoolCalendar, schools, onMarkDayAsRest, onUndoRestDay,
+  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
   const [activeView, setActiveView] = useState('home');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [editingLesson, setEditingLesson] = useState(null);
+
+  // When the user switches academic year, jump the calendar to September 1st of that year.
+  // When returning to current year (null), jump back to today.
+  React.useEffect(() => {
+    if (selectedGlobalAcademicYear) {
+      // e.g. "2024/2025" → start year is 2024 → jump to 1 Sep 2024
+      const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
+      if (!isNaN(startYear)) {
+        setSelectedDate(new Date(startYear, 8, 1)); // month 8 = September
+      }
+    } else {
+      setSelectedDate(new Date()); // back to today
+    }
+  }, [selectedGlobalAcademicYear]);
 
   const getOccupiedHours = (classId, dateStr) => {
     return (lessons || [])
@@ -172,6 +188,12 @@ const TeacherDashboard = ({
   };
 
   const currentHour = getCurrentHour();
+
+  const getDynamicClassStudents = (classId) => {
+    // Since DatabaseContext now handles historical student_classes associations,
+    // the 'students' array already contains the correct roster for the selected year.
+    return students.filter(s => s.classId === classId || s.class_id === classId);
+  };
 
   const [isPasswordModalVisible, setIsPasswordModalVisible] = useState(false);
 
@@ -220,19 +242,22 @@ const TeacherDashboard = ({
   const isSchoolDay = (date) => {
     const dateStr = formatDateString(date);
     const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
-    
+
     const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
-    
+
     // 1. Check school year boundaries
-    if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
-    if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
+    // Skip when viewing a past academic year — the stored boundaries belong to the CURRENT year
+    if (!selectedGlobalAcademicYear) {
+      if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
+      if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
+    }
 
     // 2. Check explicit calendar overrides
     // Look for class-specific holidays first (if viewing a class), then school-wide
     const currentClassId = navigation.view === 'class-detail' || navigation.view === 'class-agenda' ? navigation.data?.id : null;
-    
-    const calendarEvent = (schoolCalendar || []).find(e => 
-      e.school_id === user.school_id && 
+
+    const calendarEvent = (schoolCalendar || []).find(e =>
+      e.school_id === user.school_id &&
       e.date === dateStr &&
       (!e.is_class_specific || (currentClassId && e.class_id === currentClassId))
     );
@@ -322,44 +347,46 @@ const TeacherDashboard = ({
 
   // Helper: compute what the daily status would be after setting studentId/date/hour to newStatus
   const computeNewDailyStatus = (studentId, date, changedHour, newStatus) => {
-    // Gather all hourly records for this student/date
+    // Gather all hourly records for this student/date (hours 1-7)
     const existingRecords = attendance.filter(a =>
       (a.student_id === studentId || a.studentId === studentId) &&
       a.date === date &&
       a.hour > 0 && a.hour <= 7
     );
 
-    // Build a map of hour -> base status, applying the new change
+    // Build a map of hour -> base status, applying the new changes
     const statuses = {};
+    // 'none' = not yet recorded. An unrecorded hour is NOT the same as absent.
+    for (let i = 1; i <= 7; i++) statuses[i] = 'none';
+    
     existingRecords.forEach(r => {
       const baseStatus = r.status?.split(':')[0];
       statuses[r.hour] = baseStatus;
     });
-    statuses[changedHour] = newStatus; // apply the change
 
-    const hourKeys = Object.keys(statuses).map(Number).sort((a, b) => a - b);
-    if (hourKeys.length === 0) return newStatus === 'present' ? 'present' : 'absent';
+    if (changedHour > 0) {
+      statuses[changedHour] = newStatus;
+    }
 
-    const allPresent = hourKeys.every(h => statuses[h] === 'present');
-    const allAbsent = hourKeys.every(h => statuses[h] === 'absent' || statuses[h] === 'absent_justified' || statuses[h] === 'absent_unjustified' || statuses[h]?.startsWith('absent'));
+    const hourKeys = [1, 2, 3, 4, 5, 6, 7];
+    const presentHours = hourKeys.filter(h => statuses[h] === 'present');
 
-    if (allPresent) return 'present';
-    if (allAbsent) return 'absent';
+    if (presentHours.length === 0) return 'absent';
+    
+    const firstPresent = Math.min(...presentHours);
+    const lastPresent = Math.max(...presentHours);
 
-    // Find first and last present
-    let firstPresent = -1;
-    let lastPresent = -1;
-    hourKeys.forEach(h => {
-      if (statuses[h] === 'present') {
-        if (firstPresent === -1) firstPresent = h;
-        lastPresent = h;
-      }
-    });
+    // LATE: only when there is an explicit 'absent' BEFORE the first 'present'.
+    // Hours never recorded ('none') do NOT trigger late.
+    const isLate = hourKeys.some(h => h < firstPresent && statuses[h] === 'absent');
+    if (isLate) return 'late';
 
-    if (firstPresent === -1) return 'absent';
-    if (firstPresent > hourKeys[0]) return 'late';       // arrived after first lesson
-    if (lastPresent < hourKeys[hourKeys.length - 1]) return 'early_exit'; // left before last lesson
-    return 'present'; // mixed but present at start and end
+    // EARLY EXIT: only when there is an explicit 'absent' AFTER the last 'present'.
+    // Hours never recorded ('none') do NOT trigger early_exit.
+    const isEarlyExit = hourKeys.some(h => h > lastPresent && statuses[h] === 'absent');
+    if (isEarlyExit) return 'early_exit';
+
+    return 'present';
   };
 
   // Auto-initialize attendance for today when viewing class detail
@@ -458,7 +485,7 @@ const TeacherDashboard = ({
   };
 
   const renderHome = () => {
-    const totalStudents = students.filter(s => teacherClasses.some(tc => tc.id === s.classId)).length;
+    const totalStudents = teacherClasses.reduce((acc, tc) => acc + getDynamicClassStudents(tc.id).length, 0);
 
     return (
       <ScrollView
@@ -519,27 +546,14 @@ const TeacherDashboard = ({
         {/* Quick Actions */}
         <View style={{ gap: 16 }}>
           <TouchableOpacity
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: 'white',
-              padding: 20,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: '#f1f5f9',
-              shadowColor: '#94a3b8',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.1,
-              shadowRadius: 16,
-              elevation: 4,
-            }}
+            style={styles.premiumCardAction}
             onPress={() => setNavigation({ view: 'my-classes', data: null })}
           >
-            <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-              <BookIcon size={28} color="#2563eb" />
+            <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+              <BookIcon size={24} color="#2563eb" />
             </View>
-            <Text style={{ flex: 1, fontSize: 18, fontWeight: '800', color: '#1e293b' }}>{t('my_classes') === 'my_classes' ? 'Klasat e mia' : (t('my_classes') || 'Klasat e mia')}</Text>
-            <ChevronRight size={22} color="#94a3b8" />
+            <Text style={{ flex: 1, fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('my_classes') === 'my_classes' ? 'Klasat e mia' : (t('my_classes') || 'Klasat e mia')}</Text>
+            <ChevronRight size={20} color="#94a3b8" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -710,10 +724,10 @@ const TeacherDashboard = ({
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 20 }}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2563eb']}
               tintColor="#2563eb"
               progressViewOffset={50}
             />
@@ -737,7 +751,7 @@ const TeacherDashboard = ({
                 <View>
                   <Text style={styles.classCardTitle}>{formatClassName(item)}</Text>
                   <Text style={styles.classCardSubtitle}>
-                    {students.filter(s => s.classId === item.id).length} {t('students_count') || 'Nxënësit'}
+                    {getDynamicClassStudents(item.id).length} {t('students_count') || 'Nxënësit'}
                   </Text>
                 </View>
               </View>
@@ -842,10 +856,10 @@ const TeacherDashboard = ({
         keyExtractor={item => item.id}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={handleRefresh} 
-            colors={['#2563eb']} 
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#2563eb']}
             tintColor="#2563eb"
             progressViewOffset={50}
           />
@@ -863,7 +877,7 @@ const TeacherDashboard = ({
           >
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle}>{formatClassName(item)}</Text>
-              <Text style={styles.cardSubtitle}>{students.filter(s => s.classId === item.id).length} {t('students_count')}</Text>
+              <Text style={styles.cardSubtitle}>{getDynamicClassStudents(item.id).length} {t('students_count')}</Text>
             </View>
             <ChevronRight size={22} color="#2563eb" />
           </TouchableOpacity>
@@ -1185,7 +1199,7 @@ const TeacherDashboard = ({
                         showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
                         return;
                       }
-                      
+
                       setIsAttendanceSaving(true);
                       const finalTime = (tempAttendanceStatus === 'late' || tempAttendanceStatus === 'early_exit') ? `${selHour}:${selMinute}` : '';
                       const result = await onToggleAttendance(
@@ -1271,7 +1285,7 @@ const TeacherDashboard = ({
                         showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
                         return;
                       }
-                      
+
                       if (onAddNote) {
                         const result = await onAddNote({
                           studentId: isClassNote ? null : selectedActionStudent.id,
@@ -1417,20 +1431,37 @@ const TeacherDashboard = ({
                   <TouchableOpacity
                     style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }, { marginTop: 16 }]}
                     disabled={!lessonTopic}
-                    onPress={() => {
-                      onAddLesson({
-                        classId: selectedActionStudent.classId,
-                        subject: selectedSubject,
-                        topic: `[Ora ${lessonHour}] ${lessonTopic}`.trim(),
-                        homework: lessonHomework,
-                        isTest: false,
-                        date: gradeCustomDate || dateStr,
-                        teacherId: user.id
-                      });
-                      setIsActionModalVisible(false);
+                    onPress={async () => {
+                      const finalTopic = `[Ora ${lessonHour}] ${lessonTopic}`.trim();
+                      const finalDate = lessonDate || formatDate(selectedDate);
+                      
+                      if (editingLesson) {
+                        const oldHourMatch = editingLesson.topic?.match(/\[Ora (\d+)\]/);
+                        const oldHour = oldHourMatch ? parseInt(oldHourMatch[1]) : null;
+                        
+                        await onUpdateLesson(editingLesson.id, {
+                          classId: editingLesson.class_id,
+                          subject: selectedSubject,
+                          topic: finalTopic,
+                          date: finalDate,
+                        }, oldHour);
+                      } else {
+                        await onAddLesson({
+                          classId: currentClass.id,
+                          subject: selectedSubject,
+                          topic: finalTopic,
+                          homework: lessonHomework,
+                          isTest: false,
+                          date: finalDate,
+                          teacherId: user.id
+                        });
+                      }
+                      
+                      setIsLessonModalVisible(false);
+                      setEditingLesson(null);
                       setLessonTopic('');
                       setLessonHomework('');
-                      setGradeCustomDate(null);
+                      setLessonDate(null);
                     }}
                   >
                     <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
@@ -1452,10 +1483,19 @@ const TeacherDashboard = ({
           <View style={[styles.premiumActionModal, { maxHeight: '90%' }]}>
             <View style={styles.modalHeaderScroll}>
               <View>
-                <Text style={styles.modalTitleEmphasized}>{t('register_lesson')}</Text>
-                <Text style={styles.modalSubtitle}>{formatClassName(currentClass)}</Text>
+                <Text style={styles.modalTitleEmphasized}>
+                  {editingLesson ? t('edit_lesson') || 'Modifiko Orën' : t('register_lesson')}
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {formatClassName(currentClass || editingLesson?.class_id)}
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => setIsLessonModalVisible(false)} style={styles.closeModalBtn}>
+              <TouchableOpacity onPress={() => {
+                setIsLessonModalVisible(false);
+                setEditingLesson(null);
+                setLessonTopic('');
+                setLessonHomework('');
+              }} style={styles.closeModalBtn}>
                 <X size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
@@ -1538,7 +1578,7 @@ const TeacherDashboard = ({
                       <TouchableOpacity
                         key={hour}
                         style={[
-                          styles.gradeButton, { flex: 1 }, 
+                          styles.gradeButton, { flex: 1 },
                           lessonHour === hour && styles.activeGradeButton,
                           isOccupied && { backgroundColor: '#f1f5f9', opacity: 0.5 }
                         ]}
@@ -1546,7 +1586,7 @@ const TeacherDashboard = ({
                         onPress={() => setLessonHour(hour)}
                       >
                         <Text style={[
-                          styles.gradeButtonText, 
+                          styles.gradeButtonText,
                           lessonHour === hour && styles.activeGradeButtonText,
                           isOccupied && { color: '#94a3b8' }
                         ]}>{hour}</Text>
@@ -1750,7 +1790,7 @@ const TeacherDashboard = ({
                       <TouchableOpacity
                         key={hour}
                         style={[
-                          styles.gradeButton, { flex: 1 }, 
+                          styles.gradeButton, { flex: 1 },
                           lessonHour === hour && styles.activeGradeButton,
                           isBlocked && { backgroundColor: '#f1f5f9', opacity: 0.5 }
                         ]}
@@ -1758,7 +1798,7 @@ const TeacherDashboard = ({
                         onPress={() => setLessonHour(hour)}
                       >
                         <Text style={[
-                          styles.gradeButtonText, 
+                          styles.gradeButtonText,
                           lessonHour === hour && styles.activeGradeButtonText,
                           isBlocked && { color: '#94a3b8' }
                         ]}>{hour}</Text>
@@ -1792,7 +1832,7 @@ const TeacherDashboard = ({
                     // Check if hour changed to migrate attendance
                     const topicParts = editLessonData.topic?.match(/^\[Ora (\d+)\]/);
                     const originalHour = topicParts ? topicParts[1] : null;
-                    
+
                     if (originalHour && lessonHour !== originalHour) {
                       await onUpdateAttendanceHour(
                         editLessonData.class_id || editLessonData.classId,
@@ -1805,7 +1845,7 @@ const TeacherDashboard = ({
                     const result = await onUpdateLesson(editLessonData.id, {
                       topic: `[Ora ${lessonHour}] ${lessonTopic}`
                     });
-                    
+
                     setIsUpdating(false);
 
                     if (result?.error) {
@@ -1871,7 +1911,7 @@ const TeacherDashboard = ({
   );
 
   const renderStudentSelection = (currentClass) => {
-    const classStudents = students.filter(s => s.classId === currentClass.id)
+    const classStudents = getDynamicClassStudents(currentClass.id)
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     const dateStr = formatDate(selectedDate);
@@ -1889,7 +1929,11 @@ const TeacherDashboard = ({
         a.date === dateStr &&
         parseInt(a.hour) === parseInt(hour)
       );
-      if (!record) return 'none';
+      if (!record) {
+        // PER POLICY: Hour 0 (Daily Summary) defaults to 'absent' for Today
+        if (parseInt(hour) === 0 && isToday) return 'absent';
+        return 'none';
+      }
       return record.status?.split(':')[0];
     };
 
@@ -1943,13 +1987,13 @@ const TeacherDashboard = ({
               {(() => {
                 const dateStrSelected = formatDate(selectedDate);
                 const holidayEvent = (schoolCalendar || []).find(e => e.school_id === user.school_id && e.date === dateStrSelected && e.type === 'holiday');
-                
+
                 return (
-                  <TouchableOpacity 
-                    style={{ 
-                      backgroundColor: holidayEvent ? '#ef4444' : '#f1f5f9', 
-                      borderRadius: 20, 
-                      paddingHorizontal: 14, 
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: holidayEvent ? '#ef4444' : '#f1f5f9',
+                      borderRadius: 20,
+                      paddingHorizontal: 14,
                       paddingVertical: 4,
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -2059,10 +2103,48 @@ const TeacherDashboard = ({
                 </View>
                 {showHourlyAttendance && allHours.map((hour) => {
                   const hasLesson = getLessonForHour(hour);
+                  const isMine = hasLesson && hasLesson.teacher_id === user.id;
+
                   return (
-                    <View key={hour} style={{ width: 68, alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRightWidth: 1, borderRightColor: '#f1f5f9', backgroundColor: hasLesson ? '#fff' : '#f8fafc' }}>
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: hasLesson ? '#2563eb' : '#94a3b8' }}>ORA</Text>
-                      <Text style={{ fontSize: 18, fontWeight: '900', color: hasLesson ? '#1e293b' : '#cbd5e1' }}>{hour}</Text>
+                    <View key={hour} style={{ width: 68, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRightWidth: 1, borderRightColor: '#f1f5f9', backgroundColor: hasLesson ? '#fff' : '#f8fafc' }}>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: hasLesson ? '#2563eb' : '#94a3b8', marginBottom: 2 }}>ORA</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '900', color: hasLesson ? '#1e293b' : '#cbd5e1' }}>{hour}</Text>
+                      
+                      {isMine && (
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                          <TouchableOpacity 
+                            style={{ padding: 4, borderRadius: 6, backgroundColor: '#f0f7ff' }}
+                            onPress={() => {
+                              const cleanTopic = hasLesson.topic?.replace(/\[Ora \d+\]/, '').trim();
+                              setEditingLesson(hasLesson);
+                              setLessonHour(hour.toString());
+                              setSelectedSubject(hasLesson.subject);
+                              setLessonTopic(cleanTopic);
+                              // Find if there's homework for this lesson/date
+                              const hw = homework.find(h => h.class_id === hasLesson.class_id && h.due_date === hasLesson.date && h.subject === hasLesson.subject);
+                              setLessonHomework(hw?.description || '');
+                              setIsLessonModalVisible(true);
+                            }}
+                          >
+                            <Pencil size={12} color="#2563eb" />
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={{ padding: 4, borderRadius: 6, backgroundColor: '#fff1f2' }}
+                            onPress={() => {
+                              Alert.alert(
+                                t('delete_lesson') || 'Fshi Orën',
+                                t('confirm_delete_lesson') || 'A jeni të sigurt që dëshironi të fshini këtë orë? Kjo do të fshijë edhe të dhënat e prezencës për këtë orë.',
+                                [
+                                  { text: t('cancel'), style: 'cancel' },
+                                  { text: t('delete'), style: 'destructive', onPress: () => onDeleteLesson(hasLesson.id, hasLesson.date, hasLesson.class_id, parseInt(hour)) }
+                                ]
+                              );
+                            }}
+                          >
+                            <Trash2 size={12} color="#ef4444" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
                   );
                 })}
@@ -2093,10 +2175,10 @@ const TeacherDashboard = ({
                       <View
                         style={{ width: 130, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#e2e8f0' }}
                       >
-                        <View style={{ 
+                        <View style={{
                           width: '88%',
                           height: 44,
-                          borderRadius: 22, 
+                          borderRadius: 22,
                           backgroundColor: dailyStatus === 'present' ? '#dcfce7' : (dailyStatus.startsWith('absent') ? '#fee2e2' : (dailyStatus !== 'none' ? '#fef3c7' : '#f1f5f9')),
                           borderWidth: 2,
                           borderColor: dailyStatus === 'present' ? '#22c55e' : (dailyStatus.startsWith('absent') ? '#ef4444' : (dailyStatus !== 'none' ? '#f59e0b' : '#e2e8f0')),
@@ -2270,10 +2352,10 @@ const TeacherDashboard = ({
           contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 120 }}
           columnWrapperStyle={{ justifyContent: 'space-between' }}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2563eb']}
               tintColor="#2563eb"
               progressViewOffset={50}
             />
@@ -2507,10 +2589,10 @@ const TeacherDashboard = ({
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2563eb']}
               tintColor="#2563eb"
               progressViewOffset={50}
             />
@@ -2655,36 +2737,36 @@ const TeacherDashboard = ({
             const hourText = topicParts ? `Ora ${topicParts[1]}` : `Ora ${idx + 1}`;
             const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
 
-                // Find matching homework from the separate homework table
-                const lessonHomeworkObj = (homework || []).find(hw => 
-                  hw.class_id === lesson.class_id && 
-                  hw.subject === lesson.subject && 
-                  hw.due_date === lesson.date
-                );
-                const currentLessonHomework = lessonHomeworkObj?.description;
+            // Find matching homework from the separate homework table
+            const lessonHomeworkObj = (homework || []).find(hw =>
+              hw.class_id === lesson.class_id &&
+              hw.subject === lesson.subject &&
+              hw.due_date === lesson.date
+            );
+            const currentLessonHomework = lessonHomeworkObj?.description;
 
-                return (
-                  <View key={lesson.id} style={styles.nuvolaLessonCard}>
-                    <View style={[styles.lessonColorBar, { backgroundColor: lesson.is_test ? '#ef4444' : '#2563eb' }]} />
-                    <View style={styles.premiumHourContainer}>
-                      <Text style={styles.premiumHourNumber}>{topicParts ? topicParts[1] : idx + 1}</Text>
-                      <Text style={styles.premiumHourLabel}>{t('hour')}</Text>
+            return (
+              <View key={lesson.id} style={styles.nuvolaLessonCard}>
+                <View style={[styles.lessonColorBar, { backgroundColor: lesson.is_test ? '#ef4444' : '#2563eb' }]} />
+                <View style={styles.premiumHourContainer}>
+                  <Text style={styles.premiumHourNumber}>{topicParts ? topicParts[1] : idx + 1}</Text>
+                  <Text style={styles.premiumHourLabel}>{t('hour')}</Text>
+                </View>
+                <View style={styles.lessonContent}>
+                  <Text style={styles.professorName}>
+                    {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.first_name || user.first_name} {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.last_name || user.last_name}
+                  </Text>
+                  <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
+                  <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
+                  {currentLessonHomework && (
+                    <View style={styles.homeworkContainer}>
+                      <Clock size={12} color="#64748b" />
+                      <Text style={styles.homeworkText}>{currentLessonHomework}</Text>
                     </View>
-                    <View style={styles.lessonContent}>
-                      <Text style={styles.professorName}>
-                        {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.first_name || user.first_name} {user.teacherProfiles?.find(p => p.id === lesson.teacher_id)?.last_name || user.last_name}
-                      </Text>
-                      <Text style={styles.lessonSubjectEmphasized}>{lesson.subject}</Text>
-                      <Text style={styles.lessonTopicValue}>{cleanTopic}</Text>
-                      {currentLessonHomework && (
-                        <View style={styles.homeworkContainer}>
-                          <Clock size={12} color="#64748b" />
-                          <Text style={styles.homeworkText}>{currentLessonHomework}</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                );
+                  )}
+                </View>
+              </View>
+            );
           }) : (
             <View style={styles.emptyStateContainer}>
               <BookIcon size={40} color="#e2e8f0" />
@@ -2698,7 +2780,7 @@ const TeacherDashboard = ({
 
   const renderClassAgenda = (currentClass) => {
     const selectedDateStr = formatDate(selectedDate);
-     const dayLessons = lessons
+    const dayLessons = lessons
       .filter(l => (l.class_id === currentClass?.id || l.classId === currentClass?.id) && l.date === selectedDateStr)
       .sort((a, b) => {
         const aHour = parseInt(a.topic?.match(/^\[Ora (\d+)\]/)?.[1] || 0);
@@ -2725,18 +2807,18 @@ const TeacherDashboard = ({
           {dayLessons.length > 0 && (
             <View style={{ marginBottom: 20 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-                 <BookIcon size={18} color="#2563eb" />
-                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('lessons') || 'Mësimi'}</Text>
+                <BookIcon size={18} color="#2563eb" />
+                <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('lessons') || 'Mësimi'}</Text>
               </View>
               {dayLessons.map((lesson, idx) => {
                 const topicParts = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
                 const hourNum = topicParts ? topicParts[1] : null;
                 const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
-                
+
                 // Find matching homework from the homework table
-                const lessonHomeworkObj = (homework || []).find(hw => 
-                  hw.class_id === lesson.class_id && 
-                  hw.subject === lesson.subject && 
+                const lessonHomeworkObj = (homework || []).find(hw =>
+                  hw.class_id === lesson.class_id &&
+                  hw.subject === lesson.subject &&
                   hw.due_date === lesson.date
                 );
                 const lessonHomework = lessonHomeworkObj?.description;
@@ -2771,7 +2853,7 @@ const TeacherDashboard = ({
                           </View>
                           {isMyLesson && (
                             <View style={{ flexDirection: 'row', gap: 8 }}>
-                              <TouchableOpacity 
+                              <TouchableOpacity
                                 onPress={() => {
                                   setEditLessonData(lesson);
                                   setLessonTopic(cleanTopic);
@@ -2785,7 +2867,7 @@ const TeacherDashboard = ({
                                 <Pencil size={16} color="#2563eb" />
                               </TouchableOpacity>
 
-                              <TouchableOpacity 
+                              <TouchableOpacity
                                 onPress={() => {
                                   confirmDelete(
                                     t('confirm_delete_lesson_msg') || 'Dëshironi ta fshini këtë orë mësimore?',
@@ -2835,8 +2917,8 @@ const TeacherDashboard = ({
           {dateTests.length > 0 && (
             <View style={{ marginTop: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
-                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase' }}>{t('test_exam') || 'Verifica / Provim'}</Text>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
+                <Text style={{ fontSize: 16, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase' }}>{t('test_exam') || 'Verifica / Provim'}</Text>
               </View>
               {dateTests.map((test, idx) => {
                 const teacher = user.teacherProfiles?.find(p => p.id === test.teacher_id) || (test.teacher_id === user.id ? user : { first_name: 'Mësues', last_name: '' });
@@ -2858,24 +2940,24 @@ const TeacherDashboard = ({
                     elevation: 4,
                   }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                        <View style={{ flex: 1 }}>
-                           <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
-                           <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
-                              {teacher.first_name} {teacher.last_name}
-                           </Text>
-                        </View>
-                        {isMyTest && (
-                          <TouchableOpacity 
-                            onPress={() => {
-                              confirmDelete(t('confirm_delete_test') || 'Dëshironi ta fshini këtë test?', async () => {
-                                await onDeleteTest(test.id);
-                              });
-                            }}
-                            style={{ padding: 6, backgroundColor: '#fff1f2', borderRadius: 8 }}
-                          >
-                            <Trash2 size={16} color="#ef4444" />
-                          </TouchableOpacity>
-                        )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
+                          {teacher.first_name} {teacher.last_name}
+                        </Text>
+                      </View>
+                      {isMyTest && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            confirmDelete(t('confirm_delete_test') || 'Dëshironi ta fshini këtë test?', async () => {
+                              await onDeleteTest(test.id);
+                            });
+                          }}
+                          style={{ padding: 6, backgroundColor: '#fff1f2', borderRadius: 8 }}
+                        >
+                          <Trash2 size={16} color="#ef4444" />
+                        </TouchableOpacity>
+                      )}
                     </View>
                     <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
                     <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
@@ -2918,10 +3000,10 @@ const TeacherDashboard = ({
           data={visibleNotices}
           keyExtractor={item => item.id}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2563eb']}
               tintColor="#2563eb"
               progressViewOffset={50}
             />
@@ -3018,6 +3100,9 @@ const TeacherDashboard = ({
             onLogout={onLogout}
             onChangePassword={() => setIsPasswordModalVisible(true)}
             onHelp={() => Linking.openURL('mailto:info@ditari-elektronik.com')}
+            availableAcademicYears={availableAcademicYears}
+            selectedGlobalAcademicYear={selectedGlobalAcademicYear}
+            changeAcademicYear={onChangeAcademicYear}
           />
         </View>
         {(activeView === 'home' && (navigation.view === 'class-agenda' || navigation.view === 'class-detail')) && (
@@ -4214,6 +4299,76 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: 'white',
   },
+  // Agenda / Home Overhaul Styles
+  agendaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  agendaHourBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  agendaHourText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#2563eb',
+  },
+  agendaClassText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#1e293b',
+    marginBottom: 2,
+  },
+  agendaSubjectText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  agendaTopicText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  agendaIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumCardAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+  }
 });
 
 

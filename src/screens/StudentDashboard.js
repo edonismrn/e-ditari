@@ -58,13 +58,26 @@ const getGradeColor = (val) => {
 // StudentDashboard component starts here
 const StudentDashboard = ({ 
   user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads, 
-  onMarkNoticeRead, onRefresh, currentTerm, schoolCalendar, onInitializeAttendance 
+  onMarkNoticeRead, onRefresh, currentTerm, schoolCalendar, onInitializeAttendance,
+  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
   const [activeTab, setActiveTab] = React.useState('overview');
   const [selectedDate, setSelectedDate] = React.useState(new Date());
+
+  // Jump calendar to the start of the selected academic year so the student sees that year's agenda
+  React.useEffect(() => {
+    if (selectedGlobalAcademicYear) {
+      const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
+      if (!isNaN(startYear)) {
+        setSelectedDate(new Date(startYear, 8, 1)); // September 1st
+      }
+    } else {
+      setSelectedDate(new Date());
+    }
+  }, [selectedGlobalAcademicYear]);
 
   const [isPasswordModalVisible, setIsPasswordModalVisible] = React.useState(false);
 
@@ -94,6 +107,8 @@ const StudentDashboard = ({
   const [selectedSubject, setSelectedSubject] = React.useState(null);
   const [selectedNotice, setSelectedNotice] = React.useState(null);
   const [refreshing, setRefreshing] = React.useState(false);
+
+  // Global Academic Year context applied to all props by DatabaseContext
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -162,8 +177,11 @@ const StudentDashboard = ({
     const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
     
     // 1. Check school year boundaries
-    if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
-    if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
+    // Skip this check when viewing a past academic year — the boundaries belong to the CURRENT year
+    if (!selectedGlobalAcademicYear) {
+      if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
+      if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
+    }
 
     // 2. Check explicit calendar overrides
     // Prioritize class-specific holidays, then school-wide
@@ -211,7 +229,19 @@ const StudentDashboard = ({
     return (month >= 9 || month === 1) ? 1 : 2;
   };
 
-  const userGrades = grades.filter(g => g.student_id === user.id && g.grade > 0);
+  // 1. Filter all data (academic year filtering is already applied globally)
+  const userGrades = grades.filter(g => 
+    g.student_id === user.id && 
+    g.grade > 0
+  );
+
+  const userAttendance = attendance.filter(a => 
+    a.student_id === user.id && 
+    parseInt(a.hour || 0) === 0
+  );
+
+  const studentClass = classes.find(c => c.id === user.classId);
+
   const filteredGrades = gradeSemester === 0
     ? userGrades
     : userGrades.filter(g => getDynamicSemester(g.date, g.term) === gradeSemester);
@@ -219,8 +249,6 @@ const StudentDashboard = ({
   const averageGrade = userGrades.length > 0 
     ? (userGrades.reduce((acc, curr) => acc + curr.grade, 0) / userGrades.length).toFixed(1)
     : '-';
-
-  const studentClass = classes.find(c => c.id === user.classId);
 
   // Subject averages (for the selected semester filter)
   const subjectAverages = React.useMemo(() => {
@@ -240,7 +268,6 @@ const StudentDashboard = ({
     })).sort((a, b) => b.average - a.average);
   }, [filteredGrades]);
 
-  const userAttendance = attendance.filter(a => a.student_id === user.id && parseInt(a.hour || 0) === 0);
   const totalAbsences = userAttendance.filter(a => a.status.startsWith('absent')).length;
   const unjustifiedCount = userAttendance.filter(a => a.status === 'absent:unjustified').length;
   const latesCount = userAttendance.filter(a => a.status.startsWith('late')).length;
@@ -266,10 +293,12 @@ const StudentDashboard = ({
     ? notes.filter(n => n.is_class_note && !n.student_id)
     : lessons.filter(l => l.class_id === user.classId && l.topic?.includes('[CLASS_NOTE]'));
 
-  const userNotes = [...(personalNotes || []), ...(classNotes || [])].sort((a,b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
+  const userNotes = [...(personalNotes || []), ...(classNotes || [])]
+    .sort((a,b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
 
   const todayLessons = lessons.filter(l => 
-    l.class_id === user.classId && l.date === formatDateString(selectedDate)
+    l.class_id === user.classId && 
+    l.date === formatDateString(selectedDate)
   ).filter(l => !l.topic?.includes('[NOTE]') && !l.topic?.includes('[CLASS_NOTE]'));
   
   const selectedDateGrades = userGrades.filter(g => g.date === formatDateString(selectedDate));
@@ -1062,6 +1091,21 @@ const StudentDashboard = ({
             </View>
             <View>
               <Text style={styles.headerTitle}>Ditari Elektronik</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {studentClass ? (
+                  <Text style={styles.headerSubtitle}>{formatClassName(studentClass)}</Text>
+                ) : (
+                  <View style={{ backgroundColor: '#fdf2f8', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, borderWidth: 1, borderColor: '#fbcfe8' }}>
+                    <Text style={[styles.headerSubtitle, { color: '#db2777', fontSize: 10, fontWeight: '900' }]}>ALUMNI / GRADUATED</Text>
+                  </View>
+                )}
+                {selectedGlobalAcademicYear && (
+                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />
+                )}
+                {selectedGlobalAcademicYear && (
+                  <Text style={[styles.headerSubtitle, { color: '#f43f5e', fontWeight: '800' }]}>{selectedGlobalAcademicYear}</Text>
+                )}
+              </View>
             </View>
           </View>
           <ProfileDropdown
@@ -1070,8 +1114,12 @@ const StudentDashboard = ({
             onLogout={onLogout}
             onChangePassword={() => setIsPasswordModalVisible(true)}
             onHelp={() => Linking.openURL('mailto:info@ditari-elektronik.com')}
+            availableAcademicYears={availableAcademicYears}
+            selectedGlobalAcademicYear={selectedGlobalAcademicYear}
+            changeAcademicYear={onChangeAcademicYear}
           />
         </View>
+
         {activeTab === 'overview' && (
           <CalendarStrip selectedDate={selectedDate} onDateSelect={setSelectedDate} />
         )}

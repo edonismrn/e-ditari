@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
+import { AppState } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
@@ -10,7 +11,7 @@ export const AuthProvider = ({ children }) => {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   useEffect(() => {
-    // Check active session
+    // Check active session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) {
@@ -20,25 +21,45 @@ export const AuthProvider = ({ children }) => {
       }
     });
 
-    // Listen for auth changes
+    // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+
       if (event === 'PASSWORD_RECOVERY') {
         setIsPasswordRecovery(true);
       } else if (event === 'SIGNED_OUT') {
         setIsPasswordRecovery(false);
+        setUser(null);
+        setLoading(false);
+        return;
+      } else if (event === 'TOKEN_REFRESHED') {
+        // Token was refreshed successfully — nothing extra needed
       }
-      
+
       if (session?.user) {
         fetchUserProfile(session.user.id);
       } else {
+        // No session (could be expired refresh token on iOS)
         setUser(null);
         setLoading(false);
       }
     });
 
+    // On iOS the app can be backgrounded for a long time and the token expires.
+    // When the app comes back to the foreground, force a session refresh so Supabase
+    // can detect the invalid token early and emit SIGNED_OUT instead of crashing later.
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        supabase.auth.getSession().catch(() => {
+          // If getSession fails due to invalid refresh token, sign out cleanly
+          supabase.auth.signOut();
+        });
+      }
+    });
+
     return () => {
       authListener.subscription.unsubscribe();
+      appStateSubscription.remove();
     };
   }, []);
 
@@ -67,7 +88,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Check if the school is active
-      const isSuperAdmin = profile.email === 'admin@ditari-elektronik.com';
+      const isSuperAdmin = (profile.role === 'admin' && !profile.school_id) || profile.is_super_admin === true || profile.email?.toLowerCase().trim() === 'admin@ditari-elektronik.com';
       if (!isSuperAdmin && profile.schools && profile.schools.is_active === false) {
         await supabase.auth.signOut();
         throw new Error("Shkolla juaj momentalisht është e çaktivizuar. Ju lutem kontaktoni administratorin suprem.");
@@ -85,7 +106,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-鼓  };
+  };
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });

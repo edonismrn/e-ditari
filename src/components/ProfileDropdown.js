@@ -9,10 +9,54 @@ import {
   Platform,
   Linking
 } from 'react-native';
-import { User, LogOut, Lock, HelpCircle, ChevronDown, Mail } from 'lucide-react-native';
+import { User, LogOut, Lock, HelpCircle, ChevronDown, Mail, Calendar, Check, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react-native';
 
-const ProfileDropdown = ({ user, t, onLogout, onChangePassword, onHelp }) => {
+const ProfileDropdown = ({ 
+  user, t, onLogout, onChangePassword, onHelp,
+  availableAcademicYears = [],
+  selectedGlobalAcademicYear = null,
+  changeAcademicYear
+}) => {
   const [isVisible, setIsVisible] = useState(false);
+
+  const getRealCurrentAcademicYear = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1;
+    if (month >= 8) {
+      return `${year}/${year + 1}`;
+    } else {
+      return `${year - 1}/${year}`;
+    }
+  };
+
+  const incrementYear = (academicYear, direction) => {
+    if (!academicYear) return null;
+    const parts = academicYear.split('/');
+    if (parts.length === 2) {
+      const start = parseInt(parts[0]) + direction;
+      const end = parseInt(parts[1]) + direction;
+      return `${start}/${end}`;
+    }
+    return null;
+  };
+
+  const actualCurrentYear = getRealCurrentAcademicYear();
+  const activeYearString = selectedGlobalAcademicYear || actualCurrentYear;
+
+  // All years ordered oldest-first
+  // availableAcademicYears comes sorted newest-first from context
+  const allYears = [...(availableAcademicYears || [])].sort();
+
+  // nextYear: the year after the current active one (only if it's in the list, or it IS the actual current year)
+  const computedNextYear = incrementYear(activeYearString, 1);
+  const nextYear = selectedGlobalAcademicYear !== null
+    ? (allYears.includes(computedNextYear) || computedNextYear === actualCurrentYear ? computedNextYear : null)
+    : null;
+
+  // previousYear: the year before the active one (only if it's in our availableAcademicYears list)
+  const computedPrevYear = incrementYear(activeYearString, -1);
+  const previousYear = allYears.includes(computedPrevYear) ? computedPrevYear : null;
 
   const toggleDropdown = () => setIsVisible(!isVisible);
   const closeDropdown = () => setIsVisible(false);
@@ -81,6 +125,65 @@ const ProfileDropdown = ({ user, t, onLogout, onChangePassword, onHelp }) => {
                   <Text style={styles.menuItemText}>{t('change_password')}</Text>
                 </TouchableOpacity>
               )}
+
+              {changeAcademicYear && (
+                <>
+                  <View style={styles.divider} />
+                  <Text style={{ paddingHorizontal: 28, paddingTop: 6, paddingBottom: 4, fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {t('academic_year_label') || "Vitet Shkollore"}
+                  </Text>
+                  
+                  <TouchableOpacity 
+                    style={[styles.menuItem, { paddingVertical: 10 }]} 
+                    onPress={() => handleAction(() => changeAcademicYear(null))}
+                  >
+                    <RotateCcw size={16} color={selectedGlobalAcademicYear === null ? "#2563eb" : "#94a3b8"} />
+                    <Text style={[styles.menuItemText, { fontSize: 13, color: selectedGlobalAcademicYear === null ? "#2563eb" : "#475569" }]}>
+                      Viti Aktual ({actualCurrentYear})
+                    </Text>
+                    {selectedGlobalAcademicYear === null && <Check size={14} color="#2563eb" style={{marginLeft: 'auto'}} />}
+                  </TouchableOpacity>
+
+                  {selectedGlobalAcademicYear !== null && nextYear !== actualCurrentYear && (
+                    <TouchableOpacity 
+                      style={[styles.menuItem, { paddingVertical: 10 }]} 
+                      onPress={() => handleAction(() => changeAcademicYear(nextYear))}
+                    >
+                      <ChevronRight size={16} color="#94a3b8" />
+                      <Text style={[styles.menuItemText, { fontSize: 13, color: "#475569" }]}>
+                        Kalo në {nextYear} 
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {selectedGlobalAcademicYear !== null && (
+                    <TouchableOpacity 
+                      style={[styles.menuItem, { paddingVertical: 10, backgroundColor: '#f8fafc' }]} 
+                      disabled={true}
+                    >
+                      <Calendar size={16} color="#2563eb" />
+                      <Text style={[styles.menuItemText, { fontSize: 13, color: "#2563eb", fontWeight: '700' }]}>
+                        Duke parë {selectedGlobalAcademicYear}
+                      </Text>
+                      <Check size={14} color="#2563eb" style={{marginLeft: 'auto'}} />
+                    </TouchableOpacity>
+                  )}
+
+                  {previousYear && (
+                    <TouchableOpacity 
+                      style={[styles.menuItem, { paddingVertical: 10 }]} 
+                      onPress={() => handleAction(() => changeAcademicYear(previousYear))}
+                    >
+                      <ChevronLeft size={16} color="#94a3b8" />
+                      <Text style={[styles.menuItemText, { fontSize: 13, color: "#475569" }]}>
+                        Kalo në vitin e kaluar {previousYear}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+
+              <View style={styles.divider} />
 
               <TouchableOpacity 
                 style={styles.menuItem} 
