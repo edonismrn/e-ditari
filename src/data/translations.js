@@ -609,6 +609,12 @@ export const translations = {
     passwords_dont_match: "Fjalëkalimet nuk përputhen",
     password_updated_success: "Fjalëkalimi u ndryshua me sukses!",
     absence_of_day: "Mungesë ditore",
+    registration_disabled_holiday: "Regjistrimet janë të mbyllura për festa/fundjavë",
+    holiday_registration_blocked: "Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.",
+    click_student_for_actions: "Klikoni mbi emrin e nxënësit për veprime",
+    add_lesson: "Shto Orën",
+    register_test: "Regjistro Provim / Test",
+    holiday_registration_blocked_title: "Pushim",
 
     // Time Modal Translations
     time_modal_late_title: "⏰ Vonesë",

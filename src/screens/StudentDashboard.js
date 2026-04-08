@@ -664,6 +664,11 @@ const StudentDashboard = ({
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>{hw.subject}</Text>
                       <Text style={{ fontSize: 15, color: '#0c4a6e', fontWeight: '600' }}>{hw.description}</Text>
+                      {hw.profiles && (
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#60a5fa', marginTop: 4 }}>
+                          {t('issued_by') || 'Lëshuar nga'}: {hw.profiles.first_name} {hw.profiles.last_name}
+                        </Text>
+                      )}
                     </View>
                   </View>
                 ))}
@@ -908,6 +913,11 @@ const StudentDashboard = ({
                           {gradeNotes}
                         </Text>
                       ) : null}
+                      {item.profiles && (
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginTop: 4 }}>
+                          {t('issued_by') || 'Lëshuar nga'}: {item.profiles.first_name} {item.profiles.last_name}
+                        </Text>
+                      )}
                     </View>
                   </View>
                 </View>
@@ -1092,12 +1102,8 @@ const StudentDashboard = ({
             <View>
               <Text style={styles.headerTitle}>Ditari Elektronik</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {studentClass ? (
+                {studentClass && (
                   <Text style={styles.headerSubtitle}>{formatClassName(studentClass)}</Text>
-                ) : (
-                  <View style={{ backgroundColor: '#fdf2f8', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, borderWidth: 1, borderColor: '#fbcfe8' }}>
-                    <Text style={[styles.headerSubtitle, { color: '#db2777', fontSize: 10, fontWeight: '900' }]}>ALUMNI / GRADUATED</Text>
-                  </View>
                 )}
                 {selectedGlobalAcademicYear && (
                   <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />

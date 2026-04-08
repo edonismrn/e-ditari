@@ -44,6 +44,7 @@ import {
   ArrowUpCircle,
   Check,
   Users,
+  PlusCircle,
   Globe,
   Activity,
   FlaskConical,
@@ -275,6 +276,19 @@ const TeacherDashboard = ({
     return { isWork: true };
   };
 
+  const getTermForDate = (dateStr, dbTerm) => {
+    if (dbTerm) return Number(dbTerm);
+    const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
+    if (school?.term_two_start_date && dateStr) {
+      const entryDateStr = dateStr.split('T')[0].split(' ')[0];
+      const boundaryDateStr = school.term_two_start_date.split('T')[0].split(' ')[0];
+      return (entryDateStr >= boundaryDateStr) ? 2 : 1;
+    }
+    if (!dateStr) return 1;
+    const month = parseInt(dateStr.split('-')[1]);
+    return (month >= 9 || month === 1) ? 1 : 2;
+  };
+
   const reformatDate = (isoDate) => {
     if (!isoDate) return '';
     const [y, m, d] = isoDate.split('-');
@@ -282,6 +296,7 @@ const TeacherDashboard = ({
   };
 
   // Registration Form State
+  const [gradeSemester, setGradeSemester] = useState(0); // 0: All, 1: Term 1, 2: Term 2
   const [lessonTopic, setLessonTopic] = useState('');
   const [lessonHomework, setLessonHomework] = useState('');
   const [lessonHour, setLessonHour] = useState('1');
@@ -358,7 +373,7 @@ const TeacherDashboard = ({
     const statuses = {};
     // 'none' = not yet recorded. An unrecorded hour is NOT the same as absent.
     for (let i = 1; i <= 7; i++) statuses[i] = 'none';
-    
+
     existingRecords.forEach(r => {
       const baseStatus = r.status?.split(':')[0];
       statuses[r.hour] = baseStatus;
@@ -372,7 +387,7 @@ const TeacherDashboard = ({
     const presentHours = hourKeys.filter(h => statuses[h] === 'present');
 
     if (presentHours.length === 0) return 'absent';
-    
+
     const firstPresent = Math.min(...presentHours);
     const lastPresent = Math.max(...presentHours);
 
@@ -394,10 +409,11 @@ const TeacherDashboard = ({
     if (navigation.view === 'class-detail' && navigation.data?.id) {
       const todayStr = new Date().toISOString().split('T')[0];
       const selectedDateStr = formatDate(selectedDate);
+      const dayStatus = isSchoolDay(selectedDate);
 
-      // Only auto-initialize for today's date
-      if (selectedDateStr === todayStr) {
-        onInitializeAttendance(navigation.data.id, selectedDateStr); // Re-enabled: default to 'absent' per new policy
+      // Only auto-initialize for today's date AND only if it is a school day (not a holiday/weekend)
+      if (selectedDateStr === todayStr && dayStatus.isWork) {
+        onInitializeAttendance(navigation.data.id, selectedDateStr);
       }
     }
   }, [navigation, selectedDate]);
@@ -493,38 +509,6 @@ const TeacherDashboard = ({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
       >
-        {/* School Calendar Status (Holiday/Weekend) */}
-        {(() => {
-          const dayStatus = isSchoolDay(selectedDate);
-          if (dayStatus.isWork) return null;
-
-          return (
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              padding: 20,
-              backgroundColor: 'white',
-              borderRadius: 24,
-              borderWidth: 1.5,
-              borderColor: '#e2e8f0',
-              borderStyle: 'dashed',
-              marginBottom: 24,
-              gap: 16
-            }}>
-              <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                <Calendar size={24} color="#64748b" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 18, fontWeight: '900', color: '#475569', textTransform: 'uppercase' }}>
-                  {t('holiday') || 'Pushim'}
-                </Text>
-                <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
-                  {dayStatus.reason}
-                </Text>
-              </View>
-            </View>
-          );
-        })()}
         {/* Stats Grid */}
         <View style={{ flexDirection: 'row', gap: 16, marginBottom: 24 }}>
           <View style={{ flex: 1, backgroundColor: 'white', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 4 }}>
@@ -570,16 +554,20 @@ const TeacherDashboard = ({
     // Filter grades by selected subject and current class students
     const subjectGrades = grades.filter(g =>
       g.subject === selectedSubject &&
-      (studentIds.includes(g.student_id) || studentIds.includes(g.studentId))
+      (studentIds.includes(g.student_id) || studentIds.includes(g.studentId)) &&
+      (gradeSemester === 0 || getTermForDate(g.date, g.term) === gradeSemester)
     );
 
-    // Get unique dates
-    const uniqueDates = Array.from(new Set(subjectGrades.map(g => g.date))).sort((a, b) => new Date(a) - new Date(b));
 
     return (
       <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'my-classes', data: null })}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => {
+            setNavigation({ view: 'my-classes', data: null });
+            setSelectedRegistryStudent(null);
+            setSelectedActionStudent(null);
+            setSelectedStudentForGrade(null);
+          }}>
             <ArrowLeft size={18} color="#1e293b" />
           </TouchableOpacity>
           <View style={{ marginLeft: 16 }}>
@@ -588,7 +576,7 @@ const TeacherDashboard = ({
           </View>
         </View>
 
-        <View style={{ padding: 20 }}>
+        <View style={{ padding: 20, paddingBottom: 10 }}>
           <Text style={[styles.label, { marginBottom: 12 }]}>{t('lesson_subject') || 'Lënda'}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
             {getAvailableSubjects(currentClass).map(subject => (
@@ -603,64 +591,84 @@ const TeacherDashboard = ({
           </ScrollView>
         </View>
 
+        <View style={styles.semesterSelector}>
+          {[
+            { id: 0, label: t('all') || 'Të Gjitha' },
+            { id: 1, label: t('first_semester') || 'Gjysemvjetori 1' },
+            { id: 2, label: t('second_semester') || 'Gjysemvjetori 2' },
+          ].map(sem => (
+            <TouchableOpacity
+              key={sem.id}
+              style={[styles.semesterChip, gradeSemester === sem.id && styles.activeSemesterChip]}
+              onPress={() => setGradeSemester(sem.id)}
+            >
+              <Text style={[styles.semesterChipText, gradeSemester === sem.id && styles.activeSemesterChipText]}>
+                {sem.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {selectedSubject ? (
           <View style={{ flex: 1 }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={{ minWidth: '100%' }}>
-              <View style={{ flex: 1 }}>
-                {/* Header Row */}
-                <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' }}>
-                  <View style={{ width: 260, padding: 12, justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#e2e8f0' }}>
-                    <Text style={{ fontWeight: '800', color: '#475569', fontSize: 12, textTransform: 'uppercase' }}>{t('student') || 'Nxënësi'}</Text>
-                  </View>
-                  {uniqueDates.map(dateStr => (
-                    <View key={dateStr} style={{ width: 70, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRightWidth: 1, borderRightColor: '#e2e8f0', backgroundColor: '#fff' }}>
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>{new Date(dateStr).toLocaleDateString('sq-AL', { month: 'short' })}</Text>
-                      <Text style={{ fontSize: 16, fontWeight: '900', color: '#1e293b' }}>{new Date(dateStr).getDate()}</Text>
-                    </View>
-                  ))}
-                </View>
+            {/* Wrapped Data Rows */}
+            <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
+              {classStudents.map((student, idx) => {
+                const studentGrades = subjectGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
+                const avg = studentGrades.length > 0
+                  ? (studentGrades.reduce((acc, curr) => acc + curr.grade, 0) / studentGrades.length).toFixed(1)
+                  : '0.0';
 
-                {/* Data Rows */}
-                <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
-                  {classStudents.map((student, idx) => {
-                    const studentGrades = subjectGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
-                    return (
-                      <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
-                        <View style={{ width: 260, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderRightWidth: 1, borderRightColor: '#e2e8f0' }}>
-                          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: studentGrades.length === 0 ? '#fee2e2' : '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ fontSize: 11, fontWeight: '900', color: studentGrades.length === 0 ? '#ef4444' : '#64748b' }}>{studentGrades.length}</Text>
-                          </View>
-                          <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13, flex: 1 }} numberOfLines={2}>{student.name}</Text>
+                return (
+                  <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa', minHeight: 80 }}>
+                    {/* Student Info - Left Column */}
+                    <View style={{ width: 150, paddingHorizontal: 12, paddingVertical: 12, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
+                      <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13 }} numberOfLines={3}>{student.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
+                        <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>{studentGrades.length}</Text>
                         </View>
-
-                        {uniqueDates.map(dateStr => {
-                          const gradeObj = studentGrades.find(g => g.date === dateStr);
-                          return (
-                            <View key={dateStr} style={{ width: 70, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#f1f5f9', padding: 4 }}>
-                              {gradeObj ? (
-                                <TouchableOpacity onPress={() => handleEditGradeClick(gradeObj)}>
-                                  <GradeRing value={gradeObj.grade} size={42} />
-                                </TouchableOpacity>
-                              ) : (
-                                <TouchableOpacity
-                                  style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#e2e8f0', borderStyle: 'dashed' }}
-                                  onPress={() => {
-                                    setSelectedStudentForGrade(student);
-                                    setSelectedDate(new Date(dateStr));
-                                    setIsGradeModalVisible(true);
-                                  }}
-                                >
-                                  <Plus size={18} color="#cbd5e1" />
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          );
-                        })}
+                        <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '600' }}>{t('grades') || 'Nota'}</Text>
                       </View>
-                    );
-                  })}
-                </ScrollView>
-              </View>
+                    </View>
+
+                    {/* Grades Area - Wrapped Center Column */}
+                    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 12, alignItems: 'center' }}>
+                      {studentGrades.map((gradeObj, gIdx) => (
+                        <View key={gradeObj.id || gIdx} style={{ alignItems: 'center', gap: 2 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '900', color: '#1e293b' }}>
+                            {gradeObj.date.split('-').reverse().slice(0, 2).join('/')}
+                          </Text>
+                          <TouchableOpacity onPress={() => handleEditGradeClick(gradeObj)}>
+                            <GradeRing value={gradeObj.grade} size={42} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      {/* Quick Add Button */}
+                      <TouchableOpacity
+                        style={{
+                          width: 42, height: 42, borderRadius: 21, backgroundColor: '#f8fafc',
+                          alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+                          borderColor: '#e2e8f0', borderStyle: 'dashed'
+                        }}
+                        onPress={() => {
+                          setSelectedStudentForGrade(student);
+                          setIsGradeModalVisible(true);
+                        }}
+                      >
+                        <Plus size={18} color="#cbd5e1" />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Average - Right Column */}
+                    <View style={styles.averageColumn}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase' }}>{t('average') || 'Mes.'}</Text>
+                      <GradeRing value={avg} size={42} />
+                    </View>
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
         ) : (
@@ -681,7 +689,12 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => {
+            setNavigation({ view: 'home', data: null });
+            setSelectedRegistryStudent(null);
+            setSelectedActionStudent(null);
+            setSelectedStudentForGrade(null);
+          }}>
             <ArrowLeft size={18} color="#1e293b" />
             <Text style={styles.backButtonText}>{t('back') || 'Mbrapsht'}</Text>
           </TouchableOpacity>
@@ -1053,14 +1066,17 @@ const TeacherDashboard = ({
                     onPress={() => {
                       const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
                       if (!dayStatus.isWork) {
-                        showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                        setIsActionModalVisible(false);
+                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
                         return;
                       }
                       onAddGrade({
                         studentId: selectedActionStudent.id,
+                        classId: selectedActionStudent.classId || selectedActionStudent.class_id,
                         subject: selectedSubject,
                         value: parseInt(gradeValue),
-                        comment: `[${gradeType}] ${gradeComment}`.trim(),
+                        comment: gradeComment,
+                        type: gradeType,
                         date: gradeCustomDate || dateStr
                       });
                       setIsActionModalVisible(false);
@@ -1196,7 +1212,8 @@ const TeacherDashboard = ({
                     onPress={async () => {
                       const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
                       if (!dayStatus.isWork) {
-                        showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                        setIsActionModalVisible(false);
+                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
                         return;
                       }
 
@@ -1282,7 +1299,8 @@ const TeacherDashboard = ({
                     onPress={async () => {
                       const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
                       if (!dayStatus.isWork) {
-                        showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                        setIsActionModalVisible(false);
+                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
                         return;
                       }
 
@@ -1434,11 +1452,11 @@ const TeacherDashboard = ({
                     onPress={async () => {
                       const finalTopic = `[Ora ${lessonHour}] ${lessonTopic}`.trim();
                       const finalDate = lessonDate || formatDate(selectedDate);
-                      
+
                       if (editingLesson) {
                         const oldHourMatch = editingLesson.topic?.match(/\[Ora (\d+)\]/);
                         const oldHour = oldHourMatch ? parseInt(oldHourMatch[1]) : null;
-                        
+
                         await onUpdateLesson(editingLesson.id, {
                           classId: editingLesson.class_id,
                           subject: selectedSubject,
@@ -1456,7 +1474,7 @@ const TeacherDashboard = ({
                           teacherId: user.id
                         });
                       }
-                      
+
                       setIsLessonModalVisible(false);
                       setEditingLesson(null);
                       setLessonTopic('');
@@ -1615,9 +1633,9 @@ const TeacherDashboard = ({
                   style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }, { marginTop: 16 }]}
                   disabled={!lessonTopic}
                   onPress={() => {
-                    const dayStatus = isSchoolDay(new Date(lessonDate || selectedDate));
                     if (!dayStatus.isWork) {
-                      showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                      setIsLessonModalVisible(false);
+                      showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
                       return;
                     }
                     onAddLesson({
@@ -1734,7 +1752,8 @@ const TeacherDashboard = ({
                     const dateToUse = lessonDate || formatDate(selectedDate);
                     const dayStatus = isSchoolDay(new Date(dateToUse));
                     if (!dayStatus.isWork) {
-                      showAlert(`${t('holiday') || 'Pushim'}: ${dayStatus.reason}`, 'error');
+                      setIsTestModalVisible(false);
+                      showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
                       return;
                     }
                     await onAddTest({
@@ -1930,8 +1949,8 @@ const TeacherDashboard = ({
         parseInt(a.hour) === parseInt(hour)
       );
       if (!record) {
-        // PER POLICY: Hour 0 (Daily Summary) defaults to 'absent' for Today
-        if (parseInt(hour) === 0 && isToday) return 'absent';
+        // PER POLICY: Hour 0 (Daily Summary) defaults to 'absent' for Today only on WORK DAYS
+        if (parseInt(hour) === 0 && isToday && isSchoolDay(selectedDate).isWork) return 'absent';
         return 'none';
       }
       return record.status?.split(':')[0];
@@ -1969,56 +1988,16 @@ const TeacherDashboard = ({
       <View style={[styles.viewContainer, { flex: 1 }]}>
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, position: 'relative', justifyContent: 'center', minHeight: 70 }}>
-          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }]} onPress={() => setNavigation({ view: 'my-classes', data: null })}>
+          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }]} onPress={() => {
+            setNavigation({ view: 'my-classes', data: null });
+            setSelectedRegistryStudent(null);
+            setSelectedActionStudent(null);
+            setSelectedStudentForGrade(null);
+          }}>
             <ArrowLeft size={18} color="#1e293b" />
           </TouchableOpacity>
           <View style={{ alignItems: 'center', paddingTop: 4, paddingBottom: 4 }}>
             <Text style={{ fontSize: 26, fontWeight: '900', color: '#0f172a', letterSpacing: -0.8, textAlign: 'center', lineHeight: 30 }}>{formatClassName(currentClass)}</Text>
-            <View style={{ marginTop: 8, flexDirection: 'row', gap: 8 }}>
-              <View style={{ backgroundColor: '#2563eb', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 4 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: 'white', letterSpacing: 0.4 }}>{formatDisplayDate(selectedDate)}</Text>
-              </View>
-              {isToday && currentHour && (
-                <View style={{ backgroundColor: '#16a34a', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: 'white' }}>Ora {currentHour}</Text>
-                </View>
-              )}
-              {/* Rest Day Toggle */}
-              {(() => {
-                const dateStrSelected = formatDate(selectedDate);
-                const holidayEvent = (schoolCalendar || []).find(e => e.school_id === user.school_id && e.date === dateStrSelected && e.type === 'holiday');
-
-                return (
-                  <TouchableOpacity
-                    style={{
-                      backgroundColor: holidayEvent ? '#ef4444' : '#f1f5f9',
-                      borderRadius: 20,
-                      paddingHorizontal: 14,
-                      paddingVertical: 4,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 6,
-                      borderWidth: 1,
-                      borderColor: holidayEvent ? '#dc2626' : '#e2e8f0'
-                    }}
-                    onPress={async () => {
-                      if (holidayEvent) {
-                        const res = await onUndoRestDay(user.school_id, currentClass.id, dateStrSelected);
-                        if (res.success) showAlert(t('undo_rest_day') || 'Ditë normale e punës', 'success');
-                      } else {
-                        const res = await onMarkDayAsRest(user.school_id, currentClass.id, dateStrSelected);
-                        if (res.success) showAlert(t('absences_annulled') || 'Mungesat u anulluan!', 'success');
-                      }
-                    }}
-                  >
-                    <Calendar size={12} color={holidayEvent ? 'white' : '#64748b'} />
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: holidayEvent ? 'white' : '#64748b' }}>
-                      {holidayEvent ? (t('undo_rest_day') || 'Hiq Ripuso') : (t('mark_as_rest') || 'Riposo')}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })()}
-            </View>
           </View>
         </View>
 
@@ -2109,10 +2088,10 @@ const TeacherDashboard = ({
                     <View key={hour} style={{ width: 68, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRightWidth: 1, borderRightColor: '#f1f5f9', backgroundColor: hasLesson ? '#fff' : '#f8fafc' }}>
                       <Text style={{ fontSize: 9, fontWeight: '700', color: hasLesson ? '#2563eb' : '#94a3b8', marginBottom: 2 }}>ORA</Text>
                       <Text style={{ fontSize: 16, fontWeight: '900', color: hasLesson ? '#1e293b' : '#cbd5e1' }}>{hour}</Text>
-                      
+
                       {isMine && (
                         <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={{ padding: 4, borderRadius: 6, backgroundColor: '#f0f7ff' }}
                             onPress={() => {
                               const cleanTopic = hasLesson.topic?.replace(/\[Ora \d+\]/, '').trim();
@@ -2128,7 +2107,7 @@ const TeacherDashboard = ({
                           >
                             <Pencil size={12} color="#2563eb" />
                           </TouchableOpacity>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={{ padding: 4, borderRadius: 6, backgroundColor: '#fff1f2' }}
                             onPress={() => {
                               Alert.alert(
@@ -2649,6 +2628,45 @@ const TeacherDashboard = ({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Date selection */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.label}>{t('registration_date') || 'Data e regjistrimit'}</Text>
+              <TouchableOpacity
+                style={styles.premiumDatePickerField}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    document.getElementById('hidden-grade-date-input').showPicker();
+                  }
+                }}
+              >
+                <View style={styles.premiumDatePickerContent}>
+                  <Calendar size={18} color="#2563eb" />
+                  <Text style={styles.premiumDatePickerText}>
+                    {formatDisplayDate(selectedDate)}
+                  </Text>
+                </View>
+                {Platform.OS === 'web' && (
+                  <input
+                    id="hidden-grade-date-input"
+                    type="date"
+                    style={{
+                      position: 'absolute',
+                      opacity: 0,
+                      width: '100%',
+                      height: '100%',
+                      cursor: 'pointer'
+                    }}
+                    value={formatDate(selectedDate)}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setSelectedDate(new Date(e.target.value));
+                      }
+                    }}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+
             <Text style={styles.label}>{t('grade_value')}</Text>
             <View style={styles.gradeButtonGrid}>
               {[1, 2, 3, 4, 5].map(val => (
@@ -2691,11 +2709,24 @@ const TeacherDashboard = ({
               style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]}
               disabled={!gradeValue}
               onPress={() => {
+                // Holiday Block Check
+                if (!isSchoolDay(selectedDate).isWork) {
+                  setIsGradeModalVisible(false);
+                  showAlert(
+                    t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.',
+                    'warning',
+                    t('holiday_registration_blocked_title') || 'Pushim'
+                  );
+                  return;
+                }
+
                 onAddGrade({
                   studentId: selectedStudentForGrade.id,
+                  classId: navigation.data?.id,
                   subject: selectedSubject,
                   value: parseInt(gradeValue),
-                  comment: `[${gradeType}] ${gradeComment}`.trim(),
+                  comment: gradeComment,
+                  type: gradeType,
                   date: formatDate(selectedDate)
                 });
                 setIsGradeModalVisible(false);
@@ -2799,10 +2830,84 @@ const TeacherDashboard = ({
           >
             <ArrowLeft size={18} color="#1e293b" />
           </TouchableOpacity>
-          <Text style={[styles.viewTitleHeader, { fontSize: 22, fontWeight: '900', textAlign: 'center' }]}>{formatClassName(currentClass)}</Text>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={[styles.viewTitleHeader, { fontSize: 20, fontWeight: '900', textAlign: 'center' }]}>{formatClassName(currentClass)}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, position: 'absolute', right: 16 }}>
+            <TouchableOpacity
+              onPress={() => {
+                const subjects = currentClass.subjects || [];
+                if (subjects.length > 0) setSelectedSubject(subjects[0]);
+                setIsLessonModalVisible(true);
+                setLessonDate(formatDate(selectedDate));
+              }}
+              style={{ backgroundColor: '#2563eb', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <PlusCircle size={16} color="white" />
+              <Text style={{ color: 'white', fontWeight: '800', fontSize: 12 }}>{t('add_lesson') || 'Shto Orën'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                const subjects = currentClass.subjects || [];
+                if (subjects.length > 0) setSelectedSubject(subjects[0]);
+                setIsTestModalVisible(true);
+                setLessonDate(formatDate(selectedDate));
+              }}
+              style={{ backgroundColor: '#f43f5e', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <Users size={16} color="white" />
+              <Text style={{ color: 'white', fontWeight: '800', fontSize: 12 }}>{t('register_test') || 'Provim'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+          {(() => {
+            const dayStatus = isSchoolDay(selectedDate);
+            // Show banner if not a work day (Holiday or Weekend)
+            if (dayStatus.isWork) return null;
+
+            return (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 16,
+                backgroundColor: '#f8fafc',
+                borderRadius: 20,
+                borderWidth: 1.5,
+                borderColor: '#cbd5e1',
+                borderStyle: 'dashed',
+                marginBottom: 24,
+                gap: 15
+              }}>
+                <View style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  backgroundColor: '#94a3b8',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Calendar size={22} color="white" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: 20,
+                    fontWeight: '900',
+                    color: '#475569',
+                    textTransform: 'uppercase',
+                    letterSpacing: -0.5
+                  }}>
+                    {t('holiday') || 'Pushim'}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
+                    {dayStatus.reason}
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
           {/* Lessons Section */}
           {dayLessons.length > 0 && (
             <View style={{ marginBottom: 20 }}>
@@ -4368,6 +4473,61 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 10,
     elevation: 2,
+  },
+  // Semester Selector Styles
+  semesterSelector: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  semesterChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  activeSemesterChip: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#2563eb',
+  },
+  semesterChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  activeSemesterChipText: {
+    color: '#2563eb',
+  },
+  // Grade Average Column Styles
+  averageColumn: {
+    width: 80,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
+  },
+  averageHeader: {
+    width: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderLeftWidth: 1,
+    borderLeftColor: '#e2e8f0',
+    backgroundColor: '#f1f5f9',
+  },
+  averageHeaderText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+    textTransform: 'uppercase',
   }
 });
 
