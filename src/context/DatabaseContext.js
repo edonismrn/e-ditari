@@ -1674,24 +1674,6 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
-      console.log('[deleteAllData] System reset attempt finished.');
-      await fetchData(false);
-      return { success: true };
-    } catch (error) {
-      console.error("CRITICAL Error during global system reset:", error);
-      return { error };
-    }
-  };
-
-      console.log('[deleteAllData] System reset attempt complete. Re-fetching local data...');
-      await fetchData(false);
-      return { success: true };
-    } catch (error) {
-      console.error("CRITICAL Error during global system reset:", error);
-      return { error };
-    }
-  };
-
   const value = {
     schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, tests, loading,
     currentTerm, selectedGlobalAcademicYear, availableAcademicYears, changeAcademicYear,
