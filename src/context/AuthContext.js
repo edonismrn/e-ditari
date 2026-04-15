@@ -12,14 +12,21 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     // Check active session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        fetchUserProfile(session.user.id);
-      } else {
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        if (session?.user) {
+          fetchUserProfile(session.user.id);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error("[AuthContext] getSession error on mount:", err);
+        // Force cleanup on invalid refresh token or other auth errors
+        supabase.auth.signOut();
         setLoading(false);
-      }
-    });
+      });
 
     // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -50,10 +57,16 @@ export const AuthProvider = ({ children }) => {
     // can detect the invalid token early and emit SIGNED_OUT instead of crashing later.
     const appStateSubscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        supabase.auth.getSession().catch(() => {
-          // If getSession fails due to invalid refresh token, sign out cleanly
-          supabase.auth.signOut();
-        });
+        supabase.auth.getSession()
+          .then(({ data: { session } }) => {
+            if (session) setSession(session);
+          })
+          .catch(err => {
+            console.error("[AuthContext] getSession error on foreground:", err);
+            // If getSession fails due to invalid refresh token, sign out cleanly
+            supabase.auth.signOut();
+            setUser(null);
+          });
       }
     });
 

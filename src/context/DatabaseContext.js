@@ -63,9 +63,9 @@ export const DatabaseProvider = ({ children }) => {
         setAvailableAcademicYears([...new Set(combinedYears)].sort().reverse());
       }
 
-      const applyYearFilter = (query) => 
-        selectedGlobalAcademicYear 
-          ? query.eq('academic_year', selectedGlobalAcademicYear) 
+      const applyYearFilter = (query) =>
+        selectedGlobalAcademicYear
+          ? query.eq('academic_year', selectedGlobalAcademicYear)
           : query.is('academic_year', null);
 
       if (user.role === 'admin') {
@@ -203,7 +203,7 @@ export const DatabaseProvider = ({ children }) => {
           }
         }
 
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, testsRes] = await Promise.all([
+        const [testsRes, gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
           classIds.length > 0 ? applyYearFilter(supabase.from('tests').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('grades').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('lessons').select('*').in('class_id', classIds)) : { data: [] },
@@ -504,9 +504,9 @@ export const DatabaseProvider = ({ children }) => {
     if (school?.term_two_start_date && dateStr) {
       const boundaryDateStr = school.term_two_start_date.split('T')[0].split(' ')[0];
       const selected = new Date(dateStr);
-      selected.setHours(0,0,0,0);
+      selected.setHours(0, 0, 0, 0);
       const boundary = new Date(boundaryDateStr);
-      boundary.setHours(0,0,0,0);
+      boundary.setHours(0, 0, 0, 0);
       return selected >= boundary ? 2 : 1;
     }
     return currentTerm || 1;
@@ -581,7 +581,7 @@ export const DatabaseProvider = ({ children }) => {
           classId: lesson.classId,
           subject: lesson.subject,
           description: lesson.homework,
-          dueDate: lesson.date, 
+          dueDate: lesson.date,
           teacherId: user.id
         });
       }
@@ -613,10 +613,10 @@ export const DatabaseProvider = ({ children }) => {
         console.log(`[updateLesson] Migrating attendance: Hour ${oldHour} -> ${newHour}`);
         await supabase.from('attendance')
           .update({ hour: newHour })
-          .match({ 
-            class_id: lessonData.classId, 
-            date: lessonData.date, 
-            hour: oldHour 
+          .match({
+            class_id: lessonData.classId,
+            date: lessonData.date,
+            hour: oldHour
           });
       }
 
@@ -635,10 +635,10 @@ export const DatabaseProvider = ({ children }) => {
       console.log(`[deleteLesson] START DB: Deleting hour ${numericHour} for class ${classId} on ${date}`);
 
       // 1. Delete associated attendance entries from DB first
-      const { error: attError } = await supabase.from('attendance').delete().match({ 
-        class_id: classId, 
-        date: date, 
-        hour: numericHour 
+      const { error: attError } = await supabase.from('attendance').delete().match({
+        class_id: classId,
+        date: date,
+        hour: numericHour
       });
       if (attError) console.warn("[deleteLesson] Attendance cleanup error:", attError);
 
@@ -648,22 +648,22 @@ export const DatabaseProvider = ({ children }) => {
 
       // 3. Immediately clear local states to reflect deletion without waiting for re-fetch
       setLessons(prev => prev.filter(l => l.id !== lessonId));
-      setAttendance(prev => prev.filter(a => 
+      setAttendance(prev => prev.filter(a =>
         !((a.class_id === classId || a.classId === classId) && a.date === date && parseInt(a.hour) === numericHour)
       ));
 
       // 4. Force synchronization of Daily Status (Hour 0) for all students in the class
       // This will set them to 'absent' if no other hours are recorded
-      const updatedAttendance = attendance.filter(a => 
+      const updatedAttendance = attendance.filter(a =>
         !((a.class_id === classId || a.classId === classId) && a.date === date && parseInt(a.hour) === numericHour)
       );
-      
+
       const classStudents = students.filter(s => s.classId === classId || s.class_id === classId);
       const syncPromises = classStudents.map(student => syncDailyStatus(student.id, date, updatedAttendance));
       await Promise.allSettled(syncPromises);
 
       // 5. Final full data re-fetch to ensure local state is 100% accurate with DB
-      await fetchData(false); 
+      await fetchData(false);
       return { success: true };
     } catch (error) {
       console.error("Error in DB deleteLesson operation:", error);
@@ -758,7 +758,7 @@ export const DatabaseProvider = ({ children }) => {
 
     // 3. Determine new daily status
     let newDailyStatus = defaultStatus;
-    
+
     const presentHours = Object.keys(statuses).filter(h => statuses[h] === 'present').map(Number);
     const absentHours = Object.keys(statuses).filter(h => statuses[h] === 'absent' || statuses[h].startsWith('absent')).map(Number);
 
@@ -768,7 +768,7 @@ export const DatabaseProvider = ({ children }) => {
 
       // 1. Late: Only if there's an EXPLICIT 'absent' mark BEFORE the first 'present'
       const isLate = absentHours.some(h => h < firstPresent);
-      
+
       // 2. Early Exit: Only if there's an EXPLICIT 'absent' mark AFTER the first 'present'
       const isEarlyExit = absentHours.some(h => h > firstPresent);
 
@@ -1117,24 +1117,44 @@ export const DatabaseProvider = ({ children }) => {
       const schoolClassIds = classes.filter(c => c.school_id === schoolId).map(c => c.id);
 
       if (schoolClassIds.length > 0) {
+        // 1. Move distinct records to the archive by tagging them with the school year
         await Promise.all([
           supabase.from('grades').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('attendance').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('lessons').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('homework').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('notes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
-          // Store associations historically too
-          supabase.from('teacher_classes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
-          supabase.from('student_classes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
         ]);
 
-        // Update local state by filtering out archived items
-        setGrades(prev => prev.filter(g => !schoolClassIds.includes(g.class_id)));
-        setAttendance(prev => prev.filter(a => !schoolClassIds.includes(a.class_id)));
-        setLessons(prev => prev.filter(l => !schoolClassIds.includes(l.class_id)));
-        setHomework(prev => prev.filter(h => !schoolClassIds.includes(h.class_id)));
-        setNotes(prev => prev.filter(n => !schoolClassIds.includes(n.class_id)));
+        // 2. Snapshot memberships: Copy CURRENT associations to the archive
+        // We COPY them instead of MOVING them so the teacher still has their classes in the NEW year,
+        // but the historical view still knows who was in which class.
+        const [{ data: tcData }, { data: scData }] = await Promise.all([
+          supabase.from('teacher_classes').select('*').in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('student_classes').select('*').in('class_id', schoolClassIds).is('academic_year', null)
+        ]);
+
+        const archivePromises = [];
+        if (tcData?.length > 0) {
+          const tcArchive = tcData.map(({ id, created_at, ...rest }) => ({ ...rest, academic_year: yearName }));
+          archivePromises.push(supabase.from('teacher_classes').insert(tcArchive));
+        }
+        if (scData?.length > 0) {
+          const scArchive = scData.map(({ id, created_at, ...rest }) => ({ ...rest, academic_year: yearName }));
+          archivePromises.push(supabase.from('student_classes').insert(scArchive));
+        }
+
+        if (archivePromises.length > 0) {
+          await Promise.all(archivePromises);
+        }
       }
+
+      // Update local state by filtering out archived items
+      setGrades(prev => prev.filter(g => !schoolClassIds.includes(g.class_id)));
+      setAttendance(prev => prev.filter(a => !schoolClassIds.includes(a.class_id)));
+      setLessons(prev => prev.filter(l => !schoolClassIds.includes(l.class_id)));
+      setHomework(prev => prev.filter(h => !schoolClassIds.includes(h.class_id)));
+      setNotes(prev => prev.filter(n => !schoolClassIds.includes(n.class_id)));
 
       // Generate next year name AND update school
       const nextYearName = getNextYearName(yearName);
@@ -1159,7 +1179,7 @@ export const DatabaseProvider = ({ children }) => {
       console.log('[promoteStudents] Starting with IDs:', promotedStudentIds);
       const schoolClasses = classes.filter(c => c.school_id === schoolId);
       const schoolStudents = students.filter(s => s.schoolId === schoolId || s.school_id === schoolId);
-      
+
       const romanToNext = {
         'I': 'II', 'II': 'III', 'III': 'IV', 'IV': 'V', 'V': 'VI',
         'VI': 'VII', 'VII': 'VIII', 'VIII': 'IX', 'IX': 'X', 'X': 'XI', 'XI': 'XII'
@@ -1170,7 +1190,7 @@ export const DatabaseProvider = ({ children }) => {
         const parts = cls.name.split(' ');
         const currentGrade = parts[0];
         const nextGrade = romanToNext[currentGrade];
-        
+
         if (nextGrade) {
           const nextClassName = cls.name.replace(currentGrade, nextGrade);
           const targetClass = schoolClasses.find(c => c.name === nextClassName);
@@ -1180,13 +1200,13 @@ export const DatabaseProvider = ({ children }) => {
         }
       }
 
-      const studentsToUnlink = []; 
-      const studentsToUpdate = []; 
+      const studentsToUnlink = [];
+      const studentsToUpdate = [];
       const activeStudents = schoolStudents.filter(s => s.classId || s.class_id);
 
       for (const student of activeStudents) {
         const currentClassId = student.classId || student.class_id;
-        
+
         if (promotedStudentIds.includes(student.id)) {
           // Student promoted: move to next class
           const targetClassId = progressionMap[currentClassId];
@@ -1439,12 +1459,12 @@ export const DatabaseProvider = ({ children }) => {
       // Automatically recalculate and apply terms for all existing records
       const { data: schoolClasses } = await supabase.from('classes').select('id').eq('school_id', schoolId);
       const classIds = schoolClasses ? schoolClasses.map(c => c.id) : [];
-      
+
       if (classIds.length > 0) {
         const updatePromises = [];
         // All tables that utilize term and class_id
         const tables = ['grades', 'lessons', 'attendance', 'homework', 'notes'];
-        
+
         for (const table of tables) {
           const dateColumn = table === 'homework' ? 'due_date' : 'date';
           updatePromises.push(
@@ -1454,7 +1474,7 @@ export const DatabaseProvider = ({ children }) => {
             supabase.from(table).update({ term: 2 }).in('class_id', classIds).gte(dateColumn, date).select('id').limit(1)
           );
         }
-        
+
         await Promise.allSettled(updatePromises);
       }
 
@@ -1468,7 +1488,7 @@ export const DatabaseProvider = ({ children }) => {
 
   const addCalendarEvent = async (event) => {
     try {
-      const { data, error } = await supabase.from('school_calendar').insert([{...event, academic_year: selectedGlobalAcademicYear}]).select();
+      const { data, error } = await supabase.from('school_calendar').insert([{ ...event, academic_year: selectedGlobalAcademicYear }]).select();
       if (error) throw error;
       if (data) setSchoolCalendar(prev => [...prev, ...data]);
       return { success: true };
@@ -1479,7 +1499,7 @@ export const DatabaseProvider = ({ children }) => {
 
   const addCalendarEvents = async (events) => {
     try {
-      const eventList = events.map(e => ({...e, academic_year: selectedGlobalAcademicYear}));
+      const eventList = events.map(e => ({ ...e, academic_year: selectedGlobalAcademicYear }));
       const { data, error } = await supabase.from('school_calendar').insert(eventList).select();
       if (error) throw error;
       if (data) setSchoolCalendar(prev => [...prev, ...data]);
@@ -1589,17 +1609,85 @@ export const DatabaseProvider = ({ children }) => {
 
   const deleteAllData = async () => {
     try {
-      await Promise.all([
-        supabase.from('grades').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-        supabase.from('attendance').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-        supabase.from('lessons').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-        supabase.from('homework').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-        supabase.from('notes').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
-        supabase.from('tests').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-      ]);
+      console.log(`[deleteAllData] STARTING Global System Reset by SuperAdmin=${user?.id}`);
+
+      // 1. Attempt to use the high-performance RPC function (Created via SQL script)
+      const { error: rpcError } = await supabase.rpc('nuke_all_data', { 
+        admin_id_to_keep: user.id 
+      });
+
+      if (!rpcError) {
+        console.log('[deleteAllData] RPC nuke_all_data executed successfully.');
+        await fetchData(false);
+        return { success: true };
+      }
+
+      console.warn('[deleteAllData] RPC nuke_all_data failed or not found. Falling back to multi-step recursive deletion...', rpcError);
+
+      // 2. FALLBACK: Manual sequential clearing (Hyper-Aggressive strategy)
+      const forceClearTable = async (tableName, idCol = 'id') => {
+        try {
+          console.log(`[deleteAllData] Fallback: clearing ${tableName}...`);
+          const { data, error } = await supabase.from(tableName).select(idCol).limit(5000);
+          if (error) {
+            await supabase.from(tableName).delete().neq(idCol, '00000000-0000-0000-0000-000000000000');
+            return;
+          }
+          const ids = data.map(item => item[idCol]).filter(id => id !== null);
+          if (ids.length > 0) {
+            await supabase.from(tableName).delete().in(idCol, ids);
+          }
+        } catch (e) {
+          console.error(`[deleteAllData] Error in fallback for ${tableName}:`, e);
+        }
+      };
+
+      // Dependencies order
+      await forceClearTable('notes');
+      await forceClearTable('notice_reads', 'student_id');
+      await forceClearTable('attendance', 'student_id');
+      await forceClearTable('grades');
+      await forceClearTable('lessons');
+      await forceClearTable('homework');
+      await forceClearTable('tests');
+      await forceClearTable('notices');
+      await forceClearTable('school_calendar');
+      await forceClearTable('student_classes', 'student_id');
+      await forceClearTable('teacher_classes', 'teacher_id');
+
+      if (user?.id) {
+        const { data: profs } = await supabase.from('profiles').select('id').neq('id', user.id);
+        if (profs?.length > 0) {
+          await supabase.from('profiles').delete().in('id', profs.map(p => p.id));
+        }
+      }
+
+      await forceClearTable('classes');
+      await forceClearTable('schools');
+
+      console.log('[deleteAllData] System reset complete via fallback.');
       await fetchData(false);
       return { success: true };
     } catch (error) {
+      console.error("CRITICAL Error during global system reset:", error);
+      return { error };
+    }
+  };
+
+      console.log('[deleteAllData] System reset attempt finished.');
+      await fetchData(false);
+      return { success: true };
+    } catch (error) {
+      console.error("CRITICAL Error during global system reset:", error);
+      return { error };
+    }
+  };
+
+      console.log('[deleteAllData] System reset attempt complete. Re-fetching local data...');
+      await fetchData(false);
+      return { success: true };
+    } catch (error) {
+      console.error("CRITICAL Error during global system reset:", error);
       return { error };
     }
   };
