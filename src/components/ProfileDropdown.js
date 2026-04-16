@@ -119,6 +119,7 @@ const ProfileDropdown = ({
                   <Text style={styles.avatarInitialTextLarge}>{initials}</Text>
                 </View>
                 <Text style={styles.userName}>{displayName}</Text>
+                <Text style={styles.userEmail}>{user.email}</Text>
                 <Text style={styles.userRole}>{userRole}</Text>
               </View>
 
@@ -318,6 +319,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     color: '#1e293b',
+    textAlign: 'center',
+  },
+  userEmail: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '600',
+    marginTop: 2,
     textAlign: 'center',
   },
   userRole: {
