@@ -87,10 +87,10 @@ const StudentDashboard = ({
       await login(user.email, currentPass);
       // Update
       await updatePassword(newPass);
-      showAlert(t('password_updated_success') || 'Fjalëkalimi u ndryshua me sukses!', 'success');
+      showAlert(t('password_updated_success'), 'success');
     } catch (err) {
       const errorMsg = err.message === 'Invalid login credentials' 
-        ? (t('invalid_current_password') || 'Fjalëkalimi aktual nuk është i saktë') 
+        ? t('invalid_current_password')
         : err.message;
       showAlert(errorMsg, 'error');
       throw err;
@@ -405,7 +405,7 @@ const StudentDashboard = ({
                     <Clock size={18} color="#3b82f6" />
                   </View>
                   <Text style={[styles.hBarValue, {color: '#3b82f6', fontSize: 26, marginBottom: 2}]}>{latesCount}</Text>
-                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{(t('late') || 'Vonesë').split(' ')[0]}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('late')}</Text>
                 </View>
 
                 {/* Early Exits */}
@@ -414,7 +414,7 @@ const StudentDashboard = ({
                     <LogOut size={18} color="#8b5cf6" />
                   </View>
                   <Text style={[styles.hBarValue, {color: '#8b5cf6', fontSize: 26, marginBottom: 2}]}>{earlyExitsCount}</Text>
-                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{(t('early_exit') || 'Dalje').split(' ')[0]}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('early_exit')}</Text>
                 </View>
               </View>
               <Text style={[styles.sectionTitleSmall, { marginTop: 12 }]}>{t('attendance_details')}</Text>
@@ -464,7 +464,7 @@ const StudentDashboard = ({
                   <Text style={[styles.miniDetailStatus, {fontWeight: '700', color: '#1e293b'}]}>
                     {statusLabel} {timeVal ? `• ${timeVal}` : ''}
                   </Text>
-                  {item.subject ? <Text style={styles.attendanceSubject}>{item.subject}</Text> : null}
+                  {item.subject ? <Text style={styles.attendanceSubject}>{t(item.subject)}</Text> : null}
                   {(item.description || extractedReason) ? (
                     <Text style={{ fontSize: 13, color: '#059669', fontStyle: 'italic', marginTop: 4 }}>
                       "{item.description || extractedReason}"
@@ -518,7 +518,7 @@ const StudentDashboard = ({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.statusBannerText, { color: '#475569', fontSize: 20, textTransform: 'uppercase' }]}>
-                  {t('holiday') || 'Pushim'}
+                  {t('holiday')}
                 </Text>
                 <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
                   {dayStatus.reason}
@@ -582,7 +582,7 @@ const StudentDashboard = ({
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
                   <Text style={{ fontSize: 13, fontWeight: '800', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                    {t('njoftim_disiplinor') || 'Njoftim Disiplinor'}
+                    {t('disciplinary_note')}
                   </Text>
                 </View>
                 {selectedDateNotes.map((note, idx) => (
@@ -643,7 +643,7 @@ const StudentDashboard = ({
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#2563eb' }} />
                   <Text style={{ fontSize: 13, fontWeight: '800', color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                    {t('homework_label') || 'Detyrat e shtëpisë'}
+                    {t('homework_label')}
                   </Text>
                 </View>
                 {dateHomework.map((hw, idx) => (
@@ -702,7 +702,7 @@ const StudentDashboard = ({
               <View style={styles.cardContent}>
                 <View style={styles.lessonHeader}>
                   <View style={{flex: 1}}>
-                    <Text style={styles.lessonSubject}>{item.subject}</Text>
+                    <Text style={styles.lessonSubject}>{t(item.subject)}</Text>
                     {profName ? <Text style={styles.profName}>{profName}</Text> : null}
                   </View>
                   {item.is_test && (
@@ -851,7 +851,7 @@ const StudentDashboard = ({
                     onPress={() => setSelectedSubject(sub.subject)}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.subjectNameLarge}>{sub.subject}</Text>
+                      <Text style={styles.subjectNameLarge}>{t(sub.subject)}</Text>
                     </View>
                     <GradeRing value={sub.average} size={60} showProgress={true} />
                   </TouchableOpacity>
@@ -871,9 +871,9 @@ const StudentDashboard = ({
           {isDetailView && (
              <View style={styles.detailHeader}>
                 <TouchableOpacity onPress={() => setSelectedSubject(null)} style={styles.backBtn}>
-                    <Text style={styles.backBtnText}>← {t('back') || 'Mbrapsht'}</Text>
+                    <Text style={styles.backBtnText}>← {t('back')}</Text>
                 </TouchableOpacity>
-                <Text style={styles.detailTitle}>{selectedSubject}</Text>
+                <Text style={styles.detailTitle}>{t(selectedSubject)}</Text>
              </View>
           )}
           
@@ -906,7 +906,7 @@ const StudentDashboard = ({
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
                     <GradeRing value={item.grade} size={48} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.gradeSubject}>{item.subject}</Text>
+                      <Text style={styles.gradeSubject}>{t(item.subject)}</Text>
                       {gradeType ? <Text style={styles.typeLabelText}>{gradeType}</Text> : null}
                       {gradeNotes ? (
                         <Text style={styles.gradeComment} numberOfLines={3}>
@@ -915,7 +915,7 @@ const StudentDashboard = ({
                       ) : null}
                       {item.profiles && (
                         <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginTop: 4 }}>
-                          {t('issued_by') || 'Lëshuar nga'}: {item.profiles.first_name} {item.profiles.last_name}
+                          {t('issued_by')}: {item.profiles.first_name} {item.profiles.last_name}
                         </Text>
                       )}
                     </View>
@@ -1065,7 +1065,7 @@ const StudentDashboard = ({
                   {hasAttachment && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 }}>
                       <FileText size={11} color="#db2777" />
-                      <Text style={{ fontSize: 11, color: '#db2777', fontWeight: '700' }}>{t('attachment') || 'Bashkëngjitje'}</Text>
+                      <Text style={{ fontSize: 11, color: '#db2777', fontWeight: '700' }}>{t('attachment')}</Text>
                     </View>
                   )}
                 </View>
@@ -1216,7 +1216,7 @@ const StudentDashboard = ({
                   }}
                 >
                   <Download size={20} color="white" />
-                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment') || 'Shkarko'}</Text>
+                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment')}</Text>
                 </TouchableOpacity>
               )}
 
@@ -1224,7 +1224,7 @@ const StudentDashboard = ({
                 style={modalStyles.closeBtn}
                 onPress={() => setSelectedNotice(null)}
               >
-                <Text style={modalStyles.closeBtnText}>{t('close') || 'Mbyll'}</Text>
+                <Text style={modalStyles.closeBtnText}>{t('close')}</Text>
               </TouchableOpacity>
             </View>
           </View>

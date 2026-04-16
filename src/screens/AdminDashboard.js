@@ -121,7 +121,7 @@ const AdminDashboard = ({
       await login(user.email, currentPass);
       // If successful, update to new password
       await updatePassword(newPass);
-      showAlert(t('password_updated_success') || 'Fjalëkalimi u ndryshua me sukses!', 'success');
+      showAlert(t('password_updated_success'), 'success');
     } catch (err) {
       const errorMsg = err.message === 'Invalid login credentials'
         ? (t('invalid_current_password') || 'Fjalëkalimi aktual nuk është i saktë')
@@ -3158,7 +3158,7 @@ const AdminDashboard = ({
                     style={[styles.subjectChip, teacherSubjects.includes(subject) && styles.activeSubjectChip]}
                     onPress={() => toggleSubject(subject)}
                   >
-                    <Text style={[styles.subjectChipText, teacherSubjects.includes(subject) && styles.activeSubjectChipText]}>{subject}</Text>
+                    <Text style={[styles.subjectChipText, teacherSubjects.includes(subject) && styles.activeSubjectChipText]}>{t(subject)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -3430,7 +3430,7 @@ const AdminDashboard = ({
                     onPress={() => toggleSubject(subject)}
                   >
                     <Text style={[styles.subjectChipText, teacherSubjects.includes(subject) && styles.activeSubjectChipText]}>
-                      {subject}
+                      {t(subject)}
                     </Text>
                   </TouchableOpacity>
                 ))}

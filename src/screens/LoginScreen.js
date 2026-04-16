@@ -64,7 +64,7 @@ const LoginScreen = ({ onLogin }) => {
     }
     try {
       await resetPassword(resetEmail);
-      showToast(t('success') || 'Kodi u dërgua me sukses!', 'success');
+      showToast(t('success'), 'success');
       setResetStep('code');
     } catch (err) {
       showToast(err.message, 'error');
@@ -90,12 +90,12 @@ const LoginScreen = ({ onLogin }) => {
 
   const handleUpdatePassword = async () => {
     if (!newPassword || newPassword !== confirmPassword) {
-      showToast(t('error') || 'Fjalëkalimet nuk përputhen', 'error');
+      showToast(t('error'), 'error');
       return;
     }
     try {
       await updatePassword(newPassword);
-      showToast(t('success') || 'Fjalëkalimi u ndryshua me sukses!', 'success');
+      showToast(t('success'), 'success');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err) {
@@ -192,6 +192,12 @@ const LoginScreen = ({ onLogin }) => {
                 onPress={() => changeLanguage('sr')}
               >
                 <Text style={[styles.langText, language === 'sr' && styles.activeLangText]}>SR</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.langToggle, language === 'tr' && styles.activeLang]}
+                onPress={() => changeLanguage('tr')}
+              >
+                <Text style={[styles.langText, language === 'tr' && styles.activeLangText]}>TR</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -301,7 +307,7 @@ const LoginScreen = ({ onLogin }) => {
 
                   <View style={styles.modalButtons}>
                     <TouchableOpacity style={styles.cancelButton} onPress={() => setResetStep('email')}>
-                      <Text style={styles.cancelButtonText}>{t('back') || 'Kthehu'}</Text>
+                      <Text style={styles.cancelButtonText}>{t('back')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.submitButton} onPress={handleVerifyCode}>
                       <Text style={styles.submitButtonText}>{t('verify_code')}</Text>

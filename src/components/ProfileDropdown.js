@@ -9,7 +9,8 @@ import {
   Platform,
   Linking
 } from 'react-native';
-import { User, LogOut, Lock, HelpCircle, ChevronDown, Mail, Calendar, Check, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react-native';
+import { User, LogOut, Lock, HelpCircle, ChevronDown, Mail, Calendar, Check, ChevronLeft, ChevronRight, RotateCcw, Globe } from 'lucide-react-native';
+import { useLanguage } from '../context/LanguageContext';
 
 const ProfileDropdown = ({ 
   user, t, onLogout, onChangePassword, onHelp,
@@ -83,6 +84,13 @@ const ProfileDropdown = ({
 
   const userRole = user?.role === 'admin' ? t('admin') : user?.role === 'mesues' ? t('teacher') : t('student');
   const initials = getInitials(displayName);
+  const { language, changeLanguage } = useLanguage();
+
+  const languages = [
+    { code: 'sq', label: t('albanian') || 'Shqip' },
+    { code: 'sr', label: t('serbian') || 'Srpski' },
+    { code: 'tr', label: t('turkish') || 'Türkçe' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -182,6 +190,27 @@ const ProfileDropdown = ({
                   )}
                 </>
               )}
+
+              <View style={styles.divider} />
+              
+              {/* Language Section */}
+              <Text style={{ paddingHorizontal: 28, paddingTop: 6, paddingBottom: 4, fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {t('language') || "Gjuha"}
+              </Text>
+              
+              {languages.map((lang) => (
+                <TouchableOpacity 
+                  key={lang.code}
+                  style={[styles.menuItem, { paddingVertical: 10 }]} 
+                  onPress={() => handleAction(() => changeLanguage(lang.code))}
+                >
+                  <Globe size={16} color={language === lang.code ? "#2563eb" : "#94a3b8"} />
+                  <Text style={[styles.menuItemText, { fontSize: 13, color: language === lang.code ? "#2563eb" : "#475569" }]}>
+                    {lang.label}
+                  </Text>
+                  {language === lang.code && <Check size={14} color="#2563eb" style={{marginLeft: 'auto'}} />}
+                </TouchableOpacity>
+              ))}
 
               <View style={styles.divider} />
 

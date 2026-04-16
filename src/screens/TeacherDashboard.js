@@ -206,10 +206,10 @@ const TeacherDashboard = ({
       await login(user.email, currentPass);
       // If success, update
       await updatePassword(newPass);
-      showAlert(t('password_updated_success') || 'Fjalëkalimi u ndryshua me sukses!', 'success');
+      showAlert(t('password_updated_success'), 'success');
     } catch (err) {
       const errorMsg = err.message === 'Invalid login credentials'
-        ? (t('invalid_current_password') || 'Fjalëkalimi aktual nuk është i saktë')
+        ? t('invalid_current_password')
         : err.message;
       showAlert(errorMsg, 'error');
       throw err;
@@ -519,14 +519,14 @@ const TeacherDashboard = ({
               <BookIcon size={20} color="#64748b" />
             </View>
             <Text style={{ fontSize: 28, fontWeight: '900', color: '#0f172a' }}>{teacherClasses.length}</Text>
-            <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{t('classes_label') || 'Klasat'}</Text>
+            <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{t('classes_label')}</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: 'white', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 4 }}>
             <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
               <GraduationCap size={20} color="#64748b" />
             </View>
             <Text style={{ fontSize: 28, fontWeight: '900', color: '#0f172a' }}>{totalStudents}</Text>
-            <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{t('students_count') || 'Nxënësit'}</Text>
+            <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{t('students_count')}</Text>
           </View>
         </View>
 
@@ -552,7 +552,7 @@ const TeacherDashboard = ({
             return (
               <View style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                   <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('my_agenda') || 'Agjenda ime'}</Text>
+                   <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('my_agenda')}</Text>
                    <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#eff6ff', borderRadius: 8 }}>
                       <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>{formatDisplayDate(new Date())}</Text>
                    </View>
@@ -574,7 +574,7 @@ const TeacherDashboard = ({
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: '#2563eb', marginBottom: 2 }}>{formatClassName(cls)}</Text>
-                        <Text style={{ fontSize: 15, fontWeight: '700', color: '#1e293b' }} numberOfLines={1}>{lesson.subject}</Text>
+                        <Text style={{ fontSize: 15, fontWeight: '700', color: '#1e293b' }} numberOfLines={1}>{t(lesson.subject)}</Text>
                       </View>
                       <ChevronRight size={18} color="#94a3b8" />
                     </TouchableOpacity>
@@ -591,7 +591,7 @@ const TeacherDashboard = ({
             <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
               <BookIcon size={24} color="#2563eb" />
             </View>
-            <Text style={{ flex: 1, fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('my_classes') === 'my_classes' ? 'Klasat e mia' : (t('my_classes') || 'Klasat e mia')}</Text>
+            <Text style={{ flex: 1, fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('my_classes')}</Text>
             <ChevronRight size={20} color="#94a3b8" />
           </TouchableOpacity>
         </View>
@@ -627,12 +627,12 @@ const TeacherDashboard = ({
           </TouchableOpacity>
           <View style={{ marginLeft: 16 }}>
             <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a' }}>{formatClassName(currentClass)}</Text>
-            <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{t('grades_matrix') || 'Grilja e Notave'}</Text>
+            <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{t('grades_matrix')}</Text>
           </View>
         </View>
 
         <View style={{ padding: 20, paddingBottom: 10 }}>
-          <Text style={[styles.label, { marginBottom: 12 }]}>{t('lesson_subject') || 'Lënda'}</Text>
+          <Text style={[styles.label, { marginBottom: 12 }]}>{t('lesson_subject')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
             {getAvailableSubjects(currentClass).map(subject => (
               <TouchableOpacity
@@ -640,7 +640,7 @@ const TeacherDashboard = ({
                 style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, { marginRight: 8 }]}
                 onPress={() => setSelectedSubject(subject)}
               >
-                <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{subject}</Text>
+                <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{t(subject)}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -648,9 +648,9 @@ const TeacherDashboard = ({
 
         <View style={styles.semesterSelector}>
           {[
-            { id: 0, label: t('all') || 'Të Gjitha' },
-            { id: 1, label: t('first_semester') || 'Gjysemvjetori 1' },
-            { id: 2, label: t('second_semester') || 'Gjysemvjetori 2' },
+            { id: 0, label: t('all') },
+            { id: 1, label: t('first_semester') },
+            { id: 2, label: t('second_semester') },
           ].map(sem => (
             <TouchableOpacity
               key={sem.id}
@@ -756,7 +756,7 @@ const TeacherDashboard = ({
             setSelectedStudentForGrade(null);
           }}>
             <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('back') || 'Mbrapsht'}</Text>
+            <Text style={styles.backButtonText}>{t('back')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -779,7 +779,7 @@ const TeacherDashboard = ({
             <Search size={20} color="#94a3b8" />
             <TextInput
               style={{ flex: 1, marginLeft: 12, fontSize: 16, color: '#0f172a' }}
-              placeholder={t('search_classes') || 'Kërko klasën...'}
+              placeholder={t('search_classes')}
               placeholderTextColor="#94a3b8"
               value={classSearchText}
               onChangeText={setClassSearchText}
