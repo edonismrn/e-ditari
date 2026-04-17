@@ -9,6 +9,7 @@ import {
   FlatList,
   Platform,
   Dimensions,
+  useWindowDimensions,
   Modal,
   TextInput,
   RefreshControl,
@@ -144,6 +145,9 @@ const TeacherDashboard = ({
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingLesson, setEditingLesson] = useState(null);
 
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && windowWidth > 768;
+
   const isReadOnly = !!selectedGlobalAcademicYear;
 
   // When the user switches academic year, jump the calendar to September 1st of that year.
@@ -216,6 +220,88 @@ const TeacherDashboard = ({
     }
   };
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
+
+  // Web Routing sync effect
+  React.useEffect(() => {
+    if (!isDesktop || typeof window === 'undefined') return;
+
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      if (path === '/ballina' || path === '/') {
+        setActiveView('home');
+        setNavigation({ view: 'home', data: null });
+      } else if (path === '/lajmerimet') {
+        setActiveView('lajmerimet');
+        setNavigation({ view: 'home', data: null });
+      } else if (path === '/klasat') {
+        setActiveView('home');
+        setNavigation({ view: 'my-classes', data: null });
+      } else if (path.startsWith('/klasat/')) {
+        const parts = path.split('/');
+        if (parts.length >= 4) {
+          const classId = parts[2];
+          const subview = parts[3];
+          
+          const foundClass = classes?.find(c => c.id === classId) || { id: classId };
+
+          if (subview === 'agjenda') {
+             setActiveView('home');
+             setNavigation({ view: 'class-agenda', data: foundClass });
+          } else if (subview === 'regjistri') {
+             setActiveView('home');
+             setNavigation({ view: 'class-detail', data: foundClass });
+          } else if (subview === 'notat') {
+             setActiveView('home');
+             setNavigation({ view: 'class-notat-grid', data: foundClass });
+          } else if (subview === 'mungesat') {
+             setActiveView('home');
+             setNavigation({ view: 'class-attendance-grid', data: foundClass });
+             if (user.is_kujdestar) {
+               setSelectedSubject('Ditore');
+             } else {
+               const classSubjects = getAvailableSubjects(foundClass);
+               setSelectedSubject(classSubjects.length > 0 ? classSubjects[0] : 'Ditore');
+             }
+          } else if (subview === 'notat-students') {
+             setActiveView('home');
+             setNavigation({ view: 'notat-students', data: foundClass });
+          }
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    if (!window.teacherInitialLoadDone) {
+       handlePopState();
+       window.teacherInitialLoadDone = true;
+    }
+
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isDesktop, classes]);
+
+  // Sync state changes to browser URL automatically
+  React.useEffect(() => {
+    if (!isDesktop || typeof window === 'undefined') return;
+    
+    let targetUrl = '/';
+    if (activeView === 'lajmerimet') {
+       targetUrl = '/lajmerimet';
+    } else if (activeView === 'home') {
+       if (navigation.view === 'home') targetUrl = '/ballina';
+       else if (navigation.view === 'my-classes') targetUrl = '/klasat';
+       else if (navigation.view === 'class-agenda' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/agjenda`;
+       else if (navigation.view === 'class-detail' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/regjistri`;
+       else if (navigation.view === 'class-notat-grid' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/notat`;
+       else if (navigation.view === 'class-attendance-grid' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/mungesat`;
+       else if (navigation.view === 'notat-students' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/notat-students`;
+       else targetUrl = '/ballina';
+    }
+    
+    if (window.location.pathname !== targetUrl) {
+       window.history.pushState({}, '', targetUrl);
+    }
+  }, [activeView, navigation, isDesktop]);
+
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = React.useCallback(async () => {
@@ -533,7 +619,7 @@ const TeacherDashboard = ({
         {/* Quick Actions */}
         <View style={{ gap: 16 }}>
           {/* Today's Agenda Summary */}
-          {(() => {
+          {!isDesktop && (() => {
             const todayStr = formatDate(new Date());
             const myLessonsToday = (lessons || [])
               .filter(l => 
@@ -599,6 +685,172 @@ const TeacherDashboard = ({
     );
   };
 
+  const renderClassAttendanceGrid = (currentClass) => {
+    const classStudents = students
+      .filter(s => s.classId === currentClass.id)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    const studentIds = classStudents.map(s => s.id);
+
+    const isDailyView = selectedSubject === 'Ditore';
+
+    // Filter attendance by current class students, semester, and selected view mode
+    const classAttendance = attendance.filter(a => {
+      // 1. Basic matching for class students and semester filtering
+      const matchBasic = (studentIds.includes(a.student_id) || studentIds.includes(a.studentId)) &&
+        !a.status.includes('present') &&
+        (gradeSemester === 0 || getTermForDate(a.date, a.term) === gradeSemester);
+        
+      if (!matchBasic) return false;
+      
+      const hourVal = parseInt(a.hour || 0, 10);
+
+      if (isDailyView) {
+        // Daily View: ONLY show hour === 0
+        return hourVal === 0;
+      } else {
+        // Subject View: ONLY show hour > 0 AND maps to a lesson taught by this user for the selected subject
+        if (hourVal === 0) return false; // Ignore daily
+        // Find corresponding lesson
+        const lesson = lessons.find(l => 
+          l.class_id === currentClass.id && 
+          l.date === a.date && 
+          l.topic?.includes(`[Ora ${hourVal}]`)
+        );
+        return lesson && lesson.teacher_id === user.id && lesson.subject === selectedSubject;
+      }
+    });
+
+    return (
+      <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => {
+            setNavigation({ view: 'my-classes', data: null });
+            setSelectedRegistryStudent(null);
+            setSelectedActionStudent(null);
+            setSelectedStudentForGrade(null);
+          }}>
+            <ArrowLeft size={18} color="#1e293b" />
+          </TouchableOpacity>
+          <View style={{ marginLeft: 16 }}>
+            <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a' }}>{formatClassName(currentClass)}</Text>
+            <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{t('absences') || 'Mungesat'}</Text>
+          </View>
+        </View>
+
+        <View style={{ padding: 20, paddingBottom: 10 }}>
+          <Text style={[styles.label, { marginBottom: 12 }]}>{t('absence_type') || 'Tipi i Mungesës'}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
+            {user.is_kujdestar && (
+              <TouchableOpacity
+                style={[styles.subjectChip, selectedSubject === 'Ditore' && styles.activeSubjectChip, { marginRight: 8 }]}
+                onPress={() => setSelectedSubject('Ditore')}
+              >
+                <Text style={[styles.subjectChipText, selectedSubject === 'Ditore' && styles.activeSubjectChipText]}>
+                  Ditore
+                </Text>
+              </TouchableOpacity>
+            )}
+            {getAvailableSubjects(currentClass).map(subject => (
+              <TouchableOpacity
+                key={subject}
+                style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, { marginRight: 8 }]}
+                onPress={() => setSelectedSubject(subject)}
+              >
+                <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{t(subject)}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={styles.semesterSelector}>
+          {[
+            { id: 0, label: t('all') },
+            { id: 1, label: t('first_semester') },
+            { id: 2, label: t('second_semester') },
+          ].map(sem => (
+            <TouchableOpacity
+              key={sem.id}
+              style={[styles.semesterChip, gradeSemester === sem.id && styles.activeSemesterChip]}
+              onPress={() => setGradeSemester(sem.id)}
+            >
+              <Text style={[styles.semesterChipText, gradeSemester === sem.id && styles.activeSemesterChipText]}>
+                {sem.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
+            {classStudents.map((student, idx) => {
+              const studentAtt = classAttendance.filter(a => a.student_id === student.id || a.studentId === student.id);
+              studentAtt.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+              const unjust = studentAtt.filter(a => a.status.includes('unjustified')).length;
+              const justified = studentAtt.filter(a => a.status.includes('justified')).length;
+
+              return (
+                <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa', minHeight: 80 }}>
+                  <View style={{ width: 150, paddingHorizontal: 12, paddingVertical: 12, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
+                    <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13 }} numberOfLines={3}>{student.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
+                      <View style={{ height: 18, paddingHorizontal: 6, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>{studentAtt.length} Mungesa</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 8, alignItems: 'center' }}>
+                    {studentAtt.map((attObj, aIdx) => {
+                      let color = '#ef4444'; 
+                      let bg = '#fef2f2';
+                      let char = 'M'; 
+                      
+                      if (attObj.status.includes('justified')) { color = '#10b981'; bg = '#f0fdf4'; char = 'M'; }
+                      else if (attObj.status.includes('late')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'V'; }
+                      else if (attObj.status.includes('early')) { color = '#8b5cf6'; bg = '#f5f3ff'; char = 'D'; }
+
+                      return (
+                        <TouchableOpacity 
+                          key={attObj.id || aIdx} 
+                          style={{ alignItems: 'center', gap: 2 }}
+                          onPress={() => {
+                            if (!isReadOnly && isDailyView) {
+                              setSelectedActionStudent(student);
+                              setSelectedDateToJustify(attObj.date);
+                              setJustifyReason('');
+                              setActiveActionTab('justify');
+                              setIsActionModalVisible(true);
+                            }
+                          }}
+                        >
+                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#1e293b' }}>
+                            {attObj.date.split('-').reverse().slice(0, 2).join('/')}
+                          </Text>
+                          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: color }}>
+                            <Text style={{ fontSize: 12, fontWeight: '900', color: color }}>{char}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={[styles.averageColumn, { width: 80 }]}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase' }}>Të pa Ars.</Text>
+                    <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: unjust > 0 ? '#fef2f2' : '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: unjust > 0 ? '#ef4444' : '#e2e8f0' }}>
+                      <Text style={{ fontSize: 16, fontWeight: '900', color: unjust > 0 ? '#ef4444' : '#94a3b8' }}>{unjust}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    );
+  };
+
   const renderClassNotatGrid = (currentClass) => {
     const classStudents = students
       .filter(s => s.classId === currentClass.id)
@@ -617,7 +869,7 @@ const TeacherDashboard = ({
     return (
       <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => {
+          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => {
             setNavigation({ view: 'my-classes', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -748,8 +1000,8 @@ const TeacherDashboard = ({
 
     return (
       <View style={styles.viewContainer}>
-        <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => {
+        <View style={[styles.navigationHeader, { flexDirection: 'row' }]}>
+          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => {
             setNavigation({ view: 'home', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -888,6 +1140,22 @@ const TeacherDashboard = ({
                 >
                   <Award size={18} color="#c026d3" />
                   <Text style={[styles.classActionText, { color: '#c026d3' }]} numberOfLines={1} adjustsFontSizeToFit>{t('grades') || 'Notat'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.classActionButton, { backgroundColor: '#f0fdfa' }]}
+                  onPress={() => {
+                    setNavigation({ view: 'class-attendance-grid', data: item });
+                    if (user.is_kujdestar) {
+                      setSelectedSubject('Ditore');
+                    } else {
+                      const classSubjects = getAvailableSubjects(item);
+                      setSelectedSubject(classSubjects.length > 0 ? classSubjects[0] : 'Ditore');
+                    }
+                  }}
+                >
+                  <UserCheck size={18} color="#0f766e" />
+                  <Text style={[styles.classActionText, { color: '#0f766e' }]} numberOfLines={1} adjustsFontSizeToFit>{t('mungesa') || 'Mungesat'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1301,15 +1569,23 @@ const TeacherDashboard = ({
                         setIsMinuteDropdownVisible(false);
 
                         // If this was an hourly record (hour > 0), check what the daily status became
-                        // If it's late or early_exit, show time modal to collect the time
+                        // Show time modal only if this is the first time the daily becomes late/early_exit
                         if (selectedAttendanceHour && selectedAttendanceHour > 0) {
+                          const prevDaily = attendance.find(a =>
+                            (a.student_id === selectedActionStudent.id || a.studentId === selectedActionStudent.id) &&
+                            a.date === formatDate(selectedDate) &&
+                            parseInt(a.hour || 0, 10) === 0
+                          );
+                          const prevDailyType = prevDaily?.status?.split(':')?.[0];
                           const newDaily = computeNewDailyStatus(
                             selectedActionStudent.id,
                             formatDate(selectedDate),
                             selectedAttendanceHour,
                             tempAttendanceStatus
                           );
-                          if (newDaily === 'late' || newDaily === 'early_exit') {
+                          // Only prompt for time if daily is becoming late/early_exit for the first time
+                          if ((newDaily === 'late' || newDaily === 'early_exit') &&
+                              (prevDailyType !== 'late' && prevDailyType !== 'early_exit')) {
                             setPendingTimeType(newDaily);
                             setPendingTimeStudentId(selectedActionStudent.id);
                             setPendingTimeDate(formatDate(selectedDate));
@@ -2058,7 +2334,7 @@ const TeacherDashboard = ({
       <View style={[styles.viewContainer, { flex: 1 }]}>
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, position: 'relative', justifyContent: 'center', minHeight: 70 }}>
-          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }]} onPress={() => {
+          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }, isDesktop && { display: 'none' }]} onPress={() => {
             setNavigation({ view: 'my-classes', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -2166,41 +2442,6 @@ const TeacherDashboard = ({
                          </Text>
                       )}
 
-                      {isMine && (
-                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                          <TouchableOpacity
-                            style={{ padding: 4, borderRadius: 6, backgroundColor: '#fff' }}
-                            onPress={() => {
-                              const cleanTopic = hasLesson.topic?.replace(/\[Ora \d+\]/, '').trim();
-                              setEditingLesson(hasLesson);
-                              setLessonHour(hour.toString());
-                              setSelectedSubject(hasLesson.subject);
-                              setLessonTopic(cleanTopic);
-                              // Find if there's homework for this lesson/date
-                              const hw = homework.find(h => h.class_id === hasLesson.class_id && h.due_date === hasLesson.date && h.subject === hasLesson.subject);
-                              setLessonHomework(hw?.description || '');
-                              setIsLessonModalVisible(true);
-                            }}
-                          >
-                            <Pencil size={12} color="#2563eb" />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={{ padding: 4, borderRadius: 6, backgroundColor: '#fff' }}
-                            onPress={() => {
-                              Alert.alert(
-                                t('delete_lesson') || 'Fshi Orën',
-                                t('confirm_delete_lesson') || 'A jeni të sigurt që dëshironi të fshini këtë orë? Kjo do të fshijë edhe të dhënat e prezencës për këtë orë.',
-                                [
-                                  { text: t('cancel'), style: 'cancel' },
-                                  { text: t('delete'), style: 'destructive', onPress: () => onDeleteLesson(hasLesson.id, hasLesson.date, hasLesson.class_id, parseInt(hour)) }
-                                ]
-                              );
-                            }}
-                          >
-                            <Trash2 size={12} color="#ef4444" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
                     </View>
                   );
                 })}
@@ -2343,7 +2584,7 @@ const TeacherDashboard = ({
         {/* Navigation Header */}
         <View style={[styles.navigationHeader, { paddingBottom: 10 }]}>
           <TouchableOpacity
-            style={styles.glassBackButton}
+            style={[styles.glassBackButton, isDesktop && { display: 'none' }]}
             onPress={() => setNavigation({ view: 'notat-students', data: data.class })}
           >
             <ArrowLeft size={18} color="#1e293b" />
@@ -2629,8 +2870,8 @@ const TeacherDashboard = ({
 
     return (
       <View style={styles.viewContainer}>
-        <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'notat-subjects', data: data })}>
+        <View style={[styles.navigationHeader, { flexDirection: 'row' }]}>
+          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => setNavigation({ view: 'notat-subjects', data: data })}>
             <ArrowLeft size={18} color="#1e293b" />
             <Text style={styles.backButtonText}>{data.student.name}</Text>
           </TouchableOpacity>
@@ -2832,8 +3073,8 @@ const TeacherDashboard = ({
 
     return (
       <View style={styles.viewContainer}>
-        <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'class-detail', data: currentClass })}>
+        <View style={[styles.navigationHeader, { flexDirection: 'row' }]}>
+          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => setNavigation({ view: 'class-detail', data: currentClass })}>
             <ArrowLeft size={18} color="#1e293b" />
             <Text style={styles.backButtonText}>{formatClassName(currentClass)}</Text>
           </TouchableOpacity>
@@ -2910,7 +3151,7 @@ const TeacherDashboard = ({
       <View style={styles.viewContainer}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, height: 60, marginBottom: 24 }}>
           <TouchableOpacity
-            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }]}
+            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }, isDesktop && { display: 'none' }]}
             onPress={() => setNavigation({ view: 'my-classes', data: null })}
           >
             <ArrowLeft size={18} color="#1e293b" />
@@ -3328,7 +3569,7 @@ const TeacherDashboard = ({
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerTopBar}>
+        <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
             <View style={styles.logoIcon}>
               <BookIcon size={18} color="white" />
@@ -3337,6 +3578,18 @@ const TeacherDashboard = ({
               <Text style={styles.headerTitle}>Ditari Elektronik</Text>
             </View>
           </View>
+
+          {isDesktop && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 32, flex: 1, justifyContent: 'center' }}>
+              <TouchableOpacity onPress={() => { setActiveView('home'); setNavigation({ view: 'home', data: null }); }} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeView === 'home' ? '#eff6ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeView === 'home' ? '#2563eb' : '#64748b' }}>{t('ballina') || 'Ballina'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setActiveView('lajmerimet'); setNavigation({ view: 'home', data: null }); }} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeView === 'lajmerimet' ? '#eff6ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeView === 'lajmerimet' ? '#2563eb' : '#64748b' }}>{t('notices') || 'Lajmërime'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <ProfileDropdown
             user={user}
             t={t}
@@ -3348,9 +3601,17 @@ const TeacherDashboard = ({
             changeAcademicYear={onChangeAcademicYear}
           />
         </View>
-        {(activeView === 'home' && (navigation.view === 'class-agenda' || navigation.view === 'class-detail')) && (
-          <CalendarStrip selectedDate={selectedDate} onDateSelect={setSelectedDate} />
-        )}
+        {(activeView === 'home' && (navigation.view === 'class-agenda' || navigation.view === 'class-detail')) && (() => {
+          const matchedSchool = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
+          return (
+            <CalendarStrip
+              selectedDate={selectedDate}
+              onDateSelect={setSelectedDate}
+              schoolStartDate={matchedSchool?.school_year_start}
+              schoolEndDate={matchedSchool?.school_year_end}
+            />
+          );
+        })()}
 
         {isReadOnly && (
           <View style={{
@@ -3371,15 +3632,18 @@ const TeacherDashboard = ({
         )}
       </View>
 
-      {activeView === 'home' && navigation.view === 'home' && renderHome()}
-      {activeView === 'home' && navigation.view === 'my-classes' && renderMyClasses()}
-      {activeView === 'home' && navigation.view === 'class-detail' && renderStudentSelection(navigation.data)}
-      {activeView === 'home' && navigation.view === 'notat-students' && renderStudentSelection(navigation.data)}
-      {activeView === 'home' && navigation.view === 'notat-subjects' && renderSubjectSelection(navigation.data)}
-      {activeView === 'home' && navigation.view === 'class-notat-grid' && renderClassNotatGrid(navigation.data)}
-      {activeView === 'home' && navigation.view === 'notat-history' && renderGradeHistory(navigation.data)}
-      {activeView === 'home' && navigation.view === 'class-agenda' && renderClassAgenda(navigation.data)}
-      {activeView === 'lajmerimet' && navigation.view === 'home' && renderNotices()}
+      <View style={[styles.scrollContent, isDesktop && { flex: 1, paddingHorizontal: 20 }]}>
+        {activeView === 'home' && navigation.view === 'home' && renderHome()}
+        {activeView === 'home' && navigation.view === 'my-classes' && renderMyClasses()}
+        {activeView === 'home' && navigation.view === 'class-detail' && renderStudentSelection(navigation.data)}
+        {activeView === 'home' && navigation.view === 'notat-students' && renderStudentSelection(navigation.data)}
+        {activeView === 'home' && navigation.view === 'notat-subjects' && renderSubjectSelection(navigation.data)}
+        {activeView === 'home' && navigation.view === 'class-notat-grid' && renderClassNotatGrid(navigation.data)}
+        {activeView === 'home' && navigation.view === 'class-attendance-grid' && renderClassAttendanceGrid(navigation.data)}
+        {activeView === 'home' && navigation.view === 'notat-history' && renderGradeHistory(navigation.data)}
+        {activeView === 'home' && navigation.view === 'class-agenda' && renderClassAgenda(navigation.data)}
+        {activeView === 'lajmerimet' && navigation.view === 'home' && renderNotices()}
+      </View>
 
       {renderGradeModal()}
 
@@ -3397,45 +3661,47 @@ const TeacherDashboard = ({
       {renderConfirmModal()}
 
 
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => {
-            setActiveView('home');
-            setNavigation({ view: 'home', data: null });
-          }}
-        >
-          <Home size={24} color={activeView === 'home' ? '#2563eb' : '#94a3b8'} />
-          <Text style={[styles.navText, activeView === 'home' && styles.activeNavText]}>{t('ballina') || 'Ballina'}</Text>
-        </TouchableOpacity>
+      {!isDesktop && (
+        <View style={styles.bottomNav}>
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => {
+              setActiveView('home');
+              setNavigation({ view: 'home', data: null });
+            }}
+          >
+            <Home size={24} color={activeView === 'home' ? '#2563eb' : '#94a3b8'} />
+            <Text style={[styles.navText, activeView === 'home' && styles.activeNavText]}>{t('ballina') || 'Ballina'}</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => {
-            setActiveView('lajmerimet');
-            setNavigation({ view: 'home', data: null });
-          }}
-        >
-          <View>
-            <Bell size={24} color={activeView === 'lajmerimet' ? '#2563eb' : '#94a3b8'} />
-            {(() => {
-              const teacherSchoolId = user.school_id;
-              const unread = (notices || []).filter(n =>
-                (n.school_id === teacherSchoolId || !n.school_id)
-              ).length;
-              if (unread > 0 && activeView !== 'lajmerimet') {
-                return (
-                  <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#db2777', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: 'white', fontSize: 9, fontWeight: '900' }}>{unread > 9 ? '9+' : unread}</Text>
-                  </View>
-                );
-              }
-              return null;
-            })()}
-          </View>
-          <Text style={[styles.navText, activeView === 'lajmerimet' && styles.activeNavText]}>{t('notices')}</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => {
+              setActiveView('lajmerimet');
+              setNavigation({ view: 'home', data: null });
+            }}
+          >
+            <View>
+              <Bell size={24} color={activeView === 'lajmerimet' ? '#2563eb' : '#94a3b8'} />
+              {(() => {
+                const teacherSchoolId = user.school_id;
+                const unread = (notices || []).filter(n =>
+                  (n.school_id === teacherSchoolId || !n.school_id)
+                ).length;
+                if (unread > 0 && activeView !== 'lajmerimet') {
+                  return (
+                    <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#db2777', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: 'white', fontSize: 9, fontWeight: '900' }}>{unread > 9 ? '9+' : unread}</Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+            </View>
+            <Text style={[styles.navText, activeView === 'lajmerimet' && styles.activeNavText]}>{t('notices')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Selected Notice Modal */}
       {selectedNotice && (
@@ -3825,6 +4091,7 @@ const styles = StyleSheet.create({
     marginTop: Platform.OS === 'ios' ? 0 : 12,
   },
   glassBackButton: {
+    display: Platform.OS === 'web' ? 'none' : 'flex',
     flexDirection: 'row',
     height: 44,
     borderRadius: 14,

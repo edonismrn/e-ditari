@@ -7,6 +7,7 @@ import {
   ScrollView,
   SafeAreaView,
   Dimensions,
+  useWindowDimensions,
   TextInput,
   FlatList,
   RefreshControl,
@@ -57,7 +58,8 @@ import {
   AlertCircle,
   AlertTriangle,
   User,
-  ArrowUpRight
+  ArrowUpRight,
+  Edit
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
@@ -83,12 +85,88 @@ const AdminDashboard = ({
   schoolAdmins, onRefresh, onUploadFile, onDeleteAllData, onUpdateSchoolStatus, onUpdateCurrentTerm,
   onPromoteStudentToClass, onUpdateTermStartDate, onBulkPromoteStudents,
   schoolCalendar, onUpdateSchoolDates, onAddCalendarEvent, onAddCalendarEvents, onDeleteCalendarEvent,
-  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
+  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear,
+  onUpdateTeacherKujdestar, onUpdateTeacher
 }) => {
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
+  
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && windowWidth > 768;
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
+
+  // Web Routing sync effect for Admin Dashboard
+  React.useEffect(() => {
+    if (!isDesktop || typeof window === 'undefined') return;
+
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      if (path === '/admin/ballina' || path === '/admin' || path === '/') {
+        setNavigation({ view: 'home', data: null });
+      } else if (path === '/admin/shkollat') {
+        setNavigation({ view: 'schools', data: null });
+      } else if (path === '/admin/mesuesit') {
+        setNavigation({ view: 'teachers', data: null });
+      } else if (path === '/admin/nxenesit') {
+        setNavigation({ view: 'students', data: null });
+      } else if (path === '/admin/kodet') {
+        setNavigation({ view: 'codes', data: null });
+      } else if (path === '/admin/cilesimet') {
+        setNavigation({ view: 'settings', data: null });
+      } else if (path === '/admin/lajmerimet') {
+        setNavigation({ view: 'notices', data: null });
+      } else if (path === '/admin/viti-shkollor') {
+        setNavigation({ view: 'school_year_mgmt', data: null });
+      } else if (path === '/admin/kalendari') {
+        setNavigation({ view: 'calendar_mgmt', data: null });
+      } else if (path.startsWith('/admin/shkollat/')) {
+        const id = path.split('/')[3];
+        if (id) {
+          const school = schools?.find(s => s.id === id) || { id };
+          setNavigation({ view: 'school-detail', data: school });
+        }
+      } else if (path.startsWith('/admin/klasat/')) {
+        const id = path.split('/')[3];
+        if (id) {
+          const cls = classes?.find(c => c.id === id) || { id };
+          setNavigation({ view: 'class-detail', data: cls });
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    if (!window.adminInitialLoadDone) {
+       handlePopState();
+       window.adminInitialLoadDone = true;
+    }
+
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isDesktop, schools, classes]);
+
+  // Sync state changes to browser URL automatically
+  React.useEffect(() => {
+    if (!isDesktop || typeof window === 'undefined') return;
+    
+    let targetUrl = '/admin/ballina';
+    const view = navigation.view;
+    if (view === 'home') targetUrl = '/admin/ballina';
+    else if (view === 'schools') targetUrl = '/admin/shkollat';
+    else if (view === 'teachers') targetUrl = '/admin/mesuesit';
+    else if (view === 'students') targetUrl = '/admin/nxenesit';
+    else if (view === 'codes') targetUrl = '/admin/kodet';
+    else if (view === 'settings') targetUrl = '/admin/cilesimet';
+    else if (view === 'notices') targetUrl = '/admin/lajmerimet';
+    else if (view === 'school_year_mgmt') targetUrl = '/admin/viti-shkollor';
+    else if (view === 'calendar_mgmt') targetUrl = '/admin/kalendari';
+    else if (view === 'school-detail' && navigation.data?.id) targetUrl = `/admin/shkollat/${navigation.data.id}`;
+    else if (view === 'class-detail' && navigation.data?.id) targetUrl = `/admin/klasat/${navigation.data.id}`;
+    
+    if (window.location.pathname !== targetUrl) {
+       window.history.pushState({}, '', targetUrl);
+    }
+  }, [navigation, isDesktop]);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeView, setActiveView] = useState('home');
   const [selectedAcademicSchoolId, setSelectedAcademicSchoolId] = useState(null);
@@ -99,8 +177,9 @@ const AdminDashboard = ({
   const [schoolYearEnd, setSchoolYearEnd] = useState('');
   const [tempDatePickerDate, setTempDatePickerDate] = useState(new Date());
   const [showYearDatePicker, setShowYearDatePicker] = useState(null);
-  const [calendarSubTab, setCalendarSubTab] = useState('setup');
+  const [calendarSubTab, setCalendarSubTab] = useState('calendar');
   const [academicTab, setAcademicTab] = useState('semesters');
+  const [schoolYearSubTab, setSchoolYearSubTab] = useState('start');
   const [selectedPromotionClassId, setSelectedPromotionClassId] = useState(null);
   const [promotedStudentIds, setPromotedStudentIds] = useState(new Set());
 
@@ -255,6 +334,8 @@ const AdminDashboard = ({
   const [teacherUsername, setTeacherUsername] = useState('');
   const [teacherPassword, setTeacherPassword] = useState('');
   const [teacherSubjects, setTeacherSubjects] = useState([]);
+  const [teacherIsKujdestar, setTeacherIsKujdestar] = useState(false);
+  const [editingTeacherId, setEditingTeacherId] = useState(null);
 
   // Class Form State
   const [newClassName, setNewClassName] = useState('');
@@ -333,6 +414,8 @@ const AdminDashboard = ({
     setTeacherUsername('');
     setTeacherPassword('');
     setTeacherSubjects([]);
+    setTeacherIsKujdestar(false);
+    setEditingTeacherId(null);
     setIsTeacherModalVisible(false);
   };
 
@@ -424,6 +507,22 @@ const AdminDashboard = ({
     if (!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0) {
       return;
     }
+
+    if (editingTeacherId) {
+      const result = await onUpdateTeacher(editingTeacherId, {
+        firstName: teacherFirstName,
+        lastName: teacherLastName,
+        subjects: teacherSubjects,
+        isKujdestar: teacherIsKujdestar
+      });
+      if (!result?.error) {
+        showAlert(t('teacher_updated') || 'Të dhënat e mësuesit u përditësuan!', 'success');
+        resetTeacherForm();
+      } else {
+        showAlert(result.error.message, 'error');
+      }
+      return;
+    }
     const result = await onAddTeacher({
       firstName: teacherFirstName,
       lastName: teacherLastName,
@@ -432,7 +531,8 @@ const AdminDashboard = ({
       password: teacherPassword,
       subjects: teacherSubjects,
       schoolId: schoolId,
-      email: teacherUsername
+      email: teacherUsername,
+      isKujdestar: teacherIsKujdestar
     });
 
     if (!result?.error) {
@@ -612,6 +712,18 @@ const AdminDashboard = ({
                         {item.is_active === false ? (t('school_status_inactive') || 'Jo-Aktive') : (t('school_status_active') || 'Aktive')}
                       </Text>
                     </View>
+                  ) : activeSettingsMode === 'manage_teachers' ? (
+                    <TouchableOpacity 
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        onUpdateTeacherKujdestar(item.id, !item.is_kujdestar);
+                      }}
+                      style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, backgroundColor: item.is_kujdestar ? '#eff6ff' : '#f1f5f9' }}
+                    >
+                       <Text style={{ fontSize: 10, fontWeight: 'bold', color: item.is_kujdestar ? '#2563eb' : '#64748b' }}>
+                          {item.is_kujdestar ? 'Kujdestar' : '—'}
+                       </Text>
+                    </TouchableOpacity>
                   ) : null}
                 </TouchableOpacity>
               )}
@@ -748,6 +860,17 @@ const AdminDashboard = ({
             <Bell size={24} color="#db2777" />
           </View>
           <Text style={styles.actionTileTitle}>{t('notices')}</Text>
+          <ChevronRight size={20} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionTile}
+          onPress={() => setNavigation({ view: 'school_year_mgmt', data: null })}
+        >
+          <View style={[styles.actionIconContainer, { backgroundColor: '#f0fdf4' }]}>
+            <BookOpen size={24} color="#10b981" />
+          </View>
+          <Text style={styles.actionTileTitle}>{t('school_year_mgmt') || 'Menaxhimi i vitit shkollor'}</Text>
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
 
@@ -1025,11 +1148,19 @@ const AdminDashboard = ({
                             <Text style={{ fontSize: 11, color: '#64748b' }}>{(teacher?.subjects || []).join(', ')}</Text>
                           </View>
                         </View>
-                        <TouchableOpacity onPress={() => handleRemoveTeacherLocal(tId)}>
-                          <View style={{ padding: 8, borderRadius: 8, backgroundColor: '#fef2f2' }}>
-                            <Trash2 size={16} color="#ef4444" />
-                          </View>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <TouchableOpacity 
+                            onPress={() => onUpdateTeacherKujdestar(tId, !teacher?.is_kujdestar)}
+                            style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, backgroundColor: teacher?.is_kujdestar ? '#eff6ff' : '#f1f5f9' }}
+                          >
+                            <Text style={{ fontSize: 10, fontWeight: 'bold', color: teacher?.is_kujdestar ? '#2563eb' : '#94a3b8' }}>{teacher?.is_kujdestar ? 'Kujdestar' : 'Bëj Kujdestar'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => handleRemoveTeacherLocal(tId)}>
+                            <View style={{ padding: 8, borderRadius: 8, backgroundColor: '#fef2f2' }}>
+                              <Trash2 size={16} color="#ef4444" />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     );
                   })}
@@ -1079,650 +1210,7 @@ const AdminDashboard = ({
         </View>
       );
     }
-    if (navigation.view === 'academic-year') {
-      const activeSchoolId = isSuperAdmin ? selectedAcademicSchoolId : user.school_id;
-      const activeSchool = schools.find(s => s.id === activeSchoolId);
 
-      if (isSuperAdmin && !selectedAcademicSchoolId) {
-        return (
-          <View style={styles.viewContainer}>
-            <View style={styles.navigationHeader}>
-              <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
-                <ArrowLeft size={18} color="#1e293b" />
-                <Text style={styles.backButtonText}>{t('back')}</Text>
-              </TouchableOpacity>
-              <Text style={styles.viewTitle}>{t('academic_year_mgmt')}</Text>
-            </View>
-            <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 20, marginLeft: 4 }}>{t('select_school_to_manage_calendar')}</Text>
-
-            <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-              {schools.map(school => (
-                <TouchableOpacity
-                  key={school.id}
-                  style={[styles.card, { padding: 20, flexDirection: 'row', alignItems: 'center', borderRadius: 24, marginBottom: 12 }]}
-                  onPress={() => {
-                    setSelectedAcademicSchoolId(school.id);
-                    setTermTwoDate(school.term_two_start_date || '');
-                  }}
-                >
-                  <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-                    <School size={20} color="#64748b" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b', marginBottom: 2 }}>{school.name}</Text>
-                    <Text style={{ fontSize: 12, color: '#94a3b8' }}>{school.city || '---'}</Text>
-                  </View>
-                  <ChevronRight size={18} color="#cbd5e1" />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        );
-      }
-
-
-      if (academicTab === 'archive' && selectedPromotionClassId === -1) {
-        const filteredClasses = (classes || []).filter(c => c.school_id === activeSchoolId);
-        return (
-          <View style={styles.viewContainer}>
-            <View style={styles.navigationHeader}>
-              <TouchableOpacity style={styles.backButton} onPress={() => setSelectedPromotionClassId(null)}>
-                <ArrowLeft size={18} color="#1e293b" />
-                <Text style={styles.backButtonText}>{t('back')}</Text>
-              </TouchableOpacity>
-              <Text style={styles.viewTitle}>{t('individual_promotion')}</Text>
-            </View>
-
-            <View style={{ padding: 24, paddingBottom: 16 }}>
-              <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>Zgjidhni Klasën</Text>
-              <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4, lineHeight: 20 }}>Zgjidhni një klasë për të menaxhuar nxënësit. Ju mund t'i zgjidhni ata një nga një ose të gjithë së bashku për t'i promovuar në klasën pasardhëse.</Text>
-            </View>
-
-            <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
-              {filteredClasses.map(cls => {
-                const classStudentIds = (students || []).filter(s => s.classId === cls.id).map(s => s.id);
-                const promotedCountInClass = classStudentIds.filter(sid => promotedStudentIds.has(sid)).length;
-
-                return (
-                  <TouchableOpacity
-                    key={cls.id}
-                    style={{
-                      backgroundColor: '#fff',
-                      borderRadius: 24,
-                      padding: 20,
-                      marginBottom: 14,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      borderWidth: 1.5,
-                      borderColor: promotedCountInClass > 0 ? '#10b981' : '#f1f5f9',
-                      shadowColor: promotedCountInClass > 0 ? '#10b981' : '#000',
-                      shadowOpacity: promotedCountInClass > 0 ? 0.08 : 0.03,
-                      shadowRadius: 10,
-                      elevation: 2
-                    }}
-                    onPress={() => setSelectedPromotionClassId(cls.id)}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                      <View style={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 18,
-                        backgroundColor: promotedCountInClass > 0 ? '#ecfdf5' : '#f8fafc',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
-                        <Users size={24} color={promotedCountInClass > 0 ? '#10b981' : '#64748b'} />
-                      </View>
-                      <View>
-                        <Text style={{ fontSize: 17, fontWeight: '800', color: '#1e293b' }}>{cls.name}</Text>
-                        <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{classStudentIds.length} Nxënës</Text>
-                      </View>
-                    </View>
-
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      {promotedCountInClass > 0 && (
-                        <View style={{ backgroundColor: '#10b981', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
-                          <Text style={{ color: 'white', fontSize: 12, fontWeight: '900' }}>{promotedCountInClass} Gati</Text>
-                        </View>
-                      )}
-                      <ChevronRight size={20} color="#cbd5e1" />
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-
-              {filteredClasses.length === 0 && (
-                <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 60 }}>
-                  <Users size={48} color="#cbd5e1" strokeWidth={1.5} />
-                  <Text style={{ marginTop: 16, fontSize: 16, color: '#94a3b8', fontWeight: '600' }}>Asnjë klasë e gjetur</Text>
-                </View>
-              )}
-            </ScrollView>
-
-            <View style={{ position: 'absolute', bottom: 30, left: 24, right: 24 }}>
-              <TouchableOpacity
-                style={{
-                  height: 64,
-                  borderRadius: 24,
-                  backgroundColor: '#334155',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 14,
-                  shadowColor: '#334155',
-                  shadowOpacity: 0.35,
-                  shadowRadius: 20,
-                  elevation: 6
-                }}
-                onPress={async () => {
-                  if (promotedStudentIds.size === 0) {
-                    showAlert('Ju lutem përzgjidhni të paktën një nxënës për të promovuar', 'error');
-                    return;
-                  }
-                  confirmDelete(`${t('confirm_promotion')}? (${promotedStudentIds.size} nxënës do të promovohen)`, async () => {
-                    setIsProcessing(true);
-                    const res = await onPromoteStudents(activeSchoolId, Array.from(promotedStudentIds));
-                    setIsProcessing(false);
-                    if (!res?.error) {
-                      showAlert(t('success'), 'success');
-                      setPromotedStudentIds(new Set());
-                      setSelectedPromotionClassId(null);
-                    } else {
-                      showAlert(res.error.message, 'error');
-                    }
-                  });
-                }}
-              >
-                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Check size={20} color="#fff" />
-                </View>
-                <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('save_promotions') || 'Ekzekuto Promovimin'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
-      }
-
-      if (academicTab === 'archive' && selectedPromotionClassId !== null && selectedPromotionClassId !== -1) {
-        const filteredClasses = (classes || []).filter(c => c.school_id === activeSchoolId);
-        const selectedClass = filteredClasses.find(c => c.id === selectedPromotionClassId);
-        const classStudents = (students || []).filter(s => s.classId === selectedPromotionClassId);
-
-        return (
-          <View style={styles.viewContainer}>
-            <View style={styles.navigationHeader}>
-              <TouchableOpacity style={styles.backButton} onPress={() => setSelectedPromotionClassId(-1)}>
-                <ArrowLeft size={18} color="#1e293b" />
-                <Text style={styles.backButtonText}>{t('back')}</Text>
-              </TouchableOpacity>
-              <Text style={styles.viewTitle}>{selectedClass?.name || t('student_selection')}</Text>
-            </View>
-
-            <View style={{ padding: 24, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>Përzgjidhni Nxënësit</Text>
-                <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4 }}>Klikoni mbi nxënësit që do të kalojnë në klasën pasardhëse.</Text>
-              </View>
-              <TouchableOpacity
-                style={{
-                  backgroundColor: '#f1f5f9',
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: '#e2e8f0'
-                }}
-                onPress={() => {
-                  const allInClassPromoted = classStudents.every(s => promotedStudentIds.has(s.id));
-                  const newSet = new Set(promotedStudentIds);
-                  if (allInClassPromoted) {
-                    classStudents.forEach(s => newSet.delete(s.id));
-                  } else {
-                    classStudents.forEach(s => newSet.add(s.id));
-                  }
-                  setPromotedStudentIds(newSet);
-                }}
-              >
-                <Text style={{ color: '#475569', fontWeight: '800', fontSize: 13 }}>{classStudents.every(s => promotedStudentIds.has(s.id)) ? 'Hiqi të Gjithë' : 'Selekto të Gjithë'}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
-              {classStudents.map(student => {
-                const isSelected = promotedStudentIds.has(student.id);
-                return (
-                  <TouchableOpacity
-                    key={student.id}
-                    style={{
-                      backgroundColor: isSelected ? '#ecfdf5' : '#fff',
-                      borderRadius: 20,
-                      padding: 16,
-                      marginBottom: 10,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      borderWidth: 1.5,
-                      borderColor: isSelected ? '#10b981' : '#f1f5f9'
-                    }}
-                    onPress={() => {
-                      const newSet = new Set(promotedStudentIds);
-                      if (isSelected) newSet.delete(student.id);
-                      else newSet.add(student.id);
-                      setPromotedStudentIds(newSet);
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                      <View style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 14,
-                        backgroundColor: isSelected ? '#10b981' : '#f8fafc',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
-                        {isSelected ? <Check size={20} color="#fff" /> : <User size={20} color="#94a3b8" />}
-                      </View>
-                      <View>
-                        <Text style={{ fontSize: 16, fontWeight: '700', color: isSelected ? '#065f46' : '#1e293b' }}>{student.name}</Text>
-                        <Text style={{ fontSize: 12, color: isSelected ? '#059669' : '#94a3b8', fontWeight: '600' }}>{isSelected ? 'Do të Pajiset me Dëftesë / Kalon' : 'Nuk është selektuar'}</Text>
-                      </View>
-                    </View>
-                    {isSelected && (
-                      <View style={{ backgroundColor: '#10b981', width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
-                        <Check size={14} color="#fff" strokeWidth={3} />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            <View style={{ position: 'absolute', bottom: 30, left: 24, right: 24 }}>
-              <TouchableOpacity
-                style={{
-                  height: 64,
-                  borderRadius: 24,
-                  backgroundColor: '#10b981',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 14,
-                  shadowColor: '#10b981',
-                  shadowOpacity: 0.3,
-                  shadowRadius: 15,
-                  elevation: 5
-                }}
-                onPress={() => setSelectedPromotionClassId(-1)}
-              >
-                <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>Vazhdo me Klasat e Tjera</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
-      }
-
-      return (
-        <View style={styles.viewContainer}>
-          <View style={styles.navigationHeader}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => isSuperAdmin ? setSelectedAcademicSchoolId(null) : setNavigation({ view: 'home', data: null })}
-            >
-              <ArrowLeft size={18} color="#1e293b" />
-              <Text style={styles.backButtonText}>{t('back')}</Text>
-            </TouchableOpacity>
-            <Text style={styles.viewTitle}>{t('academic_year_mgmt')}</Text>
-          </View>
-
-          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-            {/* Context Header */}
-            <View style={{ marginBottom: 24, paddingHorizontal: 4 }}>
-              <Text style={{ fontSize: 24, fontWeight: '900', color: '#0f172a', marginBottom: 4 }}>{activeSchool?.name}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#e0f2fe', borderRadius: 10 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>Viti {activeSchool?.current_year || '---'}</Text>
-                </View>
-                <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />
-                <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>Admin Dashboard</Text>
-              </View>
-            </View>
-
-            {/* Tab Switcher */}
-            <View style={{
-              flexDirection: 'row',
-              backgroundColor: '#f1f5f9',
-              padding: 6,
-              borderRadius: 18,
-              marginHorizontal: 4,
-              marginBottom: 24,
-              borderWidth: 1,
-              borderColor: '#e2e8f0'
-            }}>
-              <TouchableOpacity
-                onPress={() => setAcademicTab('semesters')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 12,
-                  borderRadius: 14,
-                  backgroundColor: academicTab === 'semesters' ? '#fff' : 'transparent',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  ...(academicTab === 'semesters' ? {
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                    elevation: 2
-                  } : {})
-                }}
-              >
-                <Text style={{
-                  fontSize: 14,
-                  fontWeight: '800',
-                  color: academicTab === 'semesters' ? '#1e293b' : '#64748b'
-                }}>{t('semesters_mgmt')}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setAcademicTab('archive')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 12,
-                  borderRadius: 14,
-                  backgroundColor: academicTab === 'archive' ? '#fff' : 'transparent',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  ...(academicTab === 'archive' ? {
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                    elevation: 2
-                  } : {})
-                }}
-              >
-                <Text style={{
-                  fontSize: 14,
-                  fontWeight: '800',
-                  color: academicTab === 'archive' ? '#1e293b' : '#64748b'
-                }}>{t('archiving_mgmt')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {academicTab === 'semesters' ? (
-              /* PART 1: Gjysemvjetori (Term Management) - Premium Design */
-              <View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20, paddingHorizontal: 4 }}>
-                  <View style={{ width: 5, height: 22, backgroundColor: '#4f46e5', borderRadius: 4 }} />
-                  <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 1 }}>{t('semesters_mgmt')}</Text>
-                </View>
-
-                <View style={{ gap: 16 }}>
-                  {/* 1. Transition Date Selection (Professional & Immediate) */}
-                  <View style={[styles.card, {
-                    padding: 0,
-                    borderRadius: 36,
-                    backgroundColor: '#fff',
-                    borderWidth: 1,
-                    borderColor: '#e0e7ff',
-                    shadowColor: '#4f46e5',
-                    shadowOpacity: 0.08,
-                    shadowRadius: 24,
-                    elevation: 5,
-                    overflow: 'hidden'
-                  }]}>
-                    {/* Header Section */}
-                    <View style={{ backgroundColor: '#EEF2FF', padding: 26, borderBottomWidth: 1, borderBottomColor: '#e0e7ff', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                      <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#4f46e5', alignItems: 'center', justifyContent: 'center', shadowColor: '#4f46e5', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 }}>
-                        <Calendar size={30} color="#ffffff" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 21, fontWeight: '900', color: '#1e293b', letterSpacing: -0.5 }}>{t('term_two_transition_date') || 'Fundi i Gjysemvjetorit të Parë'}</Text>
-                        <Text style={{ fontSize: 13.5, color: '#6366f1', fontWeight: '700', marginTop: 4, letterSpacing: 0.2 }}>{t('term_two_date_info') || 'Data kur sistemi kalon automatikisht në pjesën e dytë.'}</Text>
-                      </View>
-                    </View>
-
-                    {/* Body Section */}
-                    <View style={{ padding: 26 }}>
-                      <View style={{
-                        backgroundColor: '#f8fafc',
-                        borderRadius: 28,
-                        padding: 22,
-                        borderWidth: 1,
-                        borderColor: '#e2e8f0',
-                        marginBottom: 26,
-                        position: 'relative'
-                      }}>
-                        <TouchableOpacity
-                          activeOpacity={0.7}
-                          onPress={() => {
-                            if (Platform.OS === 'web') {
-                              document.getElementById('term-two-date-input').showPicker();
-                            }
-                          }}
-                        >
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                            <Text style={{ fontSize: 12, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.5 }}>Zgjidh Datën e Re</Text>
-                            <View style={{ backgroundColor: '#e2e8f0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
-                              <Text style={{ fontSize: 10, fontWeight: '900', color: '#475569', letterSpacing: 1 }}>AUTO SYNC UPDATE</Text>
-                            </View>
-                          </View>
-
-                          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20, padding: 18, paddingVertical: 20, borderWidth: 1.5, borderColor: '#c7d2fe', shadowColor: '#4f46e5', shadowOpacity: 0.05, shadowRadius: 8 }}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 28, fontWeight: '900', color: '#111827', letterSpacing: 1.5 }}>
-                                {((termTwoDate || activeSchool?.term_two_start_date) ? (termTwoDate || activeSchool?.term_two_start_date).split('-').reverse().join(' / ') : 'DD / MM / YYYY')}
-                              </Text>
-                            </View>
-                            <View style={{ width: 52, height: 52, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                              <Calendar size={26} color="#6366f1" />
-                            </View>
-                          </View>
-
-                          {/* Visualizer showing Term 1 -> Date -> Term 2 */}
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 30, paddingHorizontal: 12, pointerEvents: 'none' }}>
-                            <View style={{ position: 'absolute', left: '15%', top: -20 }}><Text style={{ fontSize: 12, fontWeight: '900', color: '#d97706', letterSpacing: 0.5 }}>SEM I</Text></View>
-                            <View style={{ flex: 1, height: 10, backgroundColor: '#fcd34d', borderTopLeftRadius: 5, borderBottomLeftRadius: 5 }} />
-
-                            <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#4f46e5', zIndex: 10, borderWidth: 3, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 3 }} />
-
-                            <View style={{ flex: 1, height: 10, backgroundColor: '#60a5fa', borderTopRightRadius: 5, borderBottomRightRadius: 5 }} />
-                            <View style={{ position: 'absolute', right: '15%', top: -20 }}><Text style={{ fontSize: 12, fontWeight: '900', color: '#2563eb', letterSpacing: 0.5 }}>SEM II</Text></View>
-                          </View>
-
-                          {Platform.OS === 'web' && (
-                            <input
-                              id="term-two-date-input"
-                              type="date"
-                              value={termTwoDate || (activeSchool?.term_two_start_date || '')}
-                              onChange={(e) => setTermTwoDate(e.target.value)}
-                              style={{
-                                position: 'absolute',
-                                opacity: 0,
-                                width: '100%',
-                                height: '100%',
-                                cursor: 'pointer'
-                              }}
-                            />
-                          )}
-                        </TouchableOpacity>
-                      </View>
-
-                      <TouchableOpacity
-                        style={{
-                          height: 64,
-                          borderRadius: 24,
-                          backgroundColor: '#4f46e5', // Make it pop like a real call to action
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 14,
-                          shadowColor: '#4f46e5',
-                          shadowOpacity: 0.35,
-                          shadowRadius: 20,
-                          elevation: 6
-                        }}
-                        onPress={async () => {
-                          const dateToSave = termTwoDate || activeSchool?.term_two_start_date;
-                          if (!dateToSave) { showAlert(t('fill_all_fields'), 'error'); return; }
-                          setIsProcessing(true);
-                          const res = await onUpdateTermStartDate(activeSchoolId, dateToSave);
-                          setIsProcessing(false);
-                          if (res?.error) showAlert(res.error.message, 'error');
-                          else showAlert(`${t('success')}!`, 'success');
-                        }}
-                      >
-                        <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
-                          <Check size={20} color="#fff" />
-                        </View>
-                        <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('save_date_btn') || 'Përditëso Konfigurimin'}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                </View>
-              </View>
-            ) : (
-              /* PART 2: Mbyllja dhe Promovimi (Year Archiving & Promotion) - Premium Design */
-              <View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20, paddingHorizontal: 4 }}>
-                  <View style={{ width: 5, height: 22, backgroundColor: '#ef4444', borderRadius: 4 }} />
-                  <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 1 }}>{t('archiving_mgmt') || 'Mbyllja dhe Promovimi'}</Text>
-                </View>
-
-                <View style={{ gap: 20 }}>
-
-                  {/* 1. Final Year Closure/Archive (Refined & Placed FIRST) */}
-                  <View style={[styles.card, {
-                    padding: 0,
-                    borderRadius: 36,
-                    backgroundColor: '#fff',
-                    borderWidth: 2,
-                    borderColor: '#fecaca',
-                    shadowColor: '#ef4444',
-                    shadowOpacity: 0.08,
-                    shadowRadius: 24,
-                    elevation: 5,
-                    overflow: 'hidden'
-                  }]}>
-                    <View style={{ backgroundColor: '#FEF2F2', padding: 26, borderBottomWidth: 1, borderBottomColor: '#fecaca', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                      <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 }}>
-                        <Archive size={30} color="#ffffff" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Text style={{ fontSize: 21, fontWeight: '900', color: '#991b1b', letterSpacing: -0.5 }}>{t('archive_year') || 'HAPI 1: Mbyllja e Vitit'}</Text>
-                        </View>
-                        <Text style={{ fontSize: 13.5, color: '#dc2626', fontWeight: '700', marginTop: 4, letterSpacing: 0.2 }}>{t('archive_desc') || 'Krijon një "fotografi" të vitit aktual dhe fshin arkivat e vjetra për t\'i mbyllur ato.'}</Text>
-                      </View>
-                    </View>
-
-                    <View style={{ padding: 26 }}>
-                      <TouchableOpacity
-                        style={{
-                          height: 64,
-                          borderRadius: 24,
-                          backgroundColor: '#ef4444',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          shadowColor: '#ef4444',
-                          shadowOpacity: 0.35,
-                          shadowRadius: 20,
-                          elevation: 6
-                        }}
-                        onPress={() => {
-                          confirmDelete(`${t('confirm_archive')} (${activeSchool?.current_year})?`, async () => {
-                            setIsProcessing(true);
-                            const res = await onArchiveYear(activeSchoolId, activeSchool?.current_year);
-                            setIsProcessing(false);
-                            if (!res?.error) {
-                              showAlert(`${t('archive_success_msg')}! Viti i ri: ${res.nextYear}`, "success");
-                            }
-                          });
-                        }}
-                      >
-                        <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('archive_btn') || 'Mbyll Vitin Akademik'}</Text>
-                      </TouchableOpacity>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 20 }}>
-                        <AlertTriangle size={16} color="#ef4444" />
-                        <Text style={{ textAlign: 'center', fontSize: 13, color: '#ef4444', fontWeight: '700', letterSpacing: 0.5 }}>Ky veprim kristalizon notat. Kryeje I PARI!</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* 2. Class & Student Promotion Workspace (Refined & Placed SECOND) */}
-                  <View style={[styles.card, {
-                    padding: 0,
-                    borderRadius: 36,
-                    backgroundColor: '#fff',
-                    borderWidth: 1,
-                    borderColor: '#f1f5f9',
-                    shadowColor: '#94a3b8',
-                    shadowOpacity: 0.05,
-                    shadowRadius: 20,
-                    elevation: 3,
-                    overflow: 'hidden'
-                  }]}>
-                    <View style={{ backgroundColor: '#F8FAFC', padding: 26, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                      <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center', shadowColor: '#334155', shadowOpacity: 0.25, shadowRadius: 10, elevation: 6 }}>
-                        <ArrowUpRight size={30} color="#ffffff" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 21, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>{t('promote_classes_btn') || 'HAPI 2: Promovimi i Klasave'}</Text>
-                        <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4, letterSpacing: 0.2 }}>{t('confirm_promotion_desc') || 'Sposton nxënësit në klasat pasardhëse për vitin e ri.'}</Text>
-                      </View>
-                    </View>
-
-                    <View style={{ padding: 26 }}>
-                      <View style={{ flexDirection: 'row', gap: 14, marginBottom: 26 }}>
-                        <TouchableOpacity
-                          style={{
-                            flex: 1,
-                            height: 64,
-                            borderRadius: 20,
-                            backgroundColor: '#e2e8f0',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderWidth: 2,
-                            borderColor: '#cbd5e1'
-                          }}
-                          onPress={() => {
-                            setAcademicTab('archive');
-                            setSelectedPromotionClassId(-1);
-                            setPromotedStudentIds(new Set()); // Reset on entry
-                          }}
-                        >
-                          <Text style={{ color: '#475569', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>{t('manage_promotions') || 'Menaxho Promovimet'}</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Quick Glance of Classes */}
-                      <View style={{ backgroundColor: '#f8fafc', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 14, letterSpacing: 1.2 }}>Struktura Aktuale e Klasave</Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                          {(classes || []).filter(c => c.school_id === activeSchoolId).slice(0, 10).map(cls => (
-                            <View key={cls.id} style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4 }}>
-                              <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>{cls.name}</Text>
-                            </View>
-                          ))}
-                          {(classes || []).filter(c => c.school_id === activeSchoolId).length > 10 && (
-                            <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#e2e8f0', borderRadius: 14, borderWidth: 1, borderColor: '#cbd5e1' }}>
-                              <Text style={{ fontSize: 14, fontWeight: '900', color: '#475569' }}>+{(classes || []).filter(c => c.school_id === activeSchoolId).length - 10}</Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                </View>
-              </View>
-            )}
-          </ScrollView>
-        </View>
-      );
-    }
 
     if (navigation.view === 'school-directory') {
       return (
@@ -1946,6 +1434,21 @@ const AdminDashboard = ({
 
               {!isTeacherSelectionMode && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={[styles.smallAddButton, { backgroundColor: '#f0fdf4', paddingHorizontal: 10 }]}
+                    onPress={() => {
+                      setTeacherFirstName(teacher.first_name || '');
+                      setTeacherLastName(teacher.last_name || '');
+                      setTeacherUsername(teacher.email || '');
+                      setTeacherPassword('********'); // Placeholder for edit
+                      setTeacherSubjects(teacher.subjects || []);
+                      setTeacherIsKujdestar(teacher.is_kujdestar || false);
+                      setEditingTeacherId(teacher.id);
+                      setIsTeacherModalVisible(true);
+                    }}
+                  >
+                    <Edit size={16} color="#10b981" />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.smallAddButton, { backgroundColor: '#eff6ff', paddingHorizontal: 10 }]}
                     onPress={() => setNavigation({ view: 'teachers', data: teacher, mode: 'link' })}
@@ -2349,12 +1852,11 @@ const AdminDashboard = ({
               </View>
             ))}
           </View>
-          {/* Pill Tabs */}
+          {/* Pill Tabs — only 2 tabs */}
           <View style={{ flexDirection: 'row', padding: 5, backgroundColor: '#f1f5f9', borderRadius: 22, height: 52, alignItems: 'center', marginBottom: 0 }}>
             {[
-              { id: 'setup', label: t('setup_tab'), icon: Settings },
-              { id: 'calendar', label: t('calendar_tab'), icon: Calendar },
-              { id: 'history', label: t('history_tab'), icon: List },
+              { id: 'calendar', label: t('calendar_tab') || 'Shëno dit feste/shkollë', icon: Calendar },
+              { id: 'history', label: t('history_tab') || 'Lista e pushimeve', icon: List },
             ].map(tab => {
               const isActive = calendarSubTab === tab.id;
               return (
@@ -2364,7 +1866,7 @@ const AdminDashboard = ({
                   onPress={() => { setCalendarSubTab(tab.id); setCalendarStep(1); }}
                 >
                   <tab.icon size={14} color={isActive ? '#2563eb' : '#64748b'} strokeWidth={isActive ? 2.5 : 2} />
-                  <Text style={{ fontSize: 12, fontWeight: '900', color: isActive ? '#2563eb' : '#64748b' }}>{tab.label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '900', color: isActive ? '#2563eb' : '#64748b' }}>{tab.label}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -2372,124 +1874,7 @@ const AdminDashboard = ({
         </View>
         <ScrollView style={[styles.scrollContent, { backgroundColor: '#f8fafc' }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 100 }}>
 
-          {calendarSubTab === 'setup' && (
-            <View>
-              {/* Current dates info banner */}
-              {(currentSchool?.school_year_start || currentSchool?.school_year_end) && (
-                <View style={{ backgroundColor: '#eff6ff', borderRadius: 24, padding: 20, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: '#dbeafe' }}>
-                  <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
-                    <Info size={22} color="#2563eb" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{t('current_school_year') || 'Viti shkollor aktual'}</Text>
-                    <Text style={{ fontSize: 15, fontWeight: '900', color: '#1e293b' }}>
-                      {(currentSchool?.school_year_start ? currentSchool.school_year_start.split('-').reverse().join('/') : '—')} {'→'} {(currentSchool?.school_year_end ? currentSchool.school_year_end.split('-').reverse().join('/') : '—')}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Date pickers card */}
-              <View style={{ backgroundColor: 'white', borderRadius: 28, overflow: 'hidden', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 4 }}>
-                {/* Start date - Direct Input Interaction for Web */}
-                <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-                    <Calendar size={22} color="#2563eb" />
-                  </View>
-                  <TouchableOpacity
-                    style={{ flex: 1 }}
-                    onPress={() => {
-                      if (Platform.OS === 'web') {
-                        document.getElementById('school-year-start-input').showPicker();
-                      }
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{t('start_date')}</Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-                      <Text style={{ fontSize: 16, fontWeight: '700', color: (schoolYearStart || currentSchool?.school_year_start) ? '#1e293b' : '#cbd5e1' }}>
-                        {((schoolYearStart || currentSchool?.school_year_start) ? (schoolYearStart || currentSchool?.school_year_start).split('-').reverse().join('/') : 'DD/MM/YYYY')}
-                      </Text>
-                      <ChevronRight size={18} color="#64748b" />
-                    </View>
-
-                    {Platform.OS === 'web' && (
-                      <input
-                        id="school-year-start-input"
-                        type="date"
-                        value={schoolYearStart || currentSchool?.school_year_start || ''}
-                        onChange={(e) => setSchoolYearStart(e.target.value)}
-                        style={{
-                          position: 'absolute',
-                          opacity: 0,
-                          width: '100%',
-                          height: '100%',
-                          cursor: 'pointer'
-                        }}
-                      />
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-
-
-                {/* End date - Direct Input Interaction for Web */}
-                <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', padding: 20 }}>
-                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#fdf4ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-                    <Calendar size={22} color="#a21caf" />
-                  </View>
-                  <TouchableOpacity
-                    style={{ flex: 1 }}
-                    onPress={() => {
-                      if (Platform.OS === 'web') {
-                        document.getElementById('school-year-end-input').showPicker();
-                      }
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{t('end_date')}</Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-                      <Text style={{ fontSize: 16, fontWeight: '700', color: (schoolYearEnd || currentSchool?.school_year_end) ? '#1e293b' : '#cbd5e1' }}>
-                        {((schoolYearEnd || currentSchool?.school_year_end) ? (schoolYearEnd || currentSchool?.school_year_end).split('-').reverse().join('/') : 'DD/MM/YYYY')}
-                      </Text>
-                      <ChevronRight size={18} color="#64748b" />
-                    </View>
-
-                    {Platform.OS === 'web' && (
-                      <input
-                        id="school-year-end-input"
-                        type="date"
-                        value={schoolYearEnd || currentSchool?.school_year_end || ''}
-                        onChange={(e) => setSchoolYearEnd(e.target.value)}
-                        style={{
-                          position: 'absolute',
-                          opacity: 0,
-                          width: '100%',
-                          height: '100%',
-                          cursor: 'pointer'
-                        }}
-                      />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-
-              {/* Save button */}
-              <TouchableOpacity
-                style={{ height: 60, borderRadius: 22, marginTop: 16, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8, flexDirection: 'row', gap: 10 }}
-                onPress={async () => {
-                  const start = schoolYearStart || currentSchool?.school_year_start;
-                  const end = schoolYearEnd || currentSchool?.school_year_end;
-                  if (!start || !end) { showAlert(t('fill_all_fields'), 'error'); return; }
-                  const res = await onUpdateSchoolDates(activeSchoolId, start, end);
-                  if (res?.error) showAlert(res.error.message, 'error');
-                  else showAlert(t('success'), 'success');
-                }}
-              >
-                <Check size={20} color="white" />
-                <Text style={{ color: 'white', fontWeight: '900', fontSize: 17 }}>{t('save')}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          {/* setup tab removed from here — moved to school_year_mgmt view */}
 
           {calendarSubTab === 'calendar' && (
             <View style={[styles.card, { flexDirection: 'column', padding: 0, borderRadius: 32, overflow: 'hidden', borderBottomWidth: 0, shadowColor: '#94a3b8', shadowRadius: 25, shadowOpacity: 0.12 }]}>
@@ -2723,6 +2108,477 @@ const AdminDashboard = ({
                 </View>
               )}
             </View>
+          )}
+
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderSchoolYearMgmt = () => {
+    const activeSchoolId = isSuperAdmin ? selectedCalendarSchool : user.school_id;
+    const currentSchool = schools.find(s => s.id === activeSchoolId);
+
+    // Super Admin: school picker screen
+    if (isSuperAdmin && !selectedCalendarSchool) {
+      return (
+        <View style={styles.viewContainer}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.scrollContent} contentContainerStyle={{ padding: 20 }}>
+            <View style={{ marginBottom: 32, alignItems: 'center', marginTop: 20 }}>
+              <View style={{ width: 80, height: 80, borderRadius: 28, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                <BookOpen size={40} color="#10b981" />
+              </View>
+              <Text style={{ fontSize: 24, fontWeight: '900', color: '#0f172a', textAlign: 'center' }}>{t('select_school_first')}</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 8 }}>{t('select_school_to_manage_calendar') || 'Zgjidhni një shkollë për të menaxhuar vitin shkollor'}</Text>
+            </View>
+            <View style={{ gap: 16 }}>
+              {schools.map(s => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.card, { padding: 20, marginBottom: 0, flexDirection: 'row', alignItems: 'center', borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }]}
+                  onPress={() => {
+                    setSelectedCalendarSchool(s.id);
+                    setSchoolYearSubTab('start');
+                  }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <School size={24} color="#64748b" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 17, fontWeight: '800', color: '#1e293b' }}>{s.name}</Text>
+                    <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontWeight: '600' }}>{s.city}</Text>
+                  </View>
+                  <ChevronRight size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    if (schoolYearSubTab === 'end' && selectedPromotionClassId === -1) {
+      const filteredClasses = (classes || []).filter(c => c.school_id === activeSchoolId);
+      return (
+        <View style={styles.viewContainer}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setSelectedPromotionClassId(null)}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
+            <Text style={styles.viewTitle}>{t('individual_promotion')}</Text>
+          </View>
+          <View style={{ padding: 24, paddingBottom: 16 }}>
+            <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>Zgjidhni Klasën</Text>
+            <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4, lineHeight: 20 }}>Zgjidhni një klasë për të menaxhuar nxënësit. Ju mund t'i zgjidhni ata një nga një ose të gjithë së bashku për t'i promovuar në klasën pasardhëse.</Text>
+          </View>
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
+            {filteredClasses.map(cls => {
+              const classStudentIds = (students || []).filter(s => s.classId === cls.id).map(s => s.id);
+              const promotedCountInClass = classStudentIds.filter(sid => promotedStudentIds.has(sid)).length;
+              return (
+                <TouchableOpacity
+                  key={cls.id}
+                  style={{ backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: promotedCountInClass > 0 ? '#10b981' : '#f1f5f9', shadowColor: promotedCountInClass > 0 ? '#10b981' : '#000', shadowOpacity: promotedCountInClass > 0 ? 0.08 : 0.03, shadowRadius: 10, elevation: 2 }}
+                  onPress={() => setSelectedPromotionClassId(cls.id)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                    <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: promotedCountInClass > 0 ? '#ecfdf5' : '#f8fafc', alignItems: 'center', justifyContent: 'center' }}>
+                      <Users size={24} color={promotedCountInClass > 0 ? '#10b981' : '#64748b'} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: '#1e293b' }}>{cls.name}</Text>
+                      <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{classStudentIds.length} Nxënës</Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    {promotedCountInClass > 0 && (
+                      <View style={{ backgroundColor: '#10b981', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
+                        <Text style={{ color: 'white', fontSize: 12, fontWeight: '900' }}>{promotedCountInClass} Gati</Text>
+                      </View>
+                    )}
+                    <ChevronRight size={20} color="#cbd5e1" />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <View style={{ position: 'absolute', bottom: 30, left: 24, right: 24 }}>
+            <TouchableOpacity
+              style={{ height: 64, borderRadius: 24, backgroundColor: '#334155', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, shadowColor: '#334155', shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 }}
+              onPress={async () => {
+                if (promotedStudentIds.size === 0) { showAlert('Ju lutem përzgjidhni të paktën një nxënës për të promovuar', 'error'); return; }
+                confirmDelete(`${t('confirm_promotion')}? (${promotedStudentIds.size} nxënës do të promovohen)`, async () => {
+                  setIsProcessing(true);
+                  const res = await onPromoteStudents(activeSchoolId, Array.from(promotedStudentIds));
+                  setIsProcessing(false);
+                  if (!res?.error) { showAlert(t('success'), 'success'); setPromotedStudentIds(new Set()); setSelectedPromotionClassId(null); }
+                  else showAlert(res.error.message, 'error');
+                });
+              }}
+            >
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                <Check size={20} color="#fff" />
+              </View>
+              <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('save_promotions') || 'Ekzekuto Promovimin'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    if (schoolYearSubTab === 'end' && selectedPromotionClassId !== null && selectedPromotionClassId !== -1) {
+      const filteredClasses = (classes || []).filter(c => c.school_id === activeSchoolId);
+      const selectedClass = filteredClasses.find(c => c.id === selectedPromotionClassId);
+      const classStudents = (students || []).filter(s => s.classId === selectedPromotionClassId);
+      return (
+        <View style={styles.viewContainer}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setSelectedPromotionClassId(-1)}>
+              <ArrowLeft size={18} color="#1e293b" />
+              <Text style={styles.backButtonText}>{t('back')}</Text>
+            </TouchableOpacity>
+            <Text style={styles.viewTitle}>{selectedClass?.name || t('student_selection')}</Text>
+          </View>
+          <View style={{ padding: 24, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>Përzgjidhni Nxënësit</Text>
+              <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4 }}>Klikoni mbi nxënësit që do të kalojnë në klasën pasardhëse.</Text>
+            </View>
+            <TouchableOpacity
+              style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0' }}
+              onPress={() => {
+                const allInClassPromoted = classStudents.every(s => promotedStudentIds.has(s.id));
+                const newSet = new Set(promotedStudentIds);
+                if (allInClassPromoted) classStudents.forEach(s => newSet.delete(s.id));
+                else classStudents.forEach(s => newSet.add(s.id));
+                setPromotedStudentIds(newSet);
+              }}
+            >
+              <Text style={{ color: '#475569', fontWeight: '800', fontSize: 13 }}>{classStudents.every(s => promotedStudentIds.has(s.id)) ? 'Hiqi të Gjithë' : 'Selekto të Gjithë'}</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
+            {classStudents.map(student => {
+              const isSelected = promotedStudentIds.has(student.id);
+              return (
+                <TouchableOpacity
+                  key={student.id}
+                  style={{ backgroundColor: isSelected ? '#ecfdf5' : '#fff', borderRadius: 20, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: isSelected ? '#10b981' : '#f1f5f9' }}
+                  onPress={() => {
+                    const newSet = new Set(promotedStudentIds);
+                    if (isSelected) newSet.delete(student.id);
+                    else newSet.add(student.id);
+                    setPromotedStudentIds(newSet);
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                    <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: isSelected ? '#10b981' : '#f8fafc', alignItems: 'center', justifyContent: 'center' }}>
+                      {isSelected ? <Check size={20} color="#fff" /> : <User size={20} color="#94a3b8" />}
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: isSelected ? '#065f46' : '#1e293b' }}>{student.name}</Text>
+                      <Text style={{ fontSize: 12, color: isSelected ? '#059669' : '#94a3b8', fontWeight: '600' }}>{isSelected ? 'Do të Pajiset me Dëftesë / Kalon' : 'Nuk është selektuar'}</Text>
+                    </View>
+                  </View>
+                  {isSelected && (
+                    <View style={{ backgroundColor: '#10b981', width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                      <Check size={14} color="#fff" strokeWidth={3} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <View style={{ position: 'absolute', bottom: 30, left: 24, right: 24 }}>
+            <TouchableOpacity
+              style={{ height: 64, borderRadius: 24, backgroundColor: '#10b981', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, shadowColor: '#10b981', shadowOpacity: 0.3, shadowRadius: 15, elevation: 5 }}
+              onPress={() => setSelectedPromotionClassId(-1)}
+            >
+              <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>Vazhdo me Klasat e Tjera</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    const tabs = [
+      { id: 'start', label: t('school_year_start_tab') || 'Fillimi i vitit shkollor', icon: Calendar, color: '#2563eb', bg: '#eff6ff' },
+      { id: 'semester', label: t('school_year_semester_tab') || 'Gjysemvjetori', icon: BookOpen, color: '#4f46e5', bg: '#eef2ff' },
+      { id: 'end', label: t('school_year_end_tab') || 'Mbyllja e vitit shkollor', icon: Archive, color: '#a21caf', bg: '#fdf4ff' },
+    ];
+
+    return (
+      <View style={styles.viewContainer}>
+        <View style={styles.navigationHeader}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <TouchableOpacity
+              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}
+              onPress={() => isSuperAdmin ? setSelectedCalendarSchool(null) : setNavigation({ view: 'home', data: null })}
+            >
+              <ArrowLeft size={18} color="#1e293b" />
+            </TouchableOpacity>
+            <View>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('school_year_mgmt') || 'Menaxhimi i vitit shkollor'}</Text>
+              {currentSchool && (
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>{currentSchool.name}</Text>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* 3-tab pill switcher */}
+        <View style={{ backgroundColor: '#ffffff', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 }}>
+          <View style={{ flexDirection: 'row', padding: 5, backgroundColor: '#f1f5f9', borderRadius: 22, alignItems: 'center' }}>
+            {tabs.map(tab => {
+              const isActive = schoolYearSubTab === tab.id;
+              return (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={{ flex: 1, paddingVertical: 10, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: 18, backgroundColor: isActive ? 'white' : 'transparent', shadowColor: isActive ? '#000' : 'transparent', shadowOffset: { width: 0, height: 2 }, shadowOpacity: isActive ? 0.08 : 0, shadowRadius: 4, elevation: isActive ? 1 : 0 }}
+                  onPress={() => setSchoolYearSubTab(tab.id)}
+                >
+                  <tab.icon size={14} color={isActive ? tab.color : '#64748b'} strokeWidth={isActive ? 2.5 : 2} />
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: isActive ? tab.color : '#64748b', textAlign: 'center' }}>{tab.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <ScrollView style={[styles.scrollContent, { backgroundColor: '#f8fafc' }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 100 }}>
+
+          {/* TAB: Fillimi i vitit shkollor */}
+          {schoolYearSubTab === 'start' && (
+            <View>
+              {(currentSchool?.school_year_start || currentSchool?.school_year_end) && (
+                <View style={{ backgroundColor: '#eff6ff', borderRadius: 24, padding: 20, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: '#dbeafe' }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
+                    <Info size={22} color="#2563eb" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{t('current_school_year') || 'Viti shkollor aktual'}</Text>
+                    <Text style={{ fontSize: 15, fontWeight: '900', color: '#1e293b' }}>
+                      {(currentSchool?.school_year_start ? currentSchool.school_year_start.split('-').reverse().join('/') : '—')} {'→'} {(currentSchool?.school_year_end ? currentSchool.school_year_end.split('-').reverse().join('/') : '—')}
+                    </Text>
+                  </View>
+                </View>
+              )}
+              <View style={{ backgroundColor: 'white', borderRadius: 28, overflow: 'hidden', shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 4 }}>
+                <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <Calendar size={22} color="#2563eb" />
+                  </View>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() => { if (Platform.OS === 'web') document.getElementById('syrm-start-input').showPicker(); }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{t('start_date')}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: (schoolYearStart || currentSchool?.school_year_start) ? '#1e293b' : '#cbd5e1' }}>
+                        {(schoolYearStart || currentSchool?.school_year_start) ? (schoolYearStart || currentSchool?.school_year_start).split('-').reverse().join('/') : 'DD/MM/YYYY'}
+                      </Text>
+                      <ChevronRight size={18} color="#64748b" />
+                    </View>
+                    {Platform.OS === 'web' && (
+                      <input
+                        id="syrm-start-input"
+                        type="date"
+                        value={schoolYearStart || currentSchool?.school_year_start || ''}
+                        onChange={(e) => setSchoolYearStart(e.target.value)}
+                        style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* END DATE PICKER ADDED HERE */}
+                <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', padding: 20 }}>
+                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: '#fdf4ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <Calendar size={22} color="#a21caf" />
+                  </View>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() => { if (Platform.OS === 'web') document.getElementById('syrm-end-input-2').showPicker(); }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{t('end_date')}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: (schoolYearEnd || currentSchool?.school_year_end) ? '#1e293b' : '#cbd5e1' }}>
+                        {(schoolYearEnd || currentSchool?.school_year_end) ? (schoolYearEnd || currentSchool?.school_year_end).split('-').reverse().join('/') : 'DD/MM/YYYY'}
+                      </Text>
+                      <ChevronRight size={18} color="#64748b" />
+                    </View>
+                    {Platform.OS === 'web' && (
+                      <input
+                        id="syrm-end-input-2"
+                        type="date"
+                        value={schoolYearEnd || currentSchool?.school_year_end || ''}
+                        onChange={(e) => setSchoolYearEnd(e.target.value)}
+                        style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={{ height: 60, borderRadius: 22, marginTop: 16, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8, flexDirection: 'row', gap: 10 }}
+                onPress={async () => {
+                  const start = schoolYearStart || currentSchool?.school_year_start;
+                  const end = schoolYearEnd || currentSchool?.school_year_end;
+                  if (!start || !end) { showAlert(t('fill_all_fields'), 'error'); return; }
+                  const res = await onUpdateSchoolDates(activeSchoolId, start, end);
+                  if (res?.error) showAlert(res.error.message, 'error');
+                  else showAlert(t('success'), 'success');
+                }}
+              >
+                <Check size={20} color="white" />
+                <Text style={{ color: 'white', fontWeight: '900', fontSize: 17 }}>{t('save')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* TAB: Gjysemvjetori */}
+          {schoolYearSubTab === 'semester' && (
+            <View style={{ gap: 16 }}>
+              <View style={[styles.card, {
+                padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e7ff',
+                shadowColor: '#4f46e5', shadowOpacity: 0.08, shadowRadius: 24, elevation: 5, overflow: 'hidden'
+              }]}>
+                <View style={{ backgroundColor: '#EEF2FF', padding: 26, borderBottomWidth: 1, borderBottomColor: '#e0e7ff', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                  <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#4f46e5', alignItems: 'center', justifyContent: 'center', shadowColor: '#4f46e5', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 }}>
+                    <Calendar size={30} color="#ffffff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 21, fontWeight: '900', color: '#1e293b', letterSpacing: -0.5 }}>{t('term_two_transition_date') || 'Fundi i Gjysemvjetorit të Parë'}</Text>
+                    <Text style={{ fontSize: 13.5, color: '#6366f1', fontWeight: '700', marginTop: 4, letterSpacing: 0.2 }}>{t('term_two_date_info') || 'Data kur sistemi kalon automatikisht në pjesën e dytë.'}</Text>
+                  </View>
+                </View>
+                <View style={{ padding: 26 }}>
+                  <View style={{ backgroundColor: '#f8fafc', borderRadius: 28, padding: 22, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 26, position: 'relative' }}>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => { if (Platform.OS === 'web') document.getElementById('syrm-term-two-input').showPicker(); }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.5 }}>Zgjidh Datën e Re</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20, padding: 18, paddingVertical: 20, borderWidth: 1.5, borderColor: '#c7d2fe' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 28, fontWeight: '900', color: '#111827', letterSpacing: 1.5 }}>
+                            {((termTwoDate || currentSchool?.term_two_start_date) ? (termTwoDate || currentSchool?.term_two_start_date).split('-').reverse().join(' / ') : 'DD / MM / YYYY')}
+                          </Text>
+                        </View>
+                        <View style={{ width: 52, height: 52, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                          <Calendar size={26} color="#6366f1" />
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 30, paddingHorizontal: 12, pointerEvents: 'none' }}>
+                        <View style={{ position: 'absolute', left: '15%', top: -20 }}><Text style={{ fontSize: 12, fontWeight: '900', color: '#d97706', letterSpacing: 0.5 }}>SEM I</Text></View>
+                        <View style={{ flex: 1, height: 10, backgroundColor: '#fcd34d', borderTopLeftRadius: 5, borderBottomLeftRadius: 5 }} />
+                        <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#4f46e5', zIndex: 10, borderWidth: 3, borderColor: '#fff' }} />
+                        <View style={{ flex: 1, height: 10, backgroundColor: '#60a5fa', borderTopRightRadius: 5, borderBottomRightRadius: 5 }} />
+                        <View style={{ position: 'absolute', right: '15%', top: -20 }}><Text style={{ fontSize: 12, fontWeight: '900', color: '#2563eb', letterSpacing: 0.5 }}>SEM II</Text></View>
+                      </View>
+                      {Platform.OS === 'web' && (
+                        <input
+                          id="syrm-term-two-input"
+                          type="date"
+                          value={termTwoDate || (currentSchool?.term_two_start_date || '')}
+                          onChange={(e) => setTermTwoDate(e.target.value)}
+                          style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={{ height: 64, borderRadius: 24, backgroundColor: '#4f46e5', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, shadowColor: '#4f46e5', shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 }}
+                    onPress={async () => {
+                      const dateToSave = termTwoDate || currentSchool?.term_two_start_date;
+                      if (!dateToSave) { showAlert(t('fill_all_fields'), 'error'); return; }
+                      setIsProcessing(true);
+                      const res = await onUpdateTermStartDate(activeSchoolId, dateToSave);
+                      setIsProcessing(false);
+                      if (res?.error) showAlert(res.error.message, 'error');
+                      else showAlert(`${t('success')}!`, 'success');
+                    }}
+                  >
+                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Check size={20} color="#fff" />
+                    </View>
+                    <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('save_date_btn') || 'Përditëso Konfigurimin'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* TAB: Mbyllja e vitit shkollor */}
+          {schoolYearSubTab === 'end' && (
+              <View style={{ gap: 20 }}>
+                {/* 1. Final Year Closure/Archive */}
+                <View style={[styles.card, {
+                  padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 2, borderColor: '#fecaca',
+                  shadowColor: '#ef4444', shadowOpacity: 0.08, shadowRadius: 24, elevation: 5, overflow: 'hidden'
+                }]}>
+                  <View style={{ backgroundColor: '#FEF2F2', padding: 26, borderBottomWidth: 1, borderBottomColor: '#fecaca', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                    <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 }}>
+                      <Archive size={30} color="#ffffff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 21, fontWeight: '900', color: '#991b1b', letterSpacing: -0.5 }}>{t('archive_year') || 'HAPI 1: Mbyllja e Vitit'}</Text>
+                      <Text style={{ fontSize: 13.5, color: '#dc2626', fontWeight: '700', marginTop: 4, letterSpacing: 0.2 }}>{t('archive_desc') || 'Krijon një "fotografi" të vitit aktual dhe fshin arkivat e vjetra për t\'i mbyllur ato.'}</Text>
+                    </View>
+                  </View>
+                  <View style={{ padding: 26 }}>
+                    <TouchableOpacity
+                      style={{ height: 64, borderRadius: 24, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 }}
+                      onPress={() => {
+                        confirmDelete(`${t('confirm_archive')} (${currentSchool?.current_year})?`, async () => {
+                          setIsProcessing(true);
+                          const res = await onArchiveYear(activeSchoolId, currentSchool?.current_year);
+                          setIsProcessing(false);
+                          if (!res?.error) showAlert(`${t('archive_success_msg')}! Viti i ri: ${res.nextYear}`, "success");
+                        });
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('archive_btn') || 'Mbyll Vitin Akademik'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* 2. Class & Student Promotion */}
+                <View style={[styles.card, {
+                  padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 1, borderColor: '#f1f5f9',
+                  shadowColor: '#94a3b8', shadowOpacity: 0.05, shadowRadius: 20, elevation: 3, overflow: 'hidden'
+                }]}>
+                  <View style={{ backgroundColor: '#F8FAFC', padding: 26, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                    <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center', shadowColor: '#334155', shadowOpacity: 0.25, shadowRadius: 10, elevation: 6 }}>
+                      <ArrowUpRight size={30} color="#ffffff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 21, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>{t('promote_classes_btn') || 'HAPI 2: Promovimi i Klasave'}</Text>
+                      <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4, letterSpacing: 0.2 }}>{t('confirm_promotion_desc') || 'Sposton nxënësit në klasat pasardhëse për vitin e ri.'}</Text>
+                    </View>
+                  </View>
+                  <View style={{ padding: 26 }}>
+                    <TouchableOpacity
+                      style={{ height: 64, borderRadius: 20, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#cbd5e1' }}
+                      onPress={() => {
+                        setSelectedPromotionClassId(-1);
+                        setPromotedStudentIds(new Set());
+                      }}
+                    >
+                      <Text style={{ color: '#475569', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>{t('manage_promotions') || 'Menaxho Promovimet'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
           )}
 
         </ScrollView>
@@ -3138,7 +2994,7 @@ const AdminDashboard = ({
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{t('add_teacher')}</Text>
+              <Text style={styles.modalTitle}>{editingTeacherId ? (t('edit_teacher') || 'Modifiko Mësuesin') : t('add_teacher')}</Text>
               <TouchableOpacity onPress={resetTeacherForm} style={styles.closeModalBtn}>
                 <X size={24} color="#64748b" />
               </TouchableOpacity>
@@ -3149,6 +3005,30 @@ const AdminDashboard = ({
               <TextInput style={styles.input} placeholder={t('last_name')} value={teacherLastName} onChangeText={setTeacherLastName} />
               <TextInput style={styles.input} placeholder={t('email')} value={teacherUsername} onChangeText={setTeacherUsername} autoCapitalize="none" keyboardType="email-address" />
               <TextInput style={styles.input} placeholder={t('password')} value={teacherPassword} onChangeText={setTeacherPassword} secureTextEntry />
+
+              <View style={{ marginTop: 10, marginBottom: 15, padding: 12, backgroundColor: '#eff6ff', borderRadius: 12, borderWidth: 1, borderColor: '#dbeafe' }}>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  onPress={() => setTeacherIsKujdestar(!teacherIsKujdestar)}
+                >
+                  <View style={{ 
+                    width: 26, 
+                    height: 26, 
+                    borderRadius: 8, 
+                    borderWidth: 2, 
+                    borderColor: teacherIsKujdestar ? '#2563eb' : '#cbd5e1',
+                    backgroundColor: teacherIsKujdestar ? '#2563eb' : 'white',
+                    alignItems: 'center', 
+                    justifyContent: 'center' 
+                  }}>
+                    {teacherIsKujdestar && <Check size={18} color="white" />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, color: '#1e293b', fontWeight: '800' }}>Kujdestar / Koordinatori</Text>
+                    <Text style={{ fontSize: 11, color: '#64748b' }}>Vetëm koordinatori mund të arsyetojë mungesat ditore.</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
 
               <Text style={styles.label}>{t('select_subjects')}</Text>
               <View style={styles.subjectsGrid}>
@@ -3162,14 +3042,20 @@ const AdminDashboard = ({
                   </TouchableOpacity>
                 ))}
               </View>
+
+
             </ScrollView>
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setIsTeacherModalVisible(false)}>
+              <TouchableOpacity style={styles.cancelButton} onPress={resetTeacherForm}>
                 <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.submitButton} onPress={() => handleAddTeacherLocal(navigation.data?.id)}>
-                <Text style={styles.submitButtonText}>{t('confirm')}</Text>
+              <TouchableOpacity 
+                style={[styles.submitButton, (!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0) && { opacity: 0.5 }]} 
+                onPress={handleAddTeacherLocal}
+                disabled={!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0}
+              >
+                <Text style={styles.submitButtonText}>{editingTeacherId ? (t('save_changes') || 'Ruaj Ndryshimet') : t('confirm')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3339,9 +3225,9 @@ const AdminDashboard = ({
               </View>
               <TouchableOpacity onPress={() => {
                 setIsAddTeacherToClassModalVisible(false);
-                setTeacherFirstName(''); setTeacherLastName('');
                 setTeacherUsername(''); setTeacherPassword('');
                 setTeacherSubjects([]);
+                setTeacherIsKujdestar(false);
               }} style={styles.closeModalBtn}>
                 <X size={24} color="#64748b" />
               </TouchableOpacity>
@@ -3421,6 +3307,30 @@ const AdminDashboard = ({
                 secureTextEntry
               />
 
+              <View style={{ marginTop: 15, marginBottom: 15, padding: 12, backgroundColor: '#eff6ff', borderRadius: 12, borderWidth: 1, borderColor: '#dbeafe' }}>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  onPress={() => setTeacherIsKujdestar(!teacherIsKujdestar)}
+                >
+                  <View style={{ 
+                    width: 26, 
+                    height: 26, 
+                    borderRadius: 8, 
+                    borderWidth: 2, 
+                    borderColor: teacherIsKujdestar ? '#2563eb' : '#cbd5e1',
+                    backgroundColor: teacherIsKujdestar ? '#2563eb' : 'white',
+                    alignItems: 'center', 
+                    justifyContent: 'center' 
+                  }}>
+                    {teacherIsKujdestar && <Check size={18} color="white" />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, color: '#1e293b', fontWeight: '800' }}>Kujdestar / Koordinatori</Text>
+                    <Text style={{ fontSize: 11, color: '#64748b' }}>Vetëm koordinatori mund të arsyetojë mungesat ditore.</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
               <Text style={styles.label}>{t('select_subjects')}:</Text>
               <View style={styles.subjectsGrid}>
                 {(KOSOVO_SUBJECTS || []).map(subject => (
@@ -3436,12 +3346,15 @@ const AdminDashboard = ({
                 ))}
               </View>
 
+
+
               <View style={styles.modalButtons}>
                 <TouchableOpacity style={styles.cancelButton} onPress={() => {
                   setIsAddTeacherToClassModalVisible(false);
                   setTeacherFirstName(''); setTeacherLastName('');
                   setTeacherUsername(''); setTeacherPassword('');
                   setTeacherSubjects([]);
+                  setTeacherIsKujdestar(false);
                 }}>
                   <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
                 </TouchableOpacity>
@@ -3458,7 +3371,8 @@ const AdminDashboard = ({
                       password: teacherPassword,
                       subjects: teacherSubjects,
                       schoolId: schoolId,
-                      email: teacherUsername
+                      email: teacherUsername,
+                      isKujdestar: teacherIsKujdestar
                     });
                     if (!result?.error && result?.data) {
                       // Also link to the class
@@ -3468,6 +3382,7 @@ const AdminDashboard = ({
                     setTeacherFirstName(''); setTeacherLastName('');
                     setTeacherUsername(''); setTeacherPassword('');
                     setTeacherSubjects([]);
+                    setTeacherIsKujdestar(false);
                     setIsAddTeacherToClassModalVisible(false);
                   }}
                 >
@@ -3768,12 +3683,24 @@ const AdminDashboard = ({
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerTopBar}>
+        <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
             <View style={styles.logoIcon}>
               <School size={18} color="white" />
             </View>
           </View>
+          
+          {isDesktop && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 32, flex: 1, justifyContent: 'center' }}>
+              <TouchableOpacity onPress={() => setNavigation({ view: 'home', data: null })} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: navigation.view === 'home' ? '#eef2ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: navigation.view === 'home' ? '#6366f1' : '#64748b' }}>{t('home') || 'Ballina'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setNavigation({ view: 'settings', data: null })} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: navigation.view === 'settings' ? '#eef2ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: navigation.view === 'settings' ? '#6366f1' : '#64748b' }}>{t('settings') || 'Cilësimet'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <ProfileDropdown
             user={user}
             t={t}
@@ -3787,20 +3714,19 @@ const AdminDashboard = ({
         </View>
       </View>
 
-      {navigation.view === 'home' && renderMain()}
-      {(navigation.view === 'schools' || navigation.view === 'school-detail' || navigation.view === 'class-detail' || navigation.view === 'classes' || navigation.view === 'academic-year') && renderSchools()}
-      {navigation.view === 'teachers' && renderTeachers()}
-      {navigation.view === 'students' && renderStudents()}
-      {navigation.view === 'codes' && renderCodes()}
-      {navigation.view === 'settings' && renderSettings()}
-      {navigation.view === 'notices' && renderNotices()}
-      {navigation.view === 'calendar_mgmt' && renderCalendarMgmt()}
+      <View style={{ flex: 1, paddingHorizontal: isDesktop ? 20 : 0 }}>
+        {navigation.view === 'home' && renderMain()}
+        {(navigation.view === 'schools' || navigation.view === 'school-detail' || navigation.view === 'class-detail' || navigation.view === 'classes' || navigation.view === 'academic-year') && renderSchools()}
+        {navigation.view === 'teachers' && renderTeachers()}
+        {navigation.view === 'students' && renderStudents()}
+        {navigation.view === 'codes' && renderCodes()}
+        {navigation.view === 'settings' && renderSettings()}
+        {navigation.view === 'notices' && renderNotices()}
+        {navigation.view === 'school_year_mgmt' && renderSchoolYearMgmt()}
+        {navigation.view === 'calendar_mgmt' && renderCalendarMgmt()}
+      </View>
 
       {renderModals()}
-
-
-
-
 
       <PasswordChangeModal
         visible={isPasswordModalVisible}
@@ -3842,28 +3768,29 @@ const AdminDashboard = ({
         </View>
       </Modal>
 
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setNavigation({ view: 'home', data: null })}
-        >
-          <View style={[styles.navIconContainer, navigation.view === 'home' && styles.activeNavIcon]}>
-            <Home size={22} color={navigation.view === 'home' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'home' ? 2.5 : 2} />
-          </View>
-          <Text style={[styles.navText, navigation.view === 'home' && styles.activeNavText]}>{t('home')}</Text>
-        </TouchableOpacity>
+      {!isDesktop && (
+        <View style={styles.bottomNav}>
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => setNavigation({ view: 'home', data: null })}
+          >
+            <View style={[styles.navIconContainer, navigation.view === 'home' && styles.activeNavIcon]}>
+              <Home size={22} color={navigation.view === 'home' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'home' ? 2.5 : 2} />
+            </View>
+            <Text style={[styles.navText, navigation.view === 'home' && styles.activeNavText]}>{t('home')}</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setNavigation({ view: 'settings', data: null })}
-        >
-          <View style={[styles.navIconContainer, navigation.view === 'settings' && styles.activeNavIcon]}>
-            <Settings size={22} color={navigation.view === 'settings' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'settings' ? 2.5 : 2} />
-          </View>
-          <Text style={[styles.navText, navigation.view === 'settings' && styles.activeNavText]}>{t('settings')}</Text>
-        </TouchableOpacity>
-
-      </View>
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => setNavigation({ view: 'settings', data: null })}
+          >
+            <View style={[styles.navIconContainer, navigation.view === 'settings' && styles.activeNavIcon]}>
+              <Settings size={22} color={navigation.view === 'settings' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'settings' ? 2.5 : 2} />
+            </View>
+            <Text style={[styles.navText, navigation.view === 'settings' && styles.activeNavText]}>{t('settings')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -4050,6 +3977,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   backButton: {
+    display: Platform.OS === 'web' ? 'none' : 'flex',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

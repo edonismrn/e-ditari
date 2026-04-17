@@ -417,7 +417,8 @@ export const DatabaseProvider = ({ children }) => {
       role: 'mesues',
       school_id: teacher.schoolId,
       subjects: teacher.subjects,
-      is_active: true
+      is_active: true,
+      is_kujdestar: teacher.isKujdestar || false
     };
     const { data, error } = await supabase.from('profiles').insert([newTeacher]).select().single();
     if (!error && data) {
@@ -436,6 +437,45 @@ export const DatabaseProvider = ({ children }) => {
     if (error) {
       console.error("Profile error adding teacher", error);
       // console.log("Gabim gjatë krijimit të profilit: " + error.message);
+    }
+    return { data, error };
+  };
+
+  const updateTeacherKujdestar = async (teacherId, value) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ is_kujdestar: value })
+      .eq('id', teacherId)
+      .select()
+      .single();
+    if (!error && data) {
+      setTeachers(prev => prev.map(t => t.id === teacherId ? { ...t, is_kujdestar: value } : t));
+    }
+    return { data, error };
+  };
+
+  const updateTeacher = async (teacherId, updates) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        first_name: updates.firstName,
+        last_name: updates.lastName,
+        subjects: updates.subjects,
+        is_kujdestar: updates.isKujdestar
+      })
+      .eq('id', teacherId)
+      .select()
+      .single();
+      
+    if (!error && data) {
+      setTeachers(prev => prev.map(t => t.id === teacherId ? { 
+        ...t, 
+        first_name: data.first_name, 
+        last_name: data.last_name, 
+        name: `${data.first_name} ${data.last_name}`,
+        subjects: data.subjects,
+        is_kujdestar: data.is_kujdestar
+      } : t));
     }
     return { data, error };
   };
@@ -1683,7 +1723,7 @@ export const DatabaseProvider = ({ children }) => {
     deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, bulkPromoteStudents, deleteNotice, markNoticeRead, updateGrade,
     uploadFile, updateCurrentTerm, updateSchoolDates, updateTermStartDate, updateSchoolStatus, deleteAllData,
     schoolCalendar, addCalendarEvent, addCalendarEvents, deleteCalendarEvent,
-    refreshData
+    refreshData, updateTeacherKujdestar, updateTeacher
   };
 
   return (

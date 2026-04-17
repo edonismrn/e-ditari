@@ -184,6 +184,8 @@ export const translations = {
     select_dates: "Zgjidh Datat",
     events: "Ngjarjet",
     holidays: "Festat",
+    select_school_to_manage_calendar: "Zgjidh shkollën për të menaxhuar kalendarin",
+    teacher_updated: "Mësuesi u përditësua me sukses!",
 
 
     // Common
@@ -650,6 +652,7 @@ export const translations = {
     homework_label: "Detyrat e shtëpisë",
     save_lesson: "Ruaj Orën",
     zgjidh_daten: "Zgjidh datën",
+    ballina: "Ballina",
 
     // Admin Settings
     delete_all_data: "Fshi të gjitha të dhënat",
@@ -700,12 +703,16 @@ export const translations = {
     selection_mode: "Mënyra e zgjedhjes",
     save_selection: "Ruaj zgjedhjen",
     setup_tab: "Konfigurimi",
-    calendar_tab: "Kalendari",
-    history_tab: "Lista",
+    calendar_tab: "Shëno dit feste/shkollë",
+    history_tab: "Lista e pushimeve",
     school_year_setup: "Konfigurimi i Vitit shkollor",
     tab_setup_desc: "Konfigurimi i vitit dhe gjysmëvjetorëve",
     tab_calendar_desc: "Festat dhe ngjarjet mbarëshkollore",
     tab_history_desc: "Lista e ngjarjeve të regjistruara",
+    school_year_mgmt: "Menaxhimi i vitit shkollor",
+    school_year_start_tab: "Fillimi i vitit shkollor",
+    school_year_semester_tab: "Gjysemvjetori",
+    school_year_end_tab: "Mbyllja e vitit shkollor",
     academic_year_label: "Viti Shkollor (p.sh. 2025/2026)",
     end_first_term_label: "Fundi i Gjysmëvjetorit I",
     update_setup: "Përditëso Konfigurimin",
@@ -845,6 +852,7 @@ export const translations = {
     save_promotions: "Sačuvaj promocije",
     retained: "Ponavljač",
     promoted: "Promovisan",
+    ballina: "Početna",
 
     // Teacher Dashboard
     welcome_teacher: "Dobrodošli, Nastavniče",
@@ -976,6 +984,8 @@ export const translations = {
     select_dates: "Izaberi datume",
     events: "Događaji",
     holidays: "Praznici",
+    select_school_to_manage_calendar: "Izaberi školu za upravljanje kalendarom",
+    teacher_updated: "Nastavnik je uspješno ažuriran!",
 
     // Common
     disciplinary_notifications: "Disciplinska obaveštenja",
@@ -1388,6 +1398,7 @@ export const translations = {
     save_promotions: "Geçişleri Kaydet",
     retained: "Sınıfta Kaldı",
     promoted: "Geçti",
+    ballina: "Ana Sayfa",
 
     // Teacher Dashboard
     welcome_teacher: "Hoş Geldiniz, Öğretmenim",
@@ -1519,6 +1530,8 @@ export const translations = {
     select_dates: "Tarihleri Seç",
     events: "Etkinlikler",
     holidays: "Tatiller",
+    select_school_to_manage_calendar: "Takvimi yönetmek için okulu seçin",
+    teacher_updated: "Öğretmen başarıyla güncellendi!",
 
     // Common
     disciplinary_notifications: "Disiplin Bildirimleri",

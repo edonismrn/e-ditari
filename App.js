@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text, StatusBar, SafeAreaView } from 'react-native';
+import { StyleSheet, View, Text, StatusBar, SafeAreaView, LogBox } from 'react-native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { DatabaseProvider, useDatabase } from './src/context/DatabaseContext';
 import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
@@ -11,6 +11,11 @@ import LoginScreen from './src/screens/LoginScreen';
 import AdminDashboard from './src/screens/AdminDashboard';
 import TeacherDashboard from './src/screens/TeacherDashboard';
 import StudentDashboard from './src/screens/StudentDashboard';
+
+LogBox.ignoreLogs([
+  'AuthApiError: Invalid Refresh Token: Refresh Token Not Found',
+  'Refresh Token Not Found'
+]);
 
 function AppContent() {
   const { user, loading: authLoading, login, logout, isPasswordRecovery } = useAuth();
@@ -29,7 +34,8 @@ function AppContent() {
     updateAttendanceHour,
     loading: dataLoading,
     refreshData, bulkPromoteStudents, currentTerm,
-    availableAcademicYears, selectedGlobalAcademicYear, changeAcademicYear
+    availableAcademicYears, selectedGlobalAcademicYear, changeAcademicYear,
+    updateTeacherKujdestar, updateTeacher
   } = useDatabase();
   const { t } = useLanguage();
   const { showAlert } = useAlert();
@@ -134,6 +140,8 @@ function AppContent() {
           onAddCalendarEvent={addCalendarEvent}
           onAddCalendarEvents={addCalendarEvents}
           onDeleteCalendarEvent={deleteCalendarEvent}
+          onUpdateTeacherKujdestar={updateTeacherKujdestar}
+          onUpdateTeacher={updateTeacher}
         />
         <StatusBar barStyle="dark-content" />
       </View>

@@ -7,6 +7,7 @@ import {
   TouchableOpacity, 
   SafeAreaView,
   Dimensions,
+  useWindowDimensions,
   FlatList,
   Platform,
   RefreshControl,
@@ -65,7 +66,51 @@ const StudentDashboard = ({
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
   const [activeTab, setActiveTab] = React.useState('overview');
+
+  // Web Routing sync effect for Student Dashboard
+  React.useEffect(() => {
+    if (!isDesktop || typeof window === 'undefined') return;
+
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      if (path === '/permbledhje' || path === '/ballina' || path === '/') {
+        setActiveTab('overview');
+      } else if (path === '/notat') {
+        setActiveTab('grades');
+      } else if (path === '/mungesa' || path === '/mungesat') {
+        setActiveTab('attendance');
+      } else if (path === '/lajmerimet') {
+        setActiveTab('notices');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    if (!window.studentInitialLoadDone) {
+       handlePopState();
+       window.studentInitialLoadDone = true;
+    }
+
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isDesktop]);
+
+  // Sync state changes to browser URL automatically
+  React.useEffect(() => {
+    if (!isDesktop || typeof window === 'undefined') return;
+    
+    let targetUrl = '/';
+    if (activeTab === 'overview') targetUrl = '/permbledhje';
+    else if (activeTab === 'grades') targetUrl = '/notat';
+    else if (activeTab === 'attendance') targetUrl = '/mungesa';
+    else if (activeTab === 'notices') targetUrl = '/lajmerimet';
+    
+    if (window.location.pathname !== targetUrl) {
+       window.history.pushState({}, '', targetUrl);
+    }
+  }, [activeTab, isDesktop]);
   const [selectedDate, setSelectedDate] = React.useState(new Date());
+
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && windowWidth > 768;
 
   // Jump calendar to the start of the selected academic year so the student sees that year's agenda
   React.useEffect(() => {
@@ -1094,7 +1139,7 @@ const StudentDashboard = ({
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerTopBar}>
+        <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
             <View style={styles.logoIcon}>
               <Book size={20} color="white" />
@@ -1114,6 +1159,24 @@ const StudentDashboard = ({
               </View>
             </View>
           </View>
+
+          {isDesktop && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 32, flex: 1, justifyContent: 'center' }}>
+              <TouchableOpacity onPress={() => setActiveTab('overview')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeTab === 'overview' ? '#eff6ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeTab === 'overview' ? '#2563eb' : '#64748b' }}>{t('overview') || 'Përmbledhje'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setActiveTab('grades')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeTab === 'grades' ? '#eff6ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeTab === 'grades' ? '#2563eb' : '#64748b' }}>{t('notat') || 'Notat'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setActiveTab('attendance')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeTab === 'attendance' ? '#eff6ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeTab === 'attendance' ? '#2563eb' : '#64748b' }}>{t('mungesa') || 'Mungesat'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setActiveTab('notices')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeTab === 'notices' ? '#eff6ff' : 'transparent' }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeTab === 'notices' ? '#2563eb' : '#64748b' }}>{t('notices') || 'Lajmërimet'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <ProfileDropdown
             user={user}
             t={t}
@@ -1126,65 +1189,77 @@ const StudentDashboard = ({
           />
         </View>
 
-        {activeTab === 'overview' && (
-          <CalendarStrip selectedDate={selectedDate} onDateSelect={setSelectedDate} />
-        )}
+        {activeTab === 'overview' && (() => {
+          const matchedSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || schools?.[0];
+          return (
+            <CalendarStrip 
+              selectedDate={selectedDate} 
+              onDateSelect={setSelectedDate} 
+              schoolStartDate={matchedSchool?.school_year_start}
+              schoolEndDate={matchedSchool?.school_year_end}
+            />
+          );
+        })()}
       </View>
 
-      {activeTab === 'overview' && renderOverview()}
-      {activeTab === 'grades' && renderGrades()}
-      {activeTab === 'attendance' && renderAttendance()}
-      {activeTab === 'notices' && renderNotices()}
-
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setActiveTab('overview')}
-        >
-          <Home size={24} color={activeTab === 'overview' ? '#2563eb' : '#94a3b8'} />
-          <Text style={[styles.navText, activeTab === 'overview' && styles.activeNavText]}>{t('overview')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setActiveTab('grades')}
-        >
-          <Award size={24} color={activeTab === 'grades' ? '#2563eb' : '#94a3b8'} />
-          <Text style={[styles.navText, activeTab === 'grades' && styles.activeNavText]}>{t('notat')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setActiveTab('attendance')}
-        >
-          <View>
-            <Calendar size={24} color={activeTab === 'attendance' ? '#2563eb' : '#94a3b8'} />
-          </View>
-          <Text style={[styles.navText, activeTab === 'attendance' && styles.activeNavText]}>{t('mungesa')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setActiveTab('notices')}
-        >
-          <View>
-            <Bell size={24} color={activeTab === 'notices' ? '#2563eb' : '#94a3b8'} />
-            {(() => {
-              const schoolNotices = notices?.filter(n => n.school_id === studentClass?.schoolId) || [];
-              const unreadCount = schoolNotices.filter(n => !noticeReads?.includes(n.id)).length;
-              if (unreadCount > 0) {
-                return (
-                  <View style={styles.badgeContainer}>
-                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{unreadCount}</Text>
-                  </View>
-                );
-              }
-              return null;
-            })()}
-          </View>
-          <Text style={[styles.navText, activeTab === 'notices' && styles.activeNavText]}>{t('notices')}</Text>
-        </TouchableOpacity>
+      <View style={{ flex: 1, paddingHorizontal: isDesktop ? 20 : 0 }}>
+        {activeTab === 'overview' && renderOverview()}
+        {activeTab === 'grades' && renderGrades()}
+        {activeTab === 'attendance' && renderAttendance()}
+        {activeTab === 'notices' && renderNotices()}
       </View>
+
+      {!isDesktop && (
+        <View style={styles.bottomNav}>
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => setActiveTab('overview')}
+          >
+            <Home size={24} color={activeTab === 'overview' ? '#2563eb' : '#94a3b8'} />
+            <Text style={[styles.navText, activeTab === 'overview' && styles.activeNavText]}>{t('overview')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => setActiveTab('grades')}
+          >
+            <Award size={24} color={activeTab === 'grades' ? '#2563eb' : '#94a3b8'} />
+            <Text style={[styles.navText, activeTab === 'grades' && styles.activeNavText]}>{t('notat')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => setActiveTab('attendance')}
+          >
+            <View>
+              <Calendar size={24} color={activeTab === 'attendance' ? '#2563eb' : '#94a3b8'} />
+            </View>
+            <Text style={[styles.navText, activeTab === 'attendance' && styles.activeNavText]}>{t('mungesa')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navItem}
+            onPress={() => setActiveTab('notices')}
+          >
+            <View>
+              <Bell size={24} color={activeTab === 'notices' ? '#2563eb' : '#94a3b8'} />
+              {(() => {
+                const schoolNotices = notices?.filter(n => n.school_id === studentClass?.schoolId) || [];
+                const unreadCount = schoolNotices.filter(n => !noticeReads?.includes(n.id)).length;
+                if (unreadCount > 0) {
+                  return (
+                    <View style={styles.badgeContainer}>
+                      <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{unreadCount}</Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+            </View>
+            <Text style={[styles.navText, activeTab === 'notices' && styles.activeNavText]}>{t('notices')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Selected Notice Modal */}
       {selectedNotice && (

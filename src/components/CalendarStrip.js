@@ -9,7 +9,7 @@ const ITEM_WIDTH = 48;
 const ITEM_MARGIN = 14;
 const TOTAL_ITEM_WIDTH = ITEM_WIDTH + ITEM_MARGIN;
 
-const CalendarStrip = ({ selectedDate, onDateSelect }) => {
+const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndDate }) => {
   const { t } = useLanguage();
   const days = t('days');
   const full_days = t('full_days');
@@ -29,23 +29,33 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
     }
   }).current;
 
-  // Generate school year dates: Sept 1 to Jun 30
+  // Generate school year dates: Sept 1 to Jun 30 (or custom from school profile)
   const dates = useMemo(() => {
-    const today = new Date();
-    const currentMonth = today.getMonth(); // 0-indexed, 8 = Sept
-    const currentYear = today.getFullYear();
-    
-    let startYear, endYear;
-    if (currentMonth >= 8) { // Sept or later
-      startYear = currentYear;
-      endYear = currentYear + 1;
-    } else { // Jan-Aug
-      startYear = currentYear - 1;
-      endYear = currentYear;
-    }
+    let startDate, endDate;
 
-    const startDate = new Date(startYear, 8, 1); // Sept 1
-    const endDate = new Date(endYear, 6, 15); // Mid July to be safe
+    if (schoolStartDate && schoolEndDate) {
+      startDate = new Date(schoolStartDate);
+      endDate = new Date(schoolEndDate);
+      // Ensure we include the boundary dates by stripping out time logic if needed
+      startDate.setHours(0,0,0,0);
+      endDate.setHours(23,59,59,999);
+    } else {
+      const today = new Date();
+      const currentMonth = today.getMonth(); // 0-indexed, 8 = Sept
+      const currentYear = today.getFullYear();
+      
+      let startYear, endYear;
+      if (currentMonth >= 8) { // Sept or later
+        startYear = currentYear;
+        endYear = currentYear + 1;
+      } else { // Jan-Aug
+        startYear = currentYear - 1;
+        endYear = currentYear;
+      }
+
+      startDate = new Date(startYear, 8, 1); // Sept 1
+      endDate = new Date(endYear, 6, 15); // Mid July to be safe
+    }
 
     const dateArray = [];
     let d = new Date(startDate);
@@ -54,7 +64,7 @@ const CalendarStrip = ({ selectedDate, onDateSelect }) => {
       d.setDate(d.getDate() + 1);
     }
     return dateArray;
-  }, []);
+  }, [schoolStartDate, schoolEndDate]);
 
   // Find index of selected date (or today)
   const initialIndex = useMemo(() => {

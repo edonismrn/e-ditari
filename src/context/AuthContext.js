@@ -22,9 +22,13 @@ export const AuthProvider = ({ children }) => {
         }
       })
       .catch(err => {
-        console.error("[AuthContext] getSession error on mount:", err);
+        if (err?.message && err.message.includes('Refresh Token')) {
+          console.log("[AuthContext] Normal session expiry (Refresh Token Not Found).");
+        } else {
+          console.warn("[AuthContext] getSession error on mount:", err);
+        }
         // Force cleanup on invalid refresh token or other auth errors
-        supabase.auth.signOut();
+        supabase.auth.signOut().catch(() => {});
         setLoading(false);
       });
 
@@ -62,9 +66,13 @@ export const AuthProvider = ({ children }) => {
             if (session) setSession(session);
           })
           .catch(err => {
-            console.error("[AuthContext] getSession error on foreground:", err);
+            if (err?.message && err.message.includes('Refresh Token')) {
+              console.log("[AuthContext] Session expired on foreground (Refresh Token Not Found).");
+            } else {
+              console.warn("[AuthContext] getSession error on foreground:", err);
+            }
             // If getSession fails due to invalid refresh token, sign out cleanly
-            supabase.auth.signOut();
+            supabase.auth.signOut().catch(() => {});
             setUser(null);
           });
       }
