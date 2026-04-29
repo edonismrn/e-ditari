@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, View, Text, StatusBar, SafeAreaView, LogBox } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View, Text, StatusBar, SafeAreaView, LogBox, Platform } from 'react-native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { DatabaseProvider, useDatabase } from './src/context/DatabaseContext';
 import { LanguageProvider, useLanguage } from './src/context/LanguageContext';
@@ -39,6 +39,20 @@ function AppContent() {
   } = useDatabase();
   const { t } = useLanguage();
   const { showAlert } = useAlert();
+
+  // Handle URL routing for Web
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+
+    if (!authLoading) {
+      const path = window.location.pathname;
+      if (!user && path !== '/login') {
+        window.history.pushState({}, '', '/login');
+      } else if (user && path === '/login') {
+        window.history.pushState({}, '', '/');
+      }
+    }
+  }, [user, authLoading]);
 
   const handleLogin = async (data) => {
     try {

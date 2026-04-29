@@ -97,6 +97,15 @@ export const translations = {
     note_placeholder: "Shkruani arsyen e njoftimit...",
     apply_to_all_class: "Vlen për të gjithë klasën",
     save_note: "Ruaj Njoftimin",
+    coordinator_section: "Kujdestaria",
+    all_disciplinary_notes: "Të gjitha notat disiplinore",
+    full_grades_matrix: "Grilja e Plotë e Notave",
+    select_coordinated_class: "Zgjidh klasën që koordinon",
+    student_notes_grid: "Grilja e Njoftimeve",
+    no_notes_found: "Asnjë njoftim i gjetur",
+    attendance_oversight: "Pasqyra e Mungesave",
+    total_absences_hours: "Totali i Orëve",
+    daily_absences: "Mungesat Ditore",
     logout: "Dalja",
     test_description: "Përshkrimi i Provim / Test",
     test_description_placeholder: "Përshkrimi i Provim / Test",
@@ -142,6 +151,7 @@ export const translations = {
     current_year: "Viti Aktual",
     alumni: "Alumni",
     graduated: "Diplomuar",
+    issued_by: "Lëshuar nga",
 
     // Admin Dashboard
     welcome_admin: "Mirësevini, Admin!",
@@ -797,6 +807,10 @@ export const translations = {
     school_status_active: "Aktive",
     delete_all_data_confirm: "A jeni të sigurt që dëshironi të fshini të gjitha të dhënat?",
     delete_all_data_success: "Të gjitha të dhënat u fshinë me sukses",
+    teacher_already_exists: "Një mësues me këtë email ekziston tashmë.",
+    email_in_use_by_other_role: "Ky email është i zënë nga një llogari tjetër (nxënës ose admin).",
+    auth_email_orphaned: "Ky email është i regjistruar në sistem por nuk ka profil. Kontaktoni mbështetjen.",
+    teacher_added_success: "Mësuesi u shtua me sukses!",
   },
   sr: {
     // Login Screen
@@ -942,6 +956,7 @@ export const translations = {
     current_year: "Tekuća godina",
     alumni: "Alumni",
     graduated: "Diplomirali",
+    issued_by: "Izdao",
 
     // Admin Dashboard
     welcome_admin: "Dobrodošli, Admin!",
@@ -1343,6 +1358,10 @@ export const translations = {
     school_status_active: "Aktivno",
     delete_all_data_confirm: "Da li ste sigurni da želite da obrišete sve podatke?",
     delete_all_data_success: "Svi podaci su uspešno obrisani",
+    teacher_already_exists: "Nastavnik sa ovim emailom već postoji.",
+    email_in_use_by_other_role: "Ovaj email koristi drugi nalog (učenik ili admin).",
+    auth_email_orphaned: "Ovaj email je registrovan ali nema profil. Kontaktirajte podršku.",
+    teacher_added_success: "Nastavnik je uspešno dodat!",
   },
   tr: {
     // Login Screen
@@ -1488,6 +1507,7 @@ export const translations = {
     current_year: "Mevcut Yıl",
     alumni: "Mezunlar",
     graduated: "Mezun Oldu",
+    issued_by: "Veren Kurum",
 
     // Admin Dashboard
     welcome_admin: "Hoş Geldiniz, Admin!",
@@ -1889,5 +1909,9 @@ export const translations = {
     school_status_active: "Aktif",
     delete_all_data_confirm: "Tüm verileri silmek istediğinizden emin misiniz?",
     delete_all_data_success: "Tüm veriler başarıyla silindi",
+    teacher_already_exists: "Bu e-posta adresiyle bir öğretmen zaten kayıtlı.",
+    email_in_use_by_other_role: "Bu e-posta adresi başka bir hesap (öğrenci veya admin) tarafından kullanılıyor.",
+    auth_email_orphaned: "Bu e-posta kayıtlı ancak profili bulunmuyor. Lütfen destekle iletišime geçin.",
+    teacher_added_success: "Öğretmen başarıyla eklendi!",
   },
 };

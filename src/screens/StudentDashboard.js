@@ -63,8 +63,11 @@ const StudentDashboard = ({
   availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
 }) => {
   const { t } = useLanguage();
+  const userName = user?.full_name || user?.name || '';
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && windowWidth > 768;
   const [activeTab, setActiveTab] = React.useState('overview');
 
   // Web Routing sync effect for Student Dashboard
@@ -108,9 +111,6 @@ const StudentDashboard = ({
     }
   }, [activeTab, isDesktop]);
   const [selectedDate, setSelectedDate] = React.useState(new Date());
-
-  const { width: windowWidth } = useWindowDimensions();
-  const isDesktop = Platform.OS === 'web' && windowWidth > 768;
 
   // Jump calendar to the start of the selected academic year so the student sees that year's agenda
   React.useEffect(() => {
@@ -1142,11 +1142,17 @@ const StudentDashboard = ({
         <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
             <View style={styles.logoIcon}>
-              <Book size={20} color="white" />
+              <BookIcon size={18} color="white" />
             </View>
             <View>
               <Text style={styles.headerTitle}>Ditari Elektronik</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                {userName && (
+                  <Text style={[styles.headerSubtitle, { color: '#64748b' }]}>{userName}</Text>
+                )}
+                {studentClass && (
+                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />
+                )}
                 {studentClass && (
                   <Text style={styles.headerSubtitle}>{formatClassName(studentClass)}</Text>
                 )}
@@ -1326,16 +1332,33 @@ const styles = StyleSheet.create({
     })
   },
   header: {
-    backgroundColor: 'white',
+    backgroundColor: Platform.OS === 'web' ? 'rgba(255, 255, 255, 0.85)' : 'white',
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 15,
+    elevation: 3,
+    zIndex: 1000,
+    // Glassmorphism effect on Web
+    ...Platform.select({
+      web: {
+        backdropFilter: 'blur(12px)',
+        position: 'sticky',
+        top: 0,
+      }
+    })
   },
   headerTopBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    // Add extra padding for mobile web safe area (notch/status bar)
+    paddingTop: (Platform.OS === 'web' && window.innerWidth < 1024) ? 24 : 14,
   },
   headerLogo: {
     flexDirection: 'row',
@@ -1343,18 +1366,23 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   logoIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: '#2563eb',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '900',
-    color: '#1e293b',
-    letterSpacing: -0.5,
+    color: '#0f172a',
+    letterSpacing: -0.8,
   },
   headerSubtitle: {
     fontSize: 11,

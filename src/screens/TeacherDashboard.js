@@ -448,6 +448,7 @@ const TeacherDashboard = ({
   const [selectedNotatStudent, setSelectedNotatStudent] = useState(null);
   const [selectedNotatSubject, setSelectedNotatSubject] = useState(null);
   const [lessonDate, setLessonDate] = useState(null); // null = use selectedDate
+  const [selectedCoordinatorClassId, setSelectedCoordinatorClassId] = useState(null);
 
   // Helper: compute what the daily status would be after setting studentId/date/hour to newStatus
   const computeNewDailyStatus = (studentId, date, changedHour, newStatus) => {
@@ -615,6 +616,74 @@ const TeacherDashboard = ({
             <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{t('students_count')}</Text>
           </View>
         </View>
+
+        {/* Coordinator Section */}
+        {user.is_kujdestar && (
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', marginBottom: 12 }}>{t('coordinator_section') || 'Kujdestaria'}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+              <TouchableOpacity
+                style={{
+                  width: '48%',
+                  backgroundColor: '#fef2f2',
+                  padding: 16,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: '#fee2e2',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+                onPress={() => setNavigation({ view: 'coordinator-notes', data: null })}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
+                  <ShieldCheck size={20} color="#e11d48" />
+                </View>
+                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#9f1239' }}>{t('all_disciplinary_notes') || 'Shënimet Disiplinore'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  width: '48%',
+                  backgroundColor: '#f5f3ff',
+                  padding: 16,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: '#ddd6fe',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+                onPress={() => setNavigation({ view: 'coordinator-grades', data: null })}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
+                  <Award size={20} color="#7c3aed" />
+                </View>
+                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#5b21b6' }}>{t('full_grades_matrix') || 'Grilja e Notave'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  width: '100%',
+                  backgroundColor: '#f0fdf4',
+                  padding: 16,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: '#dcfce7',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+                onPress={() => setNavigation({ view: 'coordinator-attendance', data: null })}
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
+                  <UserCheck size={20} color="#16a34a" />
+                </View>
+                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#15803d' }}>{t('attendance_oversight') || 'Pasqyra e Mungesave'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Quick Actions */}
         <View style={{ gap: 16 }}>
@@ -1149,8 +1218,8 @@ const TeacherDashboard = ({
                     if (user.is_kujdestar) {
                       setSelectedSubject('Ditore');
                     } else {
-                      const classSubjects = getAvailableSubjects(item);
-                      setSelectedSubject(classSubjects.length > 0 ? classSubjects[0] : 'Ditore');
+                      const subjects = getAvailableSubjects(item);
+                      if (subjects.length > 0) setSelectedSubject(subjects[0]);
                     }
                   }}
                 >
@@ -1790,6 +1859,13 @@ const TeacherDashboard = ({
                     onPress={async () => {
                       const finalTopic = `[Ora ${lessonHour}] ${lessonTopic}`.trim();
                       const finalDate = lessonDate || formatDate(selectedDate);
+                      
+                      const dayStatus = isSchoolDay(new Date(finalDate));
+                      if (!dayStatus.isWork) {
+                        setIsLessonModalVisible(false);
+                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                        return;
+                      }
 
                       if (editingLesson) {
                         const oldHourMatch = editingLesson.topic?.match(/\[Ora (\d+)\]/);
@@ -3466,6 +3542,363 @@ const TeacherDashboard = ({
     );
   };
 
+  const renderCoordinatorNotes = () => {
+    const coordinatedClasses = teacherClasses; 
+    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId) || coordinatedClasses[0];
+
+    if (!currentCls) return (
+      <View style={styles.emptyStateContainer}>
+        <ShieldCheck size={40} color="#cbd5e1" />
+        <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnjë klasë'}</Text>
+      </View>
+    );
+
+    const studentsInClass = getDynamicClassStudents(currentCls.id).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const classNotes = notes.filter(n => (n.class_id === currentCls.id || n.classId === currentCls.id));
+
+    return (
+      <View style={styles.viewContainer}>
+        <View style={styles.navigationHeader}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('ballina')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.viewTitleHeader}>{t('all_disciplinary_notes')}</Text>
+        </View>
+
+        {/* Professional Class Switcher */}
+        <View style={styles.proTabContainer}>
+          {coordinatedClasses.map(c => {
+            const isActive = (selectedCoordinatorClassId === c.id) || (!selectedCoordinatorClassId && c.id === coordinatedClasses[0].id);
+            return (
+              <TouchableOpacity
+                key={c.id}
+                style={[styles.proTab, isActive && styles.proTabActive]}
+                onPress={() => setSelectedCoordinatorClassId(c.id)}
+              >
+                <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
+          {studentsInClass.map(student => {
+            const studentNotes = classNotes.filter(n => n.student_id === student.id || n.studentId === student.id);
+            return (
+              <View key={student.id} style={[styles.premiumCard, { marginBottom: 18, padding: 0, overflow: 'hidden', borderLeftWidth: 4, borderLeftColor: studentNotes.length > 0 ? '#e11d48' : '#cbd5e1' }]}>
+                <View style={{ backgroundColor: '#f8fafc', padding: 18, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                  <View style={{ width: 38, height: 38, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: '#1e293b' }}>{(student.name || '?').charAt(0)}</Text>
+                  </View>
+                  <Text style={{ fontSize: 17, fontWeight: '900', color: '#0f172a', flex: 1 }}>{student.name}</Text>
+                  {studentNotes.length > 0 && (
+                     <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '900', color: '#e11d48' }}>{studentNotes.length}</Text>
+                     </View>
+                  )}
+                </View>
+
+                <View style={{ padding: 16 }}>
+                  {studentNotes.length > 0 ? (
+                    <View style={{ gap: 12 }}>
+                      {studentNotes.map(n => (
+                        <View key={n.id} style={{ backgroundColor: 'white', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Calendar size={12} color="#64748b" />
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b' }}>{reformatDate(n.date)}</Text>
+                            </View>
+                            <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                               <Text style={{ fontSize: 9, fontWeight: '700', color: '#64748b' }}>
+                                 {user.teacherProfiles?.find(p => p.id === n.teacher_id)?.last_name || 'Prof'}
+                               </Text>
+                            </View>
+                          </View>
+                          <Text style={{ fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' }}>{n.message || n.note}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                       <Text style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>{t('no_notes_found')}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderCoordinatorGrades = () => {
+    const coordinatedClasses = teacherClasses;
+    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId) || coordinatedClasses[0];
+
+    if (!currentCls) return null;
+
+    const studentsInClass = getDynamicClassStudents(currentCls.id).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const classGrades = grades.filter(g => (g.class_id === currentCls.id || g.classId === currentCls.id) && (g.academic_year === selectedGlobalAcademicYear || (!g.academic_year && !selectedGlobalAcademicYear)));
+    const subjects = [...new Set(classGrades.map(g => g.subject))].sort();
+
+    const getGradeColor = (val) => {
+      const g = parseInt(val);
+      if (g === 1) return { bg: '#fee2e2', text: '#ef4444' };
+      if (g === 2) return { bg: '#ffedd5', text: '#f97316' };
+      if (g === 3) return { bg: '#fef9c3', text: '#ca8a04' };
+      if (g === 4) return { bg: '#dcfce7', text: '#22c55e' };
+      if (g === 5) return { bg: '#dbeafe', text: '#2563eb' };
+      return { bg: '#f1f5f9', text: '#64748b' };
+    };
+
+    return (
+      <View style={styles.viewContainer}>
+        <View style={styles.navigationHeader}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('ballina')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.viewTitleHeader}>{t('full_grades_matrix')}</Text>
+        </View>
+
+        {/* Professional Class Switcher */}
+        <View style={styles.proTabContainer}>
+          {coordinatedClasses.map(c => {
+            const isActive = (selectedCoordinatorClassId === c.id) || (!selectedCoordinatorClassId && c.id === coordinatedClasses[0].id);
+            return (
+              <TouchableOpacity
+                key={c.id}
+                style={[styles.proTab, isActive && styles.proTabActive]}
+                onPress={() => setSelectedCoordinatorClassId(c.id)}
+              >
+                <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={{ flex: 1, backgroundColor: 'white', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
+            {studentsInClass.map((student, idx) => {
+              const sGrades = classGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
+              const totalAvgStr = sGrades.length > 0 ? (sGrades.reduce((acc, curr) => acc + curr.grade, 0) / sGrades.length).toFixed(1) : '0.0';
+              const studentSubjects = [...new Set(sGrades.map(g => g.subject))].sort();
+
+              return (
+                <View key={student.id} style={{ 
+                  flexDirection: 'row', 
+                  borderBottomWidth: 1, 
+                  borderBottomColor: '#f1f5f9', 
+                  backgroundColor: idx % 2 === 0 ? 'white' : '#fcfdfe',
+                  minHeight: 100
+                }}>
+                  {/* Left: Student Info */}
+                  <View style={{ width: 150, padding: 15, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
+                    <View style={{ 
+                      width: 40, 
+                      height: 40, 
+                      borderRadius: 14, 
+                      backgroundColor: idx % 2 === 0 ? '#eff6ff' : '#f8fafc', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: idx % 2 === 0 ? '#dbeafe' : '#e2e8f0'
+                    }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: idx % 2 === 0 ? '#2563eb' : '#64748b' }}>
+                        {(student.name || '?').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>{student.name}</Text>
+                    <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>{sGrades.length} {t('grades')}</Text>
+                  </View>
+
+                  {/* Center: Subjects and Grades Area */}
+                  <View style={{ flex: 1, padding: 10, gap: 12 }}>
+                    {studentSubjects.length > 0 ? studentSubjects.map(sub => {
+                      const subGrades = sGrades.filter(g => g.subject === sub).sort((a,b) => b.id - a.id);
+                      const subAvg = (subGrades.reduce((acc, curr) => acc + curr.grade, 0) / subGrades.length).toFixed(1);
+                      return (
+                        <View key={sub} style={{ backgroundColor: '#f8fafc', borderRadius: 16, padding: 10, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#475569' }}>{sub}</Text>
+                            <Text style={{ fontSize: 11, fontWeight: '900', color: '#2563eb', backgroundColor: '#eff6ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
+                              Avg: {subAvg}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {subGrades.map(g => (
+                              <View key={g.id} style={[styles.gradeBadge, { backgroundColor: getGradeColor(g.grade).bg, width: 28, height: 28, borderRadius: 10 }]}>
+                                <Text style={[styles.gradeBadgeText, { color: getGradeColor(g.grade).text, fontSize: 13 }]}>{g.grade}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      );
+                    }) : (
+                      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                         <Text style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>{t('no_grades_found')}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Right: Total Average */}
+                  <View style={{ width: 80, padding: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: idx % 2 === 0 ? '#f8fafc' : '#f1f5f9' }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 8, textTransform: 'uppercase' }}>{t('average_short')}</Text>
+                    <GradeRing value={totalAvgStr} size={48} />
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    );
+  };
+
+  const renderCoordinatorAttendance = () => {
+    const coordinatedClasses = teacherClasses; 
+    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId) || coordinatedClasses[0];
+
+    if (!currentCls) return (
+      <View style={styles.emptyStateContainer}>
+        <UserCheck size={40} color="#cbd5e1" />
+        <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnjë klasë'}</Text>
+      </View>
+    );
+
+    const studentsInClass = getDynamicClassStudents(currentCls.id).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const classAttendance = (attendance || []).filter(a => (a.class_id === currentCls.id || a.classId === currentCls.id) && (a.academic_year === selectedGlobalAcademicYear || (!a.academic_year && !selectedGlobalAcademicYear)));
+    const todayStr = formatDate(new Date());
+
+    return (
+      <View style={styles.viewContainer}>
+        <View style={styles.navigationHeader}>
+          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+            <ArrowLeft size={18} color="#1e293b" />
+            <Text style={styles.backButtonText}>{t('ballina')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.viewTitleHeader}>{t('attendance_oversight')}</Text>
+        </View>
+
+        {/* Professional Class Switcher */}
+        <View style={styles.proTabContainer}>
+          {coordinatedClasses.map(c => {
+            const isActive = (selectedCoordinatorClassId === c.id) || (!selectedCoordinatorClassId && c.id === coordinatedClasses[0].id);
+            return (
+              <TouchableOpacity
+                key={c.id}
+                style={[styles.proTab, isActive && styles.proTabActive]}
+                onPress={() => setSelectedCoordinatorClassId(c.id)}
+              >
+                <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={{ flex: 1, backgroundColor: 'white', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
+            {studentsInClass.map((student, idx) => {
+              const sAttendance = classAttendance.filter(a => a.student_id === student.id || a.studentId === student.id);
+              sAttendance.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+              const totalDaysAbsent = sAttendance.filter(a => (a.hour === 0 || a.hour === '0') && a.status.startsWith('absent')).length;
+              const totalHoursAbsent = sAttendance.filter(a => (a.hour > 0 || a.hour !== '0') && a.status.startsWith('absent')).length;
+              const totalUnjustified = sAttendance.filter(a => a.status.includes('unjustified')).length;
+
+              return (
+                <View key={student.id} style={{ 
+                  flexDirection: 'row', 
+                  borderBottomWidth: 1, 
+                  borderBottomColor: '#f1f5f9', 
+                  backgroundColor: idx % 2 === 0 ? 'white' : '#fcfdfe',
+                  minHeight: 100
+                }}>
+                  {/* Left: Student Info */}
+                  <View style={{ width: 140, padding: 15, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
+                    <View style={{ 
+                      width: 40, 
+                      height: 40, 
+                      borderRadius: 14, 
+                      backgroundColor: idx % 2 === 0 ? '#f0fdf4' : '#f8fafc', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: idx % 2 === 0 ? '#dcfce7' : '#e2e8f0'
+                    }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: idx % 2 === 0 ? '#16a34a' : '#64748b' }}>
+                        {(student.name || '?').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>{student.name}</Text>
+                    <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>{sAttendance.length} {t('records') || 'Të dhëna'}</Text>
+                  </View>
+
+                  {/* Center: Attendance Ledger Area */}
+                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 10, alignItems: 'center' }}>
+                    {sAttendance.length > 0 ? sAttendance.map((att, aIdx) => {
+                      let color = '#ef4444'; 
+                      let bg = '#fef2f2';
+                      let char = 'M'; 
+                      
+                      if (att.status.includes('justified')) { color = '#10b981'; bg = '#f0fdf4'; char = 'M'; }
+                      else if (att.status.includes('late')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'V'; }
+                      else if (att.status.includes('early')) { color = '#8b5cf6'; bg = '#f5f3ff'; char = 'D'; }
+
+                      return (
+                        <View key={att.id || aIdx} style={{ alignItems: 'center', gap: 2 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>
+                            {att.date.split('-').reverse().slice(0, 2).join('/')}
+                          </Text>
+                          <View style={{ 
+                            width: 32, 
+                            height: 32, 
+                            borderRadius: 12, 
+                            backgroundColor: bg, 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            borderWidth: 1.5, 
+                            borderColor: color 
+                          }}>
+                            <Text style={{ fontSize: 12, fontWeight: '900', color: color }}>{char}</Text>
+                          </View>
+                        </View>
+                      );
+                    }) : (
+                      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                         <Text style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>{t('no_absences_found')}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Right: Summary Metrics */}
+                  <View style={{ width: 100, padding: 10, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: idx % 2 === 0 ? '#f8fafc' : '#f1f5f9' }}>
+                    <View style={{ alignItems: 'center' }}>
+                       <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 2 }}>{t('days') || 'Ditë'}</Text>
+                       <View style={{ backgroundColor: totalDaysAbsent > 0 ? '#fee2e2' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '900', color: totalDaysAbsent > 0 ? '#ef4444' : '#64748b' }}>{totalDaysAbsent}</Text>
+                       </View>
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                       <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 2 }}>{t('hours') || 'Orë'}</Text>
+                       <View style={{ backgroundColor: totalHoursAbsent > 0 ? '#fee2e2' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '900', color: totalHoursAbsent > 0 ? '#ef4444' : '#64748b' }}>{totalHoursAbsent}</Text>
+                       </View>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    );
+  };
+
   const renderNotices = () => {
     const teacherSchoolId = user.school_id;
     const teacherClassIds = classes
@@ -3642,6 +4075,9 @@ const TeacherDashboard = ({
         {activeView === 'home' && navigation.view === 'class-attendance-grid' && renderClassAttendanceGrid(navigation.data)}
         {activeView === 'home' && navigation.view === 'notat-history' && renderGradeHistory(navigation.data)}
         {activeView === 'home' && navigation.view === 'class-agenda' && renderClassAgenda(navigation.data)}
+        {activeView === 'home' && navigation.view === 'coordinator-notes' && renderCoordinatorNotes()}
+        {activeView === 'home' && navigation.view === 'coordinator-grades' && renderCoordinatorGrades()}
+        {activeView === 'home' && navigation.view === 'coordinator-attendance' && renderCoordinatorAttendance()}
         {activeView === 'lajmerimet' && navigation.view === 'home' && renderNotices()}
       </View>
 
@@ -3906,16 +4342,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
   },
   header: {
-    backgroundColor: 'white',
+    backgroundColor: Platform.OS === 'web' ? 'rgba(255, 255, 255, 0.85)' : 'white',
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#f1f5f9',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
-    shadowRadius: 10,
+    shadowRadius: 15,
     elevation: 3,
-    zIndex: 10,
+    zIndex: 1000,
+    // Glassmorphism effect on Web
+    ...Platform.select({
+      web: {
+        backdropFilter: 'blur(12px)',
+        position: 'sticky',
+        top: 0,
+      }
+    })
   },
   headerTopBar: {
     flexDirection: 'row',
@@ -3923,6 +4367,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
+    // Add extra padding for mobile web safe area (notch/status bar)
+    paddingTop: (Platform.OS === 'web' && window.innerWidth < 1024) ? 24 : 14,
   },
   headerLogo: {
     flexDirection: 'row',
@@ -3930,23 +4376,23 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   logoIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: '#2563eb',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
   headerTitle: {
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: '900',
-    color: '#1e293b',
-    letterSpacing: -0.5,
+    color: '#0f172a',
+    letterSpacing: -0.8,
   },
   logoutBtn: {
     padding: 10,
@@ -5036,6 +5482,123 @@ const modalStyles = StyleSheet.create({
     color: '#64748b',
     fontWeight: '800',
     fontSize: 16,
+  },
+  // Coordinator Professional Styles
+  proTabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#f8fafc',
+    borderRadius: 20,
+    padding: 6,
+    marginBottom: 28,
+    marginHorizontal: 20,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#64748b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  proTab: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    transitionDuration: '0.2s',
+  },
+  proTabActive: {
+    backgroundColor: 'white',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  proTabText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#94a3b8',
+    letterSpacing: 0.3,
+  },
+  proTabTextActive: {
+    color: '#2563eb',
+    fontWeight: '900',
+  },
+  matrixHeader: {
+    backgroundColor: '#0f172a',
+    flexDirection: 'row',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  matrixHeaderCell: {
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.05)',
+  },
+  matrixHeaderText: {
+    color: '#f8fafc',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  matrixRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  matrixNameCell: {
+    width: 220,
+    padding: 16,
+    backgroundColor: '#f8fafc',
+    borderRightWidth: 3,
+    borderRightColor: '#f1f5f9',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: {
+        position: 'sticky',
+        left: 0,
+        zIndex: 10,
+        backgroundColor: 'rgba(248, 250, 252, 0.95)',
+        backdropFilter: 'blur(10px)',
+      }
+    })
+  },
+  matrixGradeCell: {
+    width: 110,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#f1f5f9',
+  },
+  gradeBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    minWidth: 40,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+  },
+  gradeBadgeText: {
+    fontSize: 15,
+    fontWeight: '900',
   }
 });
 

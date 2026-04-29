@@ -91,7 +91,7 @@ const AdminDashboard = ({
   const { t } = useLanguage();
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
-  
+
   const { width: windowWidth } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && windowWidth > 768;
   const [navigation, setNavigation] = useState({ view: 'home', data: null });
@@ -137,8 +137,8 @@ const AdminDashboard = ({
 
     window.addEventListener('popstate', handlePopState);
     if (!window.adminInitialLoadDone) {
-       handlePopState();
-       window.adminInitialLoadDone = true;
+      handlePopState();
+      window.adminInitialLoadDone = true;
     }
 
     return () => window.removeEventListener('popstate', handlePopState);
@@ -147,7 +147,7 @@ const AdminDashboard = ({
   // Sync state changes to browser URL automatically
   React.useEffect(() => {
     if (!isDesktop || typeof window === 'undefined') return;
-    
+
     let targetUrl = '/admin/ballina';
     const view = navigation.view;
     if (view === 'home') targetUrl = '/admin/ballina';
@@ -161,9 +161,9 @@ const AdminDashboard = ({
     else if (view === 'calendar_mgmt') targetUrl = '/admin/kalendari';
     else if (view === 'school-detail' && navigation.data?.id) targetUrl = `/admin/shkollat/${navigation.data.id}`;
     else if (view === 'class-detail' && navigation.data?.id) targetUrl = `/admin/klasat/${navigation.data.id}`;
-    
+
     if (window.location.pathname !== targetUrl) {
-       window.history.pushState({}, '', targetUrl);
+      window.history.pushState({}, '', targetUrl);
     }
   }, [navigation, isDesktop]);
 
@@ -537,6 +537,9 @@ const AdminDashboard = ({
 
     if (!result?.error) {
       resetTeacherForm();
+      showAlert(t('teacher_added_success') || 'Mësuesi u shtua me sukses!', 'success');
+    } else {
+      showAlert(result.error.message, 'error');
     }
   };
 
@@ -620,7 +623,7 @@ const AdminDashboard = ({
           <ScrollView contentContainerStyle={styles.settingsMenu}>
             {[
               isSuperAdmin && { id: 'manage_school_status', label: t('manage_school_status') || 'Statuset e Shkollave', icon: Lock, color: '#f59e0b' },
-              { id: 'delete_school', label: t('delete_school'), icon: School, color: '#ef4444' },
+              isSuperAdmin && { id: 'delete_school', label: t('delete_school'), icon: School, color: '#ef4444' },
               isSuperAdmin && { id: 'delete_all_data', label: t('delete_all_data') || 'Fshi të gjitha të dhënat', icon: Trash2, color: '#dc2626' },
             ].filter(Boolean).map(item => (
               <TouchableOpacity
@@ -713,16 +716,16 @@ const AdminDashboard = ({
                       </Text>
                     </View>
                   ) : activeSettingsMode === 'manage_teachers' ? (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       onPress={(e) => {
                         e.stopPropagation();
                         onUpdateTeacherKujdestar(item.id, !item.is_kujdestar);
                       }}
                       style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, backgroundColor: item.is_kujdestar ? '#eff6ff' : '#f1f5f9' }}
                     >
-                       <Text style={{ fontSize: 10, fontWeight: 'bold', color: item.is_kujdestar ? '#2563eb' : '#64748b' }}>
-                          {item.is_kujdestar ? 'Kujdestar' : '—'}
-                       </Text>
+                      <Text style={{ fontSize: 10, fontWeight: 'bold', color: item.is_kujdestar ? '#2563eb' : '#64748b' }}>
+                        {item.is_kujdestar ? 'Kujdestar' : '—'}
+                      </Text>
                     </TouchableOpacity>
                   ) : null}
                 </TouchableOpacity>
@@ -844,16 +847,6 @@ const AdminDashboard = ({
           <Text style={styles.actionTileTitle}>{t('manage_students')}</Text>
           <ChevronRight size={20} color="#94a3b8" />
         </TouchableOpacity>
-
-        {isSuperAdmin && (
-          <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'academic-year', data: null })}>
-            <View style={[styles.actionIconContainer, { backgroundColor: '#e0f2fe' }]}>
-              <Calendar size={24} color="#0284c7" />
-            </View>
-            <Text style={styles.actionTileTitle}>{t('academic_year_mgmt')}</Text>
-            <ChevronRight size={20} color="#94a3b8" />
-          </TouchableOpacity>
-        )}
 
         <TouchableOpacity style={styles.actionTile} onPress={() => setNavigation({ view: 'notices', data: null })}>
           <View style={[styles.actionIconContainer, { backgroundColor: '#fdf2f8' }]}>
@@ -1149,7 +1142,7 @@ const AdminDashboard = ({
                           </View>
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             onPress={() => onUpdateTeacherKujdestar(tId, !teacher?.is_kujdestar)}
                             style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, backgroundColor: teacher?.is_kujdestar ? '#eff6ff' : '#f1f5f9' }}
                           >
@@ -2520,65 +2513,65 @@ const AdminDashboard = ({
 
           {/* TAB: Mbyllja e vitit shkollor */}
           {schoolYearSubTab === 'end' && (
-              <View style={{ gap: 20 }}>
-                {/* 1. Final Year Closure/Archive */}
-                <View style={[styles.card, {
-                  padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 2, borderColor: '#fecaca',
-                  shadowColor: '#ef4444', shadowOpacity: 0.08, shadowRadius: 24, elevation: 5, overflow: 'hidden'
-                }]}>
-                  <View style={{ backgroundColor: '#FEF2F2', padding: 26, borderBottomWidth: 1, borderBottomColor: '#fecaca', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                    <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 }}>
-                      <Archive size={30} color="#ffffff" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 21, fontWeight: '900', color: '#991b1b', letterSpacing: -0.5 }}>{t('archive_year') || 'HAPI 1: Mbyllja e Vitit'}</Text>
-                      <Text style={{ fontSize: 13.5, color: '#dc2626', fontWeight: '700', marginTop: 4, letterSpacing: 0.2 }}>{t('archive_desc') || 'Krijon një "fotografi" të vitit aktual dhe fshin arkivat e vjetra për t\'i mbyllur ato.'}</Text>
-                    </View>
+            <View style={{ gap: 20 }}>
+              {/* 1. Final Year Closure/Archive */}
+              <View style={[styles.card, {
+                padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 2, borderColor: '#fecaca',
+                shadowColor: '#ef4444', shadowOpacity: 0.08, shadowRadius: 24, elevation: 5, overflow: 'hidden'
+              }]}>
+                <View style={{ backgroundColor: '#FEF2F2', padding: 26, borderBottomWidth: 1, borderBottomColor: '#fecaca', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                  <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 }}>
+                    <Archive size={30} color="#ffffff" />
                   </View>
-                  <View style={{ padding: 26 }}>
-                    <TouchableOpacity
-                      style={{ height: 64, borderRadius: 24, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 }}
-                      onPress={() => {
-                        confirmDelete(`${t('confirm_archive')} (${currentSchool?.current_year})?`, async () => {
-                          setIsProcessing(true);
-                          const res = await onArchiveYear(activeSchoolId, currentSchool?.current_year);
-                          setIsProcessing(false);
-                          if (!res?.error) showAlert(`${t('archive_success_msg')}! Viti i ri: ${res.nextYear}`, "success");
-                        });
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('archive_btn') || 'Mbyll Vitin Akademik'}</Text>
-                    </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 21, fontWeight: '900', color: '#991b1b', letterSpacing: -0.5 }}>{t('archive_year') || 'HAPI 1: Mbyllja e Vitit'}</Text>
+                    <Text style={{ fontSize: 13.5, color: '#dc2626', fontWeight: '700', marginTop: 4, letterSpacing: 0.2 }}>{t('archive_desc') || 'Krijon një "fotografi" të vitit aktual dhe fshin arkivat e vjetra për t\'i mbyllur ato.'}</Text>
                   </View>
                 </View>
-
-                {/* 2. Class & Student Promotion */}
-                <View style={[styles.card, {
-                  padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 1, borderColor: '#f1f5f9',
-                  shadowColor: '#94a3b8', shadowOpacity: 0.05, shadowRadius: 20, elevation: 3, overflow: 'hidden'
-                }]}>
-                  <View style={{ backgroundColor: '#F8FAFC', padding: 26, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                    <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center', shadowColor: '#334155', shadowOpacity: 0.25, shadowRadius: 10, elevation: 6 }}>
-                      <ArrowUpRight size={30} color="#ffffff" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 21, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>{t('promote_classes_btn') || 'HAPI 2: Promovimi i Klasave'}</Text>
-                      <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4, letterSpacing: 0.2 }}>{t('confirm_promotion_desc') || 'Sposton nxënësit në klasat pasardhëse për vitin e ri.'}</Text>
-                    </View>
-                  </View>
-                  <View style={{ padding: 26 }}>
-                    <TouchableOpacity
-                      style={{ height: 64, borderRadius: 20, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#cbd5e1' }}
-                      onPress={() => {
-                        setSelectedPromotionClassId(-1);
-                        setPromotedStudentIds(new Set());
-                      }}
-                    >
-                      <Text style={{ color: '#475569', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>{t('manage_promotions') || 'Menaxho Promovimet'}</Text>
-                    </TouchableOpacity>
-                  </View>
+                <View style={{ padding: 26 }}>
+                  <TouchableOpacity
+                    style={{ height: 64, borderRadius: 24, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 }}
+                    onPress={() => {
+                      confirmDelete(`${t('confirm_archive')} (${currentSchool?.current_year})?`, async () => {
+                        setIsProcessing(true);
+                        const res = await onArchiveYear(activeSchoolId, currentSchool?.current_year);
+                        setIsProcessing(false);
+                        if (!res?.error) showAlert(`${t('archive_success_msg')}! Viti i ri: ${res.nextYear}`, "success");
+                      });
+                    }}
+                  >
+                    <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('archive_btn') || 'Mbyll Vitin Akademik'}</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
+
+              {/* 2. Class & Student Promotion */}
+              <View style={[styles.card, {
+                padding: 0, borderRadius: 36, backgroundColor: '#fff', borderWidth: 1, borderColor: '#f1f5f9',
+                shadowColor: '#94a3b8', shadowOpacity: 0.05, shadowRadius: 20, elevation: 3, overflow: 'hidden'
+              }]}>
+                <View style={{ backgroundColor: '#F8FAFC', padding: 26, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                  <View style={{ width: 60, height: 60, borderRadius: 22, backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center', shadowColor: '#334155', shadowOpacity: 0.25, shadowRadius: 10, elevation: 6 }}>
+                    <ArrowUpRight size={30} color="#ffffff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 21, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>{t('promote_classes_btn') || 'HAPI 2: Promovimi i Klasave'}</Text>
+                    <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4, letterSpacing: 0.2 }}>{t('confirm_promotion_desc') || 'Sposton nxënësit në klasat pasardhëse për vitin e ri.'}</Text>
+                  </View>
+                </View>
+                <View style={{ padding: 26 }}>
+                  <TouchableOpacity
+                    style={{ height: 64, borderRadius: 20, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#cbd5e1' }}
+                    onPress={() => {
+                      setSelectedPromotionClassId(-1);
+                      setPromotedStudentIds(new Set());
+                    }}
+                  >
+                    <Text style={{ color: '#475569', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>{t('manage_promotions') || 'Menaxho Promovimet'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
           )}
 
         </ScrollView>
@@ -3011,15 +3004,15 @@ const AdminDashboard = ({
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
                   onPress={() => setTeacherIsKujdestar(!teacherIsKujdestar)}
                 >
-                  <View style={{ 
-                    width: 26, 
-                    height: 26, 
-                    borderRadius: 8, 
-                    borderWidth: 2, 
+                  <View style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 8,
+                    borderWidth: 2,
                     borderColor: teacherIsKujdestar ? '#2563eb' : '#cbd5e1',
                     backgroundColor: teacherIsKujdestar ? '#2563eb' : 'white',
-                    alignItems: 'center', 
-                    justifyContent: 'center' 
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}>
                     {teacherIsKujdestar && <Check size={18} color="white" />}
                   </View>
@@ -3050,9 +3043,9 @@ const AdminDashboard = ({
               <TouchableOpacity style={styles.cancelButton} onPress={resetTeacherForm}>
                 <Text style={styles.cancelButtonText}>{t('cancel')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.submitButton, (!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0) && { opacity: 0.5 }]} 
-                onPress={handleAddTeacherLocal}
+              <TouchableOpacity
+                style={[styles.submitButton, (!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0) && { opacity: 0.5 }]}
+                onPress={() => handleAddTeacherLocal()}
                 disabled={!teacherFirstName || !teacherLastName || !teacherUsername || !teacherPassword || teacherSubjects.length === 0}
               >
                 <Text style={styles.submitButtonText}>{editingTeacherId ? (t('save_changes') || 'Ruaj Ndryshimet') : t('confirm')}</Text>
@@ -3312,15 +3305,15 @@ const AdminDashboard = ({
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
                   onPress={() => setTeacherIsKujdestar(!teacherIsKujdestar)}
                 >
-                  <View style={{ 
-                    width: 26, 
-                    height: 26, 
-                    borderRadius: 8, 
-                    borderWidth: 2, 
+                  <View style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 8,
+                    borderWidth: 2,
                     borderColor: teacherIsKujdestar ? '#2563eb' : '#cbd5e1',
                     backgroundColor: teacherIsKujdestar ? '#2563eb' : 'white',
-                    alignItems: 'center', 
-                    justifyContent: 'center' 
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}>
                     {teacherIsKujdestar && <Check size={18} color="white" />}
                   </View>
@@ -3689,15 +3682,17 @@ const AdminDashboard = ({
               <School size={18} color="white" />
             </View>
           </View>
-          
+
           {isDesktop && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 32, flex: 1, justifyContent: 'center' }}>
               <TouchableOpacity onPress={() => setNavigation({ view: 'home', data: null })} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: navigation.view === 'home' ? '#eef2ff' : 'transparent' }}>
                 <Text style={{ fontSize: 16, fontWeight: '800', color: navigation.view === 'home' ? '#6366f1' : '#64748b' }}>{t('home') || 'Ballina'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setNavigation({ view: 'settings', data: null })} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: navigation.view === 'settings' ? '#eef2ff' : 'transparent' }}>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: navigation.view === 'settings' ? '#6366f1' : '#64748b' }}>{t('settings') || 'Cilësimet'}</Text>
-              </TouchableOpacity>
+              {isSuperAdmin && (
+                <TouchableOpacity onPress={() => setNavigation({ view: 'settings', data: null })} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: navigation.view === 'settings' ? '#eef2ff' : 'transparent' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: navigation.view === 'settings' ? '#6366f1' : '#64748b' }}>{t('settings') || 'Cilësimet'}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -3780,15 +3775,17 @@ const AdminDashboard = ({
             <Text style={[styles.navText, navigation.view === 'home' && styles.activeNavText]}>{t('home')}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.navItem}
-            onPress={() => setNavigation({ view: 'settings', data: null })}
-          >
-            <View style={[styles.navIconContainer, navigation.view === 'settings' && styles.activeNavIcon]}>
-              <Settings size={22} color={navigation.view === 'settings' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'settings' ? 2.5 : 2} />
-            </View>
-            <Text style={[styles.navText, navigation.view === 'settings' && styles.activeNavText]}>{t('settings')}</Text>
-          </TouchableOpacity>
+          {isSuperAdmin && (
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => setNavigation({ view: 'settings', data: null })}
+            >
+              <View style={[styles.navIconContainer, navigation.view === 'settings' && styles.activeNavIcon]}>
+                <Settings size={22} color={navigation.view === 'settings' ? '#6366f1' : '#94a3b8'} strokeWidth={navigation.view === 'settings' ? 2.5 : 2} />
+              </View>
+              <Text style={[styles.navText, navigation.view === 'settings' && styles.activeNavText]}>{t('settings')}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </SafeAreaView>

@@ -388,7 +388,16 @@ export const DatabaseProvider = ({ children }) => {
   const addTeacher = async (teacher) => {
     const validEmail = (teacher.email || teacher.username || '').trim().toLowerCase();
 
-    // 1. Create auth user
+    // 1. Check if profile already exists for this email
+    const { data: existingProfile } = await supabase.from('profiles').select('id, role').eq('email', validEmail).single();
+    if (existingProfile) {
+      const errorMsg = existingProfile.role === 'mesues' 
+        ? (t('teacher_already_exists') || 'Një mësues me këtë email ekziston tashmë.')
+        : (t('email_in_use_by_other_role') || 'Ky email është i zënë nga një llogari tjetër.');
+      return { error: { message: errorMsg } };
+    }
+
+    // 2. Create auth user
     const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
       email: validEmail,
       password: teacher.password,
@@ -399,14 +408,16 @@ export const DatabaseProvider = ({ children }) => {
         }
       }
     });
+
     if (authError) {
       console.error("Auth error adding teacher", authError);
+      let userDisplayError = authError.message;
+
       if (authError.message.includes("already registered")) {
-        console.log("Ky email (" + validEmail + ") është regjistruar tashmë në Supabase Auth.");
-      } else {
-        console.log("Gabim gjatë krijimit të mësuesit: " + authError.message);
+        userDisplayError = t('auth_email_orphaned') || "Ky email është i regjistruar në Auth por nuk ka profil. Kontaktoni mbështetjen për pastrim ose përdorni një email tjetër.";
       }
-      return { error: authError };
+
+      return { error: { ...authError, message: userDisplayError } };
     }
     // 2. Create profile
     const newTeacher = {
@@ -781,10 +792,33 @@ export const DatabaseProvider = ({ children }) => {
       a.hour > 0 && a.hour <= 7
     );
 
-    // 2. Map statuses for all 7 hours (default to 'absent' for today, 'none' for history)
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const defaultStatus = (date === todayStr) ? 'absent' : 'none';
+    const checkIsSchoolDay = (dateStr) => {
+      const d = new Date(dateStr);
+      const dayOfWeek = d.getDay(); // 0 = Sunday, 6 = Saturday
+      const school = schools.find(s => s.id === user?.school_id || s.id === user?.schoolId) || schools[0];
+
+      // 1. Calendar boundaries (only for non-historical view)
+      if (!selectedGlobalAcademicYear && school) {
+        if (school.school_year_start && dateStr < school.school_year_start) return false;
+        if (school.school_year_end && dateStr > school.school_year_end) return false;
+      }
+
+      // 2. Explicit overrides
+      const event = schoolCalendar.find(e => e.date === dateStr);
+      if (event) {
+        if (event.type === 'holiday') return false;
+        if (event.type === 'work_day') return true;
+      }
+
+      // 3. Weekends
+      if (dayOfWeek === 0 || dayOfWeek === 6) return false;
+
+      return true;
+    };
+
+    // 2. Map statuses for all 7 hours
+    const isWorkDay = checkIsSchoolDay(date);
+    const defaultStatus = isWorkDay ? 'absent' : 'none';
 
     const statuses = {};
     for (let i = 1; i <= 7; i++) {
@@ -1568,10 +1602,11 @@ export const DatabaseProvider = ({ children }) => {
       // Determine default status: 'absent' for today, 'none' for history (safety)
       const today = new Date();
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      const defaultStatus = (dateStr === todayStr) ? 'absent' : 'none';
+      // Always default to 'absent' for school days during initialization
+      const defaultStatus = 'absent';
 
       // 2. Check which students ALREADY have ANY record for this date
-      const existingAtt = attendance.filter(a => a.class_id === classId && a.date === dateStr);
+      const existingAtt = attendance.filter(a => (a.class_id === classId || a.classId === classId) && a.date === dateStr);
       const studentIdsWithAnyRecord = new Set(existingAtt.map(a => a.student_id || a.studentId));
 
       const missingStudents = classStudents.filter(s => !studentIdsWithAnyRecord.has(s.id));
@@ -1587,7 +1622,8 @@ export const DatabaseProvider = ({ children }) => {
           date: dateStr,
           hour: 0,
           status: defaultStatus,
-          term: resolveTermForDate(dateStr)
+          term: resolveTermForDate(dateStr),
+          academic_year: selectedGlobalAcademicYear
         });
       });
 

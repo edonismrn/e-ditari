@@ -1,6 +1,8 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { AppState } from 'react-native';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import { AppState, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+
+const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 const AuthContext = createContext({});
 
@@ -9,6 +11,34 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const inactivityTimerRef = useRef(null);
+
+  const resetInactivityTimer = () => {
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+    }
+    if (user) {
+      inactivityTimerRef.current = setTimeout(() => {
+        console.log("[AuthContext] Session timed out due to inactivity.");
+        logout();
+      }, INACTIVITY_TIMEOUT);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && user) {
+      const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+      const handleActivity = () => resetInactivityTimer();
+      
+      events.forEach(event => window.addEventListener(event, handleActivity));
+      resetInactivityTimer(); // Start timer
+
+      return () => {
+        events.forEach(event => window.removeEventListener(event, handleActivity));
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      };
+    }
+  }, [user]);
 
   useEffect(() => {
     // Check active session on mount
