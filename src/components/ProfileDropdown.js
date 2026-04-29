@@ -16,7 +16,8 @@ const ProfileDropdown = ({
   user, t, onLogout, onChangePassword, onHelp,
   availableAcademicYears = [],
   selectedGlobalAcademicYear = null,
-  changeAcademicYear
+  changeAcademicYear,
+  schoolCurrentYear
 }) => {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -42,7 +43,7 @@ const ProfileDropdown = ({
     return null;
   };
 
-  const actualCurrentYear = getRealCurrentAcademicYear();
+  const actualCurrentYear = schoolCurrentYear || getRealCurrentAcademicYear();
   const activeYearString = selectedGlobalAcademicYear || actualCurrentYear;
 
   // All years ordered oldest-first
@@ -135,7 +136,7 @@ const ProfileDropdown = ({
                 </TouchableOpacity>
               )}
 
-              {changeAcademicYear && (
+              {changeAcademicYear && (user.role === 'mesues' || user.role === 'nxenes') && availableAcademicYears.length > 0 && (
                 <>
                   <View style={styles.divider} />
                   <Text style={{ paddingHorizontal: 28, paddingTop: 6, paddingBottom: 4, fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -143,52 +144,32 @@ const ProfileDropdown = ({
                   </Text>
                   
                   <TouchableOpacity 
-                    style={[styles.menuItem, { paddingVertical: 10 }]} 
+                    style={[styles.menuItem, { paddingVertical: 10, backgroundColor: selectedGlobalAcademicYear === null ? '#f1f5f9' : 'transparent' }]} 
                     onPress={() => handleAction(() => changeAcademicYear(null))}
                   >
                     <RotateCcw size={16} color={selectedGlobalAcademicYear === null ? "#2563eb" : "#94a3b8"} />
-                    <Text style={[styles.menuItemText, { fontSize: 13, color: selectedGlobalAcademicYear === null ? "#2563eb" : "#475569" }]}>
-                      Viti Aktual ({actualCurrentYear})
+                    <Text style={[styles.menuItemText, { fontSize: 13, color: selectedGlobalAcademicYear === null ? "#2563eb" : "#475569", fontWeight: selectedGlobalAcademicYear === null ? '800' : '600' }]}>
+                      {t('current_year') || "Viti Aktual"} ({actualCurrentYear})
                     </Text>
                     {selectedGlobalAcademicYear === null && <Check size={14} color="#2563eb" style={{marginLeft: 'auto'}} />}
                   </TouchableOpacity>
-
-                  {selectedGlobalAcademicYear !== null && nextYear !== actualCurrentYear && (
-                    <TouchableOpacity 
-                      style={[styles.menuItem, { paddingVertical: 10 }]} 
-                      onPress={() => handleAction(() => changeAcademicYear(nextYear))}
-                    >
-                      <ChevronRight size={16} color="#94a3b8" />
-                      <Text style={[styles.menuItemText, { fontSize: 13, color: "#475569" }]}>
-                        Kalo në {nextYear} 
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {selectedGlobalAcademicYear !== null && (
-                    <TouchableOpacity 
-                      style={[styles.menuItem, { paddingVertical: 10, backgroundColor: '#f8fafc' }]} 
-                      disabled={true}
-                    >
-                      <Calendar size={16} color="#2563eb" />
-                      <Text style={[styles.menuItemText, { fontSize: 13, color: "#2563eb", fontWeight: '700' }]}>
-                        Duke parë {selectedGlobalAcademicYear}
-                      </Text>
-                      <Check size={14} color="#2563eb" style={{marginLeft: 'auto'}} />
-                    </TouchableOpacity>
-                  )}
-
-                  {previousYear && (
-                    <TouchableOpacity 
-                      style={[styles.menuItem, { paddingVertical: 10 }]} 
-                      onPress={() => handleAction(() => changeAcademicYear(previousYear))}
-                    >
-                      <ChevronLeft size={16} color="#94a3b8" />
-                      <Text style={[styles.menuItemText, { fontSize: 13, color: "#475569" }]}>
-                        Kalo në vitin e kaluar {previousYear}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                  
+                  {allYears.reverse().map(year => {
+                    const isSelected = selectedGlobalAcademicYear === year;
+                    return (
+                      <TouchableOpacity 
+                        key={year}
+                        style={[styles.menuItem, { paddingVertical: 10, backgroundColor: isSelected ? '#f1f5f9' : 'transparent' }]} 
+                        onPress={() => handleAction(() => changeAcademicYear(year))}
+                      >
+                        <Calendar size={16} color={isSelected ? "#2563eb" : "#94a3b8"} />
+                        <Text style={[styles.menuItemText, { fontSize: 13, color: isSelected ? "#2563eb" : "#475569", fontWeight: isSelected ? '800' : '600' }]}>
+                          Viti {year}
+                        </Text>
+                        {isSelected && <Check size={14} color="#2563eb" style={{marginLeft: 'auto'}} />}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </>
               )}
 

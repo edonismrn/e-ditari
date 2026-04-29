@@ -133,9 +133,9 @@ const GradeRing = ({ value, size = 64, showProgress = false }) => {
 
 const TeacherDashboard = ({
   user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices, tests,
-  onAddGrade, onUpdateGrade, onAddLesson, onUpdateLesson, onDeleteLesson, onUpdateAttendanceHour, onToggleAttendance, onJustifyAttendance,
-  onInitializeAttendance, onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh,
-  schoolCalendar, schools, onMarkDayAsRest, onUndoRestDay,
+  onAddGrade, onUpdateGrade, onAddLesson, onUpdateLesson, onDeleteLesson, onToggleAttendance, onJustifyAttendance,
+  onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh,
+  schoolCalendar, schools,
   availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
 }) => {
   const { t } = useLanguage();
@@ -494,19 +494,7 @@ const TeacherDashboard = ({
     return 'present';
   };
 
-  // Auto-initialize attendance for today when viewing class detail
-  React.useEffect(() => {
-    if (navigation.view === 'class-detail' && navigation.data?.id) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const selectedDateStr = formatDate(selectedDate);
-      const dayStatus = isSchoolDay(selectedDate);
 
-      // Only auto-initialize for today's date AND only if it is a school day (not a holiday/weekend)
-      if (selectedDateStr === todayStr && dayStatus.isWork) {
-        onInitializeAttendance(navigation.data.id, selectedDateStr);
-      }
-    }
-  }, [navigation, selectedDate]);
   const [selectedHomeClassId, setSelectedHomeClassId] = useState(null);
 
   // Edit Grade State
@@ -793,7 +781,7 @@ const TeacherDashboard = ({
     return (
       <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => {
+          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => {
             setNavigation({ view: 'my-classes', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -938,7 +926,7 @@ const TeacherDashboard = ({
     return (
       <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => {
+          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => {
             setNavigation({ view: 'my-classes', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -1070,7 +1058,7 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={[styles.navigationHeader, { flexDirection: 'row' }]}>
-          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => {
+          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => {
             setNavigation({ view: 'home', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -2410,7 +2398,7 @@ const TeacherDashboard = ({
       <View style={[styles.viewContainer, { flex: 1 }]}>
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, position: 'relative', justifyContent: 'center', minHeight: 70 }}>
-          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }, isDesktop && { display: 'none' }]} onPress={() => {
+          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }]} onPress={() => {
             setNavigation({ view: 'my-classes', data: null });
             setSelectedRegistryStudent(null);
             setSelectedActionStudent(null);
@@ -2660,7 +2648,7 @@ const TeacherDashboard = ({
         {/* Navigation Header */}
         <View style={[styles.navigationHeader, { paddingBottom: 10 }]}>
           <TouchableOpacity
-            style={[styles.glassBackButton, isDesktop && { display: 'none' }]}
+            style={[styles.glassBackButton]}
             onPress={() => setNavigation({ view: 'notat-students', data: data.class })}
           >
             <ArrowLeft size={18} color="#1e293b" />
@@ -2947,7 +2935,7 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={[styles.navigationHeader, { flexDirection: 'row' }]}>
-          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => setNavigation({ view: 'notat-subjects', data: data })}>
+          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => setNavigation({ view: 'notat-subjects', data: data })}>
             <ArrowLeft size={18} color="#1e293b" />
             <Text style={styles.backButtonText}>{data.student.name}</Text>
           </TouchableOpacity>
@@ -3150,7 +3138,7 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={[styles.navigationHeader, { flexDirection: 'row' }]}>
-          <TouchableOpacity style={[styles.glassBackButton, isDesktop && { display: 'none' }]} onPress={() => setNavigation({ view: 'class-detail', data: currentClass })}>
+          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => setNavigation({ view: 'class-detail', data: currentClass })}>
             <ArrowLeft size={18} color="#1e293b" />
             <Text style={styles.backButtonText}>{formatClassName(currentClass)}</Text>
           </TouchableOpacity>
@@ -3227,7 +3215,7 @@ const TeacherDashboard = ({
       <View style={styles.viewContainer}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, height: 60, marginBottom: 24 }}>
           <TouchableOpacity
-            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }, isDesktop && { display: 'none' }]}
+            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }]}
             onPress={() => setNavigation({ view: 'my-classes', data: null })}
           >
             <ArrowLeft size={18} color="#1e293b" />
@@ -4032,16 +4020,37 @@ const TeacherDashboard = ({
             availableAcademicYears={availableAcademicYears}
             selectedGlobalAcademicYear={selectedGlobalAcademicYear}
             changeAcademicYear={onChangeAcademicYear}
+            schoolCurrentYear={(schools || []).find(s => s.id === user.school_id)?.current_year}
           />
         </View>
         {(activeView === 'home' && (navigation.view === 'class-agenda' || navigation.view === 'class-detail')) && (() => {
-          const matchedSchool = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
+          const matchedSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || (schools && schools.length > 0 ? schools[0] : null);
+          
+          let startDate = matchedSchool?.school_year_start;
+          let endDate = matchedSchool?.school_year_end;
+
+          if (selectedGlobalAcademicYear) {
+            const archivedStart = (schoolCalendar || []).find(e => e.event_name?.includes(`Fillimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
+            const archivedEnd = (schoolCalendar || []).find(e => e.event_name?.includes(`Mbarimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
+
+            if (archivedStart && archivedEnd) {
+              startDate = archivedStart;
+              endDate = archivedEnd;
+            } else {
+              const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
+              if (!isNaN(startYear)) {
+                startDate = `${startYear}-09-01`;
+                endDate = `${startYear + 1}-06-30`;
+              }
+            }
+          }
+
           return (
             <CalendarStrip
               selectedDate={selectedDate}
               onDateSelect={setSelectedDate}
-              schoolStartDate={matchedSchool?.school_year_start}
-              schoolEndDate={matchedSchool?.school_year_end}
+              schoolStartDate={startDate}
+              schoolEndDate={endDate}
             />
           );
         })()}
@@ -4537,7 +4546,7 @@ const styles = StyleSheet.create({
     marginTop: Platform.OS === 'ios' ? 0 : 12,
   },
   glassBackButton: {
-    display: Platform.OS === 'web' ? 'none' : 'flex',
+    
     flexDirection: 'row',
     height: 44,
     borderRadius: 14,

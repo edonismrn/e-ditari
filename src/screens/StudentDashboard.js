@@ -59,7 +59,7 @@ const getGradeColor = (val) => {
 // StudentDashboard component starts here
 const StudentDashboard = ({ 
   user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads, 
-  onMarkNoticeRead, onRefresh, currentTerm, schoolCalendar, onInitializeAttendance,
+  onMarkNoticeRead, onRefresh, currentTerm, schoolCalendar,
   availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
 }) => {
   const { t } = useLanguage();
@@ -197,6 +197,8 @@ const StudentDashboard = ({
     saveNavState();
   }, [activeTab]);
 
+  const isReadOnly = !!selectedGlobalAcademicYear;
+
   const formatDateString = (dateObj) => {
     const yyyy = dateObj.getFullYear();
     const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -204,16 +206,8 @@ const StudentDashboard = ({
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  // Auto-initialize attendance for today if school day
-  React.useEffect(() => {
-    if (user.classId && onInitializeAttendance) {
-      const todayStr = formatDateString(new Date());
-      const selectedDateStr = formatDateString(selectedDate);
-      if (selectedDateStr === todayStr && isSchoolDay(selectedDate).isWork) {
-        onInitializeAttendance(user.classId, todayStr);
-      }
-    }
-  }, [user.classId, selectedDate]);
+  // NOTE: Attendance auto-initialization removed.
+  // Students only see attendance records explicitly entered by teachers.
 
   const isSchoolDay = (date) => {
     const dateStr = formatDateString(date);
@@ -1192,17 +1186,56 @@ const StudentDashboard = ({
             availableAcademicYears={availableAcademicYears}
             selectedGlobalAcademicYear={selectedGlobalAcademicYear}
             changeAcademicYear={onChangeAcademicYear}
+            schoolCurrentYear={(schools || []).find(s => s.id === user.school_id || s.id === user.schoolId)?.current_year}
           />
         </View>
 
+        {isReadOnly && (
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: '#fff7ed',
+            paddingVertical: 10,
+            paddingHorizontal: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: '#ffedd5',
+            gap: 12
+          }}>
+            <AlertTriangle size={18} color="#ea580c" />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#ea580c', flex: 1 }}>
+              {t('readonly_year_banner')?.replace('{{year}}', selectedGlobalAcademicYear) || `Po shikoni vitin: ${selectedGlobalAcademicYear} (Vetëm Lexim)`}
+            </Text>
+          </View>
+        )}
+
         {activeTab === 'overview' && (() => {
-          const matchedSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || schools?.[0];
+          const matchedSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || (schools && schools.length > 0 ? schools[0] : null);
+          
+          let startDate = matchedSchool?.school_year_start;
+          let endDate = matchedSchool?.school_year_end;
+
+          if (selectedGlobalAcademicYear) {
+            const archivedStart = (schoolCalendar || []).find(e => e.event_name?.includes(`Fillimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
+            const archivedEnd = (schoolCalendar || []).find(e => e.event_name?.includes(`Mbarimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
+
+            if (archivedStart && archivedEnd) {
+              startDate = archivedStart;
+              endDate = archivedEnd;
+            } else {
+              const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
+              if (!isNaN(startYear)) {
+                startDate = `${startYear}-09-01`;
+                endDate = `${startYear + 1}-06-30`;
+              }
+            }
+          }
+
           return (
             <CalendarStrip 
               selectedDate={selectedDate} 
               onDateSelect={setSelectedDate} 
-              schoolStartDate={matchedSchool?.school_year_start}
-              schoolEndDate={matchedSchool?.school_year_end}
+              schoolStartDate={startDate}
+              schoolEndDate={endDate}
             />
           );
         })()}

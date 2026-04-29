@@ -2532,9 +2532,37 @@ const AdminDashboard = ({
                   <TouchableOpacity
                     style={{ height: 64, borderRadius: 24, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center', shadowColor: '#ef4444', shadowOpacity: 0.35, shadowRadius: 20, elevation: 6 }}
                     onPress={() => {
-                      confirmDelete(`${t('confirm_archive')} (${currentSchool?.current_year})?`, async () => {
+                      const now = new Date();
+                      const currentYear = now.getFullYear();
+                      const currentMonth = now.getMonth();
+
+                      // Priority 1: Use the official current_year from the school record
+                      // Priority 2: Use the next year after the latest archived year
+                      // Priority 3: Calculate dynamically based on the current date
+                      const calculateYear = () => {
+                        if (currentSchool?.current_year) return currentSchool.current_year;
+
+                        if (availableAcademicYears && availableAcademicYears.length > 0) {
+                          // availableAcademicYears is sorted reverse (newest first)
+                          const latest = availableAcademicYears[0];
+                          const parts = latest.split('/');
+                          if (parts.length === 2) {
+                            const endYear = parseInt(parts[1]);
+                            if (!isNaN(endYear)) return `${endYear}/${endYear + 1}`;
+                          }
+                        }
+
+                        return (currentMonth < 7
+                          ? `${currentYear - 1}/${currentYear}`
+                          : `${currentYear}/${currentYear + 1}`
+                        );
+                      };
+
+                      const yearToArchive = calculateYear();
+
+                      confirmDelete(`${t('confirm_archive')} (${yearToArchive})?`, async () => {
                         setIsProcessing(true);
-                        const res = await onArchiveYear(activeSchoolId, currentSchool?.current_year);
+                        const res = await onArchiveYear(activeSchoolId, yearToArchive);
                         setIsProcessing(false);
                         if (!res?.error) showAlert(`${t('archive_success_msg')}! Viti i ri: ${res.nextYear}`, "success");
                       });
@@ -3673,6 +3701,8 @@ const AdminDashboard = ({
     </>
   );
 
+  const isReadOnly = !!selectedGlobalAcademicYear;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -3705,8 +3735,26 @@ const AdminDashboard = ({
             availableAcademicYears={availableAcademicYears}
             selectedGlobalAcademicYear={selectedGlobalAcademicYear}
             changeAcademicYear={onChangeAcademicYear}
+            schoolCurrentYear={schools.find(s => s.id === (isSuperAdmin ? selectedCalendarSchool : user.school_id))?.current_year}
           />
         </View>
+        {isReadOnly && (
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: '#fff7ed',
+            paddingVertical: 10,
+            paddingHorizontal: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: '#ffedd5',
+            gap: 12
+          }}>
+            <AlertTriangle size={18} color="#ea580c" />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#ea580c', flex: 1 }}>
+              {t('readonly_year_banner')?.replace('{{year}}', selectedGlobalAcademicYear) || `Po shikoni vitin: ${selectedGlobalAcademicYear} (Vetëm Lexim)`}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: isDesktop ? 20 : 0 }}>
@@ -3974,7 +4022,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   backButton: {
-    display: Platform.OS === 'web' ? 'none' : 'flex',
+
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

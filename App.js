@@ -26,12 +26,9 @@ function AppContent() {
     activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
     deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, deleteNotice, updateGrade,
-    initializeDailyAttendance,
     justifyAttendance,
     markNoticeRead, noticeReads, uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, tests, updateCurrentTerm, updateTermStartDate,
     schoolCalendar, updateSchoolDates, addCalendarEvent, addCalendarEvents, deleteCalendarEvent,
-    markDayAsRest, undoRestDay,
-    updateAttendanceHour,
     loading: dataLoading,
     refreshData, bulkPromoteStudents, currentTerm,
     availableAcademicYears, selectedGlobalAcademicYear, changeAcademicYear,
@@ -185,18 +182,15 @@ function AppContent() {
           onAddLesson={addLesson}
           onUpdateLesson={updateLesson}
           onDeleteLesson={deleteLesson}
-          onUpdateAttendanceHour={updateAttendanceHour}
           onToggleAttendance={toggleAttendance}
           onJustifyAttendance={justifyAttendance}
-          onInitializeAttendance={initializeDailyAttendance}
           onAddHomework={addHomework}
           onAddNote={addNote}
           onAddTest={addTest}
           onDeleteTest={deleteTest}
           onRefresh={refreshData}
           schoolCalendar={schoolCalendar}
-          onMarkDayAsRest={markDayAsRest}
-          onUndoRestDay={undoRestDay}
+          schools={schools}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -226,7 +220,6 @@ function AppContent() {
           onRefresh={refreshData}
           currentTerm={currentTerm}
           schoolCalendar={schoolCalendar}
-          onInitializeAttendance={initializeDailyAttendance}
         />
         <StatusBar barStyle="dark-content" />
       </View>

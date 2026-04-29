@@ -30,31 +30,26 @@ const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndD
   }).current;
 
   // Generate school year dates: Sept 1 to Jun 30 (or custom from school profile)
+  // Generate school year dates
   const dates = useMemo(() => {
     let startDate, endDate;
 
     if (schoolStartDate && schoolEndDate) {
-      startDate = new Date(schoolStartDate);
-      endDate = new Date(schoolEndDate);
-      // Ensure we include the boundary dates by stripping out time logic if needed
-      startDate.setHours(0,0,0,0);
-      endDate.setHours(23,59,59,999);
+      const sParts = schoolStartDate.split('-');
+      const eParts = schoolEndDate.split('-');
+      if (sParts.length === 3 && eParts.length === 3) {
+        startDate = new Date(parseInt(sParts[0]), parseInt(sParts[1]) - 1, parseInt(sParts[2]), 0, 0, 0);
+        endDate = new Date(parseInt(eParts[0]), parseInt(eParts[1]) - 1, parseInt(eParts[2]), 23, 59, 59);
+      } else {
+        startDate = new Date(schoolStartDate);
+        endDate = new Date(schoolEndDate);
+        startDate.setHours(0,0,0,0);
+        endDate.setHours(23,59,59,999);
+      }
     } else {
       const today = new Date();
-      const currentMonth = today.getMonth(); // 0-indexed, 8 = Sept
-      const currentYear = today.getFullYear();
-      
-      let startYear, endYear;
-      if (currentMonth >= 8) { // Sept or later
-        startYear = currentYear;
-        endYear = currentYear + 1;
-      } else { // Jan-Aug
-        startYear = currentYear - 1;
-        endYear = currentYear;
-      }
-
-      startDate = new Date(startYear, 8, 1); // Sept 1
-      endDate = new Date(endYear, 6, 15); // Mid July to be safe
+      startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
+      endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
     }
 
     const dateArray = [];

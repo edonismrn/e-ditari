@@ -42,21 +42,29 @@ export const DatabaseProvider = ({ children }) => {
 
       // Identify available past academic years, filtered per role so each user only sees their own history
       let yearsQuery = supabase.from('grades').select('academic_year').not('academic_year', 'is', null).limit(1000);
+      let classYearsQuery = supabase.from('student_classes').select('academic_year').not('academic_year', 'is', null).limit(1000);
+      let teacherYearsQuery = supabase.from('teacher_classes').select('academic_year').not('academic_year', 'is', null).limit(1000);
+
       if (user.role === 'nxenes') {
         yearsQuery = yearsQuery.eq('student_id', user.id);
-      }
-      const { data: yearsData } = await yearsQuery;
-
-      // Also check student_classes for years to ensure history visibility even without grades
-      let classYearsQuery = supabase.from('student_classes').select('academic_year').not('academic_year', 'is', null).limit(1000);
-      if (user.role === 'nxenes') {
         classYearsQuery = classYearsQuery.eq('student_id', user.id);
+        teacherYearsQuery = { data: [] }; // Not applicable
+      } else if (user.role === 'mesues') {
+        yearsQuery = yearsQuery.eq('teacher_id', user.id);
+        classYearsQuery = { data: [] }; // Not applicable
+        teacherYearsQuery = teacherYearsQuery.eq('teacher_id', user.id);
       }
-      const { data: classYearsData } = await classYearsQuery;
+
+      const [yearsRes, classYearsRes, teacherYearsRes] = await Promise.all([
+        yearsQuery,
+        classYearsQuery,
+        teacherYearsQuery
+      ]);
 
       const combinedYears = [
-        ...(yearsData || []).map(d => d.academic_year),
-        ...(classYearsData || []).map(d => d.academic_year)
+        ...(yearsRes.data || []).map(d => d.academic_year),
+        ...(classYearsRes.data || []).map(d => d.academic_year),
+        ...(teacherYearsRes.data || []).map(d => d.academic_year)
       ];
 
       if (combinedYears.length > 0) {
@@ -71,13 +79,14 @@ export const DatabaseProvider = ({ children }) => {
       if (user.role === 'admin') {
         const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
         // Admin needs everything
-        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes] = await Promise.all([
+        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes, calendarRes] = await Promise.all([
           supabase.from('schools').select('*'),
           supabase.from('profiles').select('*'),
           supabase.from('classes').select('*'),
           applyYearFilter(supabase.from('teacher_classes').select('*')),
           applyYearFilter(supabase.from('student_classes').select('*')),
-          supabase.from('notices').select('*').order('created_at', { ascending: false })
+          supabase.from('notices').select('*').order('created_at', { ascending: false }),
+          supabase.from('school_calendar').select('*')
         ]);
 
         if (!isSuperAdmin && user.school_id) {
@@ -149,6 +158,7 @@ export const DatabaseProvider = ({ children }) => {
           setClasses(mappedClasses);
         }
         if (noticesRes.data) setNotices(noticesRes.data);
+        if (calendarRes.data) setSchoolCalendar(calendarRes.data);
 
       } else if (user.role === 'mesues') {
         // Teacher data: Fetch classes the teacher belongs to (historical or current)
@@ -203,14 +213,16 @@ export const DatabaseProvider = ({ children }) => {
           }
         }
 
-        const [testsRes, gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes] = await Promise.all([
+        const [testsRes, gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, calendarRes, schoolsRes] = await Promise.all([
           classIds.length > 0 ? applyYearFilter(supabase.from('tests').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('grades').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('lessons').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('attendance').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('homework').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('notes').select('*').in('class_id', classIds)) : { data: [] },
-          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false })
+          supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
+          supabase.from('school_calendar').select('*').eq('school_id', user.school_id),
+          supabase.from('schools').select('*').eq('id', user.school_id)
         ]);
 
         if (testsRes.data) setTests(testsRes.data);
@@ -220,6 +232,19 @@ export const DatabaseProvider = ({ children }) => {
         if (homeworkRes.data) setHomework(homeworkRes.data);
         if (notesRes.data) setNotes(notesRes.data);
         if (noticesRes.data) setNotices(noticesRes.data);
+        if (calendarRes.data) setSchoolCalendar(calendarRes.data);
+        if (schoolsRes.data) setSchools(schoolsRes.data);
+
+        // ── Auto-initialize today's attendance as 'absent' for ALL teacher classes ──
+        // Only run for the current year (not archive views) to avoid polluting history.
+        // autoInitAttendanceForClass is idempotent: it skips students who already have a record.
+        if (!selectedGlobalAcademicYear && classIds.length > 0) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          // Fire-and-forget: we don't block the UI on this
+          Promise.all(
+            classIds.map(cid => autoInitAttendanceForClass(cid, todayStr))
+          ).catch(err => console.warn('[autoInit] Attendance init error:', err));
+        }
 
       } else if (user.role === 'nxenes') {
         // Student data: find which class they belong to
@@ -239,7 +264,7 @@ export const DatabaseProvider = ({ children }) => {
 
         const classIds = studentClassId ? [studentClassId] : [];
 
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes] = await Promise.all([
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes, calendarRes, schoolsRes] = await Promise.all([
           applyYearFilter(supabase.from('grades').select('*, profiles!teacher_id(first_name, last_name)').eq('student_id', user.id)),
           classIds.length > 0 ? applyYearFilter(supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds)) : { data: [] },
           applyYearFilter(supabase.from('attendance').select('*').eq('student_id', user.id)),
@@ -247,7 +272,9 @@ export const DatabaseProvider = ({ children }) => {
           applyYearFilter(supabase.from('notes').select('*, profiles!teacher_id(first_name, last_name)').or(`student_id.eq.${user.id}${classIds.length > 0 ? `,class_id.in.(${classIds.join(',')})` : ''}`)),
           supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
           supabase.from('notice_reads').select('notice_id').eq('student_id', user.id),
-          classIds.length > 0 ? applyYearFilter(supabase.from('tests').select('*, profiles(first_name, last_name)').in('class_id', classIds)) : { data: [] }
+          classIds.length > 0 ? applyYearFilter(supabase.from('tests').select('*, profiles(first_name, last_name)').in('class_id', classIds)) : { data: [] },
+          supabase.from('school_calendar').select('*').eq('school_id', user.school_id),
+          supabase.from('schools').select('*').eq('id', user.school_id)
         ]);
 
         if (testsRes.data) setTests(testsRes.data);
@@ -258,6 +285,18 @@ export const DatabaseProvider = ({ children }) => {
         if (notesRes.data) setNotes(notesRes.data);
         if (noticesRes.data) setNotices(noticesRes.data);
         if (noticeReadsRes.data) setNoticeReads(noticeReadsRes.data.map(r => r.notice_id));
+        if (calendarRes.data) setSchoolCalendar(calendarRes.data);
+        if (schoolsRes.data) setSchools(schoolsRes.data);
+
+        // ── Auto-initialize today's attendance as 'absent' for the student's class ──
+        if (!selectedGlobalAcademicYear && classIds.length > 0) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          // Fire-and-forget: we don't block the UI on this
+          Promise.all(
+            classIds.map(cid => autoInitAttendanceForClass(cid, todayStr))
+          ).catch(err => console.warn('[autoInit] Attendance init error:', err));
+        }
+
         if (!selectedGlobalAcademicYear) runAttendanceMigration([{ ...user, id: user.id, classId: user.classId }]);
       }
     } catch (error) {
@@ -268,6 +307,108 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const refreshData = () => fetchData(false);
+
+  // ─── Auto-Initialize Daily Attendance ───────────────────────────────────────
+  // Called after teacher data loads. Creates default 'absent' (hour=0) records
+  // for TODAY for every student who doesn't yet have ANY record on that date.
+  // Skips weekends, holidays, and days outside the school year.
+  const autoInitAttendanceForClass = async (classId, dateStr) => {
+    try {
+      // 1. Check weekend (no DB needed)
+      const d = new Date(dateStr + 'T00:00:00');
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) return; // weekend - skip
+
+      // 2. Fetch fresh school data directly from DB (state may be empty on first login)
+      const { data: schoolData } = await supabase
+        .from('schools')
+        .select('school_year_start, school_year_end, term_two_start_date, current_term')
+        .eq('id', user?.school_id)
+        .maybeSingle();
+
+      if (schoolData) {
+        if (schoolData.school_year_start && dateStr < schoolData.school_year_start) return;
+        if (schoolData.school_year_end && dateStr > schoolData.school_year_end) return;
+      }
+
+      // 3. Check calendar overrides (holidays) directly from DB
+      const { data: calRows } = await supabase
+        .from('school_calendar')
+        .select('type')
+        .eq('date', dateStr)
+        .eq('school_id', user?.school_id)
+        .or(`class_id.is.null,class_id.eq.${classId}`);
+
+      const isHoliday = (calRows || []).some(e => e.type === 'holiday');
+      if (isHoliday) return;
+      // If explicit work_day override, we still proceed (it IS a school day)
+
+      // 4. Query DB: who already has a record for this class/date?
+      const { data: existingRows } = await supabase
+        .from('attendance')
+        .select('student_id')
+        .eq('class_id', classId)
+        .eq('date', dateStr);
+
+      const existingIds = new Set((existingRows || []).map(r => r.student_id));
+
+      // 5. Query DB: all students currently in this class
+      const { data: scRows } = await supabase
+        .from('student_classes')
+        .select('student_id')
+        .eq('class_id', classId)
+        .is('academic_year', null);
+
+      if (!scRows || scRows.length === 0) return;
+
+      // 6. Insert 'absent' ONLY for students with NO record yet
+      const missing = scRows.filter(r => !existingIds.has(r.student_id));
+      if (missing.length === 0) return;
+
+      const term = (() => {
+        if (schoolData?.term_two_start_date) {
+          const boundary = schoolData.term_two_start_date.split('T')[0];
+          return dateStr >= boundary ? 2 : 1;
+        }
+        return schoolData?.current_term || currentTerm || 1;
+      })();
+
+      const records = missing.map(r => ({
+        student_id: r.student_id,
+        class_id: classId,
+        date: dateStr,
+        hour: 0,
+        status: 'absent',
+        term,
+        academic_year: null
+      }));
+
+      console.log(`[autoInit] Inserting ${records.length} default 'absent' records for class ${classId} on ${dateStr}`);
+      const { data: inserted, error } = await supabase
+        .from('attendance')
+        .insert(records)
+        .select();
+
+      if (error) {
+        // Likely a duplicate-key conflict (race condition between multiple teachers): safe to ignore
+        console.warn('[autoInit] Insert conflict (likely already exists):', error.code, error.message);
+        return;
+      }
+
+      if (inserted && inserted.length > 0) {
+        setAttendance(prev => {
+          const insertedStudentIds = new Set(inserted.map(r => r.student_id));
+          // Dedup: remove any stale local records for same student/class/date/hour=0
+          const filtered = prev.filter(a =>
+            !(a.class_id === classId && a.date === dateStr && parseInt(a.hour) === 0 && insertedStudentIds.has(a.student_id))
+          );
+          return [...filtered, ...inserted];
+        });
+      }
+    } catch (err) {
+      console.warn('[autoInit] Unexpected error:', err);
+    }
+  };
 
   // Fetch initial data based on role (and re-fetch when academic year changes)
   useEffect(() => {
@@ -304,6 +445,13 @@ export const DatabaseProvider = ({ children }) => {
     const adminEmail = `admin@${school.code.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
     const adminPassword = generateRandomPassword(10);
 
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    const currentYearName = curMonth < 7 
+      ? `${curYear - 1}/${curYear}` 
+      : `${curYear}/${curYear + 1}`;
+
     // map city to address
     const newSchool = {
       name: school.name,
@@ -311,7 +459,8 @@ export const DatabaseProvider = ({ children }) => {
       code: school.code,
       has_paralele: school.has_paralele || false,
       admin_email: adminEmail,
-      admin_password: adminPassword
+      admin_password: adminPassword,
+      current_year: currentYearName
     };
 
     const { data, error } = await supabase.from('schools').insert([newSchool]).select().single();
@@ -1198,6 +1347,7 @@ export const DatabaseProvider = ({ children }) => {
           supabase.from('lessons').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('homework').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('notes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('tests').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
         ]);
 
         // 2. Snapshot memberships: Copy CURRENT associations to the archive
@@ -1216,6 +1366,16 @@ export const DatabaseProvider = ({ children }) => {
         if (scData?.length > 0) {
           const scArchive = scData.map(({ id, created_at, ...rest }) => ({ ...rest, academic_year: yearName }));
           archivePromises.push(supabase.from('student_classes').insert(scArchive));
+        }
+
+        // 3. Archive School Year Dates as special calendar events
+        const matchedSchool = schools.find(s => s.id === schoolId);
+        if (matchedSchool?.school_year_start && matchedSchool?.school_year_end) {
+          const events = [
+            { school_id: schoolId, date: matchedSchool.school_year_start, event_name: `Fillimi i Vitit ${yearName}`, type: 'holiday' },
+            { school_id: schoolId, date: matchedSchool.school_year_end, event_name: `Mbarimi i Vitit ${yearName}`, type: 'holiday' }
+          ];
+          archivePromises.push(supabase.from('school_calendar').insert(events));
         }
 
         if (archivePromises.length > 0) {
@@ -1303,6 +1463,10 @@ export const DatabaseProvider = ({ children }) => {
         // Clear existing associations
         const { error: delErr } = await supabase.from('student_classes').delete().in('student_id', allAffectedIds).is('academic_year', null);
         if (delErr) throw delErr;
+
+        // Dissociate ALL teachers from school classes for the new year (they stay in history via archived records)
+        const { error: teachDelErr } = await supabase.from('teacher_classes').delete().in('class_id', schoolClasses.map(c => c.id)).is('academic_year', null);
+        if (teachDelErr) console.warn("Teacher dissociation failed or no teachers to dissociate:", teachDelErr);
 
         // Insert new ones for those moving up
         if (studentsToUpdate.length > 0) {
@@ -1510,6 +1674,7 @@ export const DatabaseProvider = ({ children }) => {
       }
       return { error };
     } catch (error) {
+      console.error("[updateCurrentTerm] CRITICAL ERROR:", error);
       return { error };
     }
   };
@@ -1521,6 +1686,7 @@ export const DatabaseProvider = ({ children }) => {
       await fetchData(false);
       return { success: true };
     } catch (error) {
+      console.error("[updateSchoolDates] CRITICAL ERROR:", error);
       return { error };
     }
   };
@@ -1562,7 +1728,7 @@ export const DatabaseProvider = ({ children }) => {
 
   const addCalendarEvent = async (event) => {
     try {
-      const { data, error } = await supabase.from('school_calendar').insert([{ ...event, academic_year: selectedGlobalAcademicYear }]).select();
+      const { data, error } = await supabase.from('school_calendar').insert([event]).select();
       if (error) throw error;
       if (data) setSchoolCalendar(prev => [...prev, ...data]);
       return { success: true };
@@ -1573,8 +1739,7 @@ export const DatabaseProvider = ({ children }) => {
 
   const addCalendarEvents = async (events) => {
     try {
-      const eventList = events.map(e => ({ ...e, academic_year: selectedGlobalAcademicYear }));
-      const { data, error } = await supabase.from('school_calendar').insert(eventList).select();
+      const { data, error } = await supabase.from('school_calendar').insert(events).select();
       if (error) throw error;
       if (data) setSchoolCalendar(prev => [...prev, ...data]);
       return { success: true };
