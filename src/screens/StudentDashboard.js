@@ -1,10 +1,10 @@
 import React from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
   SafeAreaView,
   Dimensions,
   useWindowDimensions,
@@ -18,12 +18,12 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatClassName } from '../utils/stringUtils';
 import Svg, { Circle } from 'react-native-svg';
-import { 
-  Home, 
-  Book, 
-  ClipboardCheck, 
-  Calendar, 
-  LogOut, 
+import {
+  Home,
+  Book,
+  ClipboardCheck,
+  Calendar,
+  LogOut,
   Bell,
   Lock,
   GraduationCap,
@@ -35,6 +35,7 @@ import {
   Download,
   Link,
   X,
+  ArrowLeft,
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { useLanguage } from '../context/LanguageContext';
@@ -57,12 +58,13 @@ const getGradeColor = (val) => {
 };
 
 // StudentDashboard component starts here
-const StudentDashboard = ({ 
-  user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads, 
+const StudentDashboard = ({
+  user, onLogout, grades, classes, schools, lessons, attendance, homework, notes, notices, tests, noticeReads,
   onMarkNoticeRead, onRefresh, currentTerm, schoolCalendar,
-  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
+  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear,
+  academicYearHistory
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const userName = user?.full_name || user?.name || '';
   const { showAlert } = useAlert();
   const { updatePassword, login } = useAuth();
@@ -89,8 +91,8 @@ const StudentDashboard = ({
 
     window.addEventListener('popstate', handlePopState);
     if (!window.studentInitialLoadDone) {
-       handlePopState();
-       window.studentInitialLoadDone = true;
+      handlePopState();
+      window.studentInitialLoadDone = true;
     }
 
     return () => window.removeEventListener('popstate', handlePopState);
@@ -99,28 +101,34 @@ const StudentDashboard = ({
   // Sync state changes to browser URL automatically
   React.useEffect(() => {
     if (!isDesktop || typeof window === 'undefined') return;
-    
+
     let targetUrl = '/';
     if (activeTab === 'overview') targetUrl = '/permbledhje';
     else if (activeTab === 'grades') targetUrl = '/notat';
     else if (activeTab === 'attendance') targetUrl = '/mungesa';
     else if (activeTab === 'notices') targetUrl = '/lajmerimet';
-    
+
     if (window.location.pathname !== targetUrl) {
-       window.history.pushState({}, '', targetUrl);
+      window.history.pushState({}, '', targetUrl);
     }
   }, [activeTab, isDesktop]);
-  const [selectedDate, setSelectedDate] = React.useState(new Date());
+  const [selectedDate, setSelectedDate] = React.useState(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    return d;
+  });
 
   // Jump calendar to the start of the selected academic year so the student sees that year's agenda
   React.useEffect(() => {
     if (selectedGlobalAcademicYear) {
       const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
       if (!isNaN(startYear)) {
-        setSelectedDate(new Date(startYear, 8, 1)); // September 1st
+        setSelectedDate(new Date(startYear, 8, 1, 12, 0, 0)); // September 1st
       }
     } else {
-      setSelectedDate(new Date());
+      const d = new Date();
+      d.setHours(12, 0, 0, 0);
+      setSelectedDate(d);
     }
   }, [selectedGlobalAcademicYear]);
 
@@ -134,7 +142,7 @@ const StudentDashboard = ({
       await updatePassword(newPass);
       showAlert(t('password_updated_success'), 'success');
     } catch (err) {
-      const errorMsg = err.message === 'Invalid login credentials' 
+      const errorMsg = err.message === 'Invalid login credentials'
         ? t('invalid_current_password')
         : err.message;
       showAlert(errorMsg, 'error');
@@ -142,7 +150,7 @@ const StudentDashboard = ({
     }
   };
   const [gradeSemester, setGradeSemester] = React.useState(currentTerm || 0); // Default to currentTerm
-  
+
   // Update gradeSemester when currentTerm changes (on login/refresh)
   React.useEffect(() => {
     if (currentTerm && gradeSemester === 0) {
@@ -212,20 +220,21 @@ const StudentDashboard = ({
   const isSchoolDay = (date) => {
     const dateStr = formatDateString(date);
     const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
-    
+
     const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
-    
+
     // 1. Check school year boundaries
-    // Skip this check when viewing a past academic year — the boundaries belong to the CURRENT year
-    if (!selectedGlobalAcademicYear) {
-      if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
-      if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
-    }
+    const archivedYear = (academicYearHistory || []).find(h => h.academic_year === selectedGlobalAcademicYear);
+    const startDate = archivedYear?.school_year_start || school?.school_year_start;
+    const endDate = archivedYear?.school_year_end || school?.school_year_end;
+
+    if (startDate && dateStr < startDate) return { isWork: false, reason: t('no_school_day') };
+    if (endDate && dateStr > endDate) return { isWork: false, reason: t('no_school_day') };
 
     // 2. Check explicit calendar overrides
     // Prioritize class-specific holidays, then school-wide
-    const calendarEvent = (schoolCalendar || []).find(e => 
-      e.school_id === user.school_id && 
+    const calendarEvent = (schoolCalendar || []).find(e =>
+      e.school_id === user.school_id &&
       e.date === dateStr &&
       (!e.is_class_specific || e.class_id === user.classId)
     );
@@ -246,7 +255,7 @@ const StudentDashboard = ({
   const reformatDate = (isoDate) => {
     if (!isoDate) return '';
     const [y, m, d] = isoDate.split('-');
-    return `${d}/${m}`;
+    return `${d}/${m}/${y}`;
   };
 
   // Dynamic Semester calculation: prioritize database term column, fallback to date calculation
@@ -256,9 +265,11 @@ const StudentDashboard = ({
     if (dbTerm) return Number(dbTerm);
 
     // 2. Fallback to Admin configuration (boundary date)
-    if (currentSchool?.term_two_start_date && dateStr) {
+    const archivedYear = (academicYearHistory || []).find(h => h.academic_year === selectedGlobalAcademicYear);
+    const boundaryDate = archivedYear?.term_two_start_date || currentSchool?.term_two_start_date;
+    if (boundaryDate && dateStr) {
       const entryDateStr = dateStr.split('T')[0].split(' ')[0];
-      const boundaryDateStr = currentSchool.term_two_start_date.split('T')[0].split(' ')[0];
+      const boundaryDateStr = boundaryDate.split('T')[0].split(' ')[0];
       return (entryDateStr > boundaryDateStr) ? 2 : 1;
     }
 
@@ -269,23 +280,21 @@ const StudentDashboard = ({
   };
 
   // 1. Filter all data (academic year filtering is already applied globally)
-  const userGrades = grades.filter(g => 
-    g.student_id === user.id && 
+  const userGrades = grades.filter(g =>
+    g.student_id === user.id &&
     g.grade > 0
   );
 
-  const userAttendance = attendance.filter(a => 
-    a.student_id === user.id && 
+  const userAttendance = attendance.filter(a =>
+    (a.student_id === user.id || a.studentId === user.id) &&
     parseInt(a.hour || 0) === 0
   );
 
   const studentClass = classes.find(c => c.id === user.classId);
 
-  const filteredGrades = gradeSemester === 0
-    ? userGrades
-    : userGrades.filter(g => getDynamicSemester(g.date, g.term) === gradeSemester);
+  const filteredGrades = (gradeSemester === 0 ? userGrades : userGrades.filter(g => getDynamicSemester(g.date, g.term) === gradeSemester)).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  const averageGrade = userGrades.length > 0 
+  const averageGrade = userGrades.length > 0
     ? (userGrades.reduce((acc, curr) => acc + curr.grade, 0) / userGrades.length).toFixed(1)
     : '-';
 
@@ -308,18 +317,18 @@ const StudentDashboard = ({
   }, [filteredGrades]);
 
   const totalAbsences = userAttendance.filter(a => a.status.startsWith('absent')).length;
-  const unjustifiedCount = userAttendance.filter(a => a.status === 'absent:unjustified').length;
+  const unjustifiedCount = userAttendance.filter(a => !a.status.startsWith('present') && !a.status.includes(':justified')).length;
   const latesCount = userAttendance.filter(a => a.status.startsWith('late')).length;
   const earlyExitsCount = userAttendance.filter(a => a.status.startsWith('early_exit')).length;
 
   // Semester Averages for Dashboard
   const firstSemGrades = userGrades.filter(g => getDynamicSemester(g.date, g.term) === 1);
   const secondSemGrades = userGrades.filter(g => getDynamicSemester(g.date, g.term) === 2);
-  
+
   const firstSemAvg = firstSemGrades.length > 0
     ? (firstSemGrades.reduce((acc, curr) => acc + curr.grade, 0) / firstSemGrades.length).toFixed(1)
     : '0.0';
-  
+
   const secondSemAvg = secondSemGrades.length > 0
     ? (secondSemGrades.reduce((acc, curr) => acc + curr.grade, 0) / secondSemGrades.length).toFixed(1)
     : '0.0';
@@ -333,53 +342,53 @@ const StudentDashboard = ({
     : lessons.filter(l => l.class_id === user.classId && l.topic?.includes('[CLASS_NOTE]'));
 
   const userNotes = [...(personalNotes || []), ...(classNotes || [])]
-    .sort((a,b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
+    .sort((a, b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
 
-  const todayLessons = lessons.filter(l => 
-    l.class_id === user.classId && 
+  const todayLessons = lessons.filter(l =>
+    l.class_id === user.classId &&
     l.date === formatDateString(selectedDate)
   ).filter(l => !l.topic?.includes('[NOTE]') && !l.topic?.includes('[CLASS_NOTE]'));
-  
+
   const selectedDateGrades = userGrades.filter(g => g.date === formatDateString(selectedDate));
 
-  // ─── Grade Ring Component (SVG-less, CSS-style) ───
+  // ÃƒÂ¢Ã¢â‚¬ÂÃ¢"šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢"šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢"šÂ¬ Grade Ring Component (SVG-less, CSS-style) ÃƒÂ¢Ã¢â‚¬ÂÃ¢"šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢"šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢"šÂ¬
   const GradeRing = ({ value, size = 64, showProgress = false }) => {
     const colors = getGradeColor(value);
     const fillPct = (parseFloat(value) || 0) / 5; // 0 to 1
     const borderWidth = 5;
-    
+
     if (showProgress) {
-        // Simple progress bar completion using Svg if possible, or border technique
-        return (
-          <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-            <Svg width={size} height={size}>
-              {/* Background circle */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={(size - borderWidth) / 2}
-                stroke="#e2e8f0"
-                strokeWidth={borderWidth}
-                fill="none"
-              />
-              {/* Progress circle */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={(size - borderWidth) / 2}
-                stroke={colors.ring}
-                strokeWidth={borderWidth}
-                strokeDasharray={`${Math.PI * (size - borderWidth) * fillPct} ${Math.PI * (size - borderWidth)}`}
-                strokeLinecap="round"
-                fill="none"
-                transform={`rotate(-90 ${size / 2} ${size / 2})`}
-              />
-            </Svg>
-            <View style={{ position: 'absolute' }}>
-              <Text style={{ fontSize: size * 0.28, fontWeight: '900', color: colors.text }}>{value}</Text>
-            </View>
+      // Simple progress bar completion using Svg if possible, or border technique
+      return (
+        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+          <Svg width={size} height={size}>
+            {/* Background circle */}
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={(size - borderWidth) / 2}
+              stroke="#e2e8f0"
+              strokeWidth={borderWidth}
+              fill="none"
+            />
+            {/* Progress circle */}
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={(size - borderWidth) / 2}
+              stroke={colors.ring}
+              strokeWidth={borderWidth}
+              strokeDasharray={`${Math.PI * (size - borderWidth) * fillPct} ${Math.PI * (size - borderWidth)}`}
+              strokeLinecap="round"
+              fill="none"
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          </Svg>
+          <View style={{ position: 'absolute' }}>
+            <Text style={{ fontSize: size * 0.28, fontWeight: '900', color: colors.text }}>{value}</Text>
           </View>
-        );
+        </View>
+      );
     }
 
     return (
@@ -400,7 +409,7 @@ const StudentDashboard = ({
   };
 
   const renderAttendance = () => {
-    const absenceList = [...userAttendance].filter(a => !a.status.includes('present')).reverse();
+    const absenceList = [...userAttendance].filter(a => !a.status.includes('present')).sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return (
       <View style={styles.content}>
@@ -409,10 +418,10 @@ const StudentDashboard = ({
           data={absenceList}
           keyExtractor={item => item.id}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2563eb']}
               tintColor="#2563eb"
             />
           }
@@ -422,37 +431,37 @@ const StudentDashboard = ({
               <View style={[styles.statsDashboard, { flexWrap: 'wrap', justifyContent: 'space-between', gap: 0, rowGap: 12 }]}>
                 {/* Total Absences */}
                 <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
-                   <View style={[styles.statIconBadge, { backgroundColor: '#ef444415', width: 36, height: 36, marginBottom: 10 }]}>
+                  <View style={[styles.statIconBadge, { backgroundColor: '#ef444415', width: 36, height: 36, marginBottom: 10 }]}>
                     <Calendar size={18} color="#ef4444" />
                   </View>
-                  <Text style={[styles.hBarValue, {color: '#ef4444', fontSize: 26, marginBottom: 2}]}>{totalAbsences}</Text>
+                  <Text style={[styles.hBarValue, { color: '#ef4444', fontSize: 26, marginBottom: 2 }]}>{totalAbsences}</Text>
                   <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('absences')}</Text>
                 </View>
 
                 {/* To Justify */}
                 <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
-                   <View style={[styles.statIconBadge, { backgroundColor: '#f59e0b15', width: 36, height: 36, marginBottom: 10 }]}>
+                  <View style={[styles.statIconBadge, { backgroundColor: '#f59e0b15', width: 36, height: 36, marginBottom: 10 }]}>
                     <AlertTriangle size={18} color="#f59e0b" />
                   </View>
-                  <Text style={[styles.hBarValue, {color: '#f59e0b', fontSize: 26, marginBottom: 2}]}>{unjustifiedCount}</Text>
+                  <Text style={[styles.hBarValue, { color: '#f59e0b', fontSize: 26, marginBottom: 2 }]}>{unjustifiedCount}</Text>
                   <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('to_justify') || "Për t'u arsyetuar"}</Text>
                 </View>
 
                 {/* Lates */}
                 <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
-                   <View style={[styles.statIconBadge, { backgroundColor: '#3b82f615', width: 36, height: 36, marginBottom: 10 }]}>
+                  <View style={[styles.statIconBadge, { backgroundColor: '#3b82f615', width: 36, height: 36, marginBottom: 10 }]}>
                     <Clock size={18} color="#3b82f6" />
                   </View>
-                  <Text style={[styles.hBarValue, {color: '#3b82f6', fontSize: 26, marginBottom: 2}]}>{latesCount}</Text>
-                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('late')}</Text>
+                  <Text style={[styles.hBarValue, { color: '#3b82f6', fontSize: 26, marginBottom: 2 }]}>{latesCount}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('late_entry') || "Vonesë"}</Text>
                 </View>
 
                 {/* Early Exits */}
                 <View style={[styles.statCard, { width: '48%', flex: 'none', margin: 0, paddingVertical: 16 }]}>
-                   <View style={[styles.statIconBadge, { backgroundColor: '#8b5cf615', width: 36, height: 36, marginBottom: 10 }]}>
+                  <View style={[styles.statIconBadge, { backgroundColor: '#8b5cf615', width: 36, height: 36, marginBottom: 10 }]}>
                     <LogOut size={18} color="#8b5cf6" />
                   </View>
-                  <Text style={[styles.hBarValue, {color: '#8b5cf6', fontSize: 26, marginBottom: 2}]}>{earlyExitsCount}</Text>
+                  <Text style={[styles.hBarValue, { color: '#8b5cf6', fontSize: 26, marginBottom: 2 }]}>{earlyExitsCount}</Text>
                   <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('early_exit')}</Text>
                 </View>
               </View>
@@ -462,37 +471,40 @@ const StudentDashboard = ({
           renderItem={({ item }) => {
             const isAbsent = item.status.startsWith('absent');
             const isWarning = item.status === 'late' || item.status === 'early_exit';
-            
+
             let statusColor = '#10b981';
             let statusChar = 'P';
-            
+
             const statusParts = item.status.split(':');
             const statusType = statusParts[0];
             const isJustified = item.status.includes(':justified');
-            
+
             statusChar = {
               present: 'P',
               absent: 'M',
               late: 'V',
-              early_exit: 'D'
+              early_exit: 'L'
             }[statusType] || '?';
 
             if (statusType === 'absent') statusColor = '#ef4444';
             else if (statusType === 'late' || statusType === 'early_exit') statusColor = '#f59e0b';
 
-            let statusLabel = t(statusType) || statusType;
-            if (isJustified) statusLabel += ` (${t('justified')})`;
-            else if (item.status.includes(':unjustified')) statusLabel += ` (${t('unjustified')})`;
+            const statusLabels = {
+              absent: t('absent') || "Mungesë",
+              late: t('late_entry') || "Vonesë",
+              early_exit: t('early_exit') || "Largim",
+              present: t('present') || "Prezent"
+            };
+            let statusLabel = statusLabels[statusType] || statusType;
 
             const justifiedIndex = statusParts.indexOf('justified');
-            const extractedReason = justifiedIndex !== -1 && statusParts.length > justifiedIndex + 1 
-              ? statusParts.slice(justifiedIndex + 1).join(':') 
+            const extractedReason = justifiedIndex !== -1 && statusParts.length > justifiedIndex + 1
+              ? statusParts.slice(justifiedIndex + 1).join(':')
               : '';
 
-            // If it's a "late" or "early_exit", it might have a time in parts[1]
-            const timeVal = (statusType === 'late' || statusType === 'early_exit') && statusParts[1] && statusParts[1] !== 'justified' && statusParts[1] !== 'unjustified' 
-              ? statusParts[1] 
-              : '';
+            // Extract time (HH:mm) reliably using regex
+            const timeMatch = item.status.match(/(\d{1,2}):(\d{2})/);
+            const timeVal = timeMatch ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}` : '';
 
             return (
               <View style={styles.miniDetailRow}>
@@ -500,17 +512,17 @@ const StudentDashboard = ({
                   <Text style={[styles.statusInitial, { fontSize: 13 }]}>{statusChar}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.miniDetailStatus, {fontWeight: '700', color: '#1e293b'}]}>
-                    {statusLabel} {timeVal ? `• ${timeVal}` : ''}
+                  <Text style={[styles.miniDetailStatus, { fontWeight: '700', color: '#1e293b' }]}>
+                    {statusLabel} {timeVal ? `- ${timeVal}` : ''}
                   </Text>
                   {item.subject ? <Text style={styles.attendanceSubject}>{t(item.subject)}</Text> : null}
-                  {(item.description || extractedReason) ? (
-                    <Text style={{ fontSize: 13, color: '#059669', fontStyle: 'italic', marginTop: 4 }}>
-                      "{item.description || extractedReason}"
+                  {(item.description || extractedReason || !isJustified) ? (
+                    <Text style={{ fontSize: 13, color: isJustified ? '#059669' : '#ef4444', fontStyle: 'italic', marginTop: 4 }}>
+                      {isJustified ? `"${item.description || extractedReason}"` : t('unjustified') || 'Senza giustificazione'}
                     </Text>
                   ) : null}
                 </View>
-                <Text style={[styles.miniDetailDate, {textAlign: 'right', fontWeight: '800', color: '#64748b'}]}>
+                <Text style={[styles.miniDetailDate, { textAlign: 'right', fontWeight: '800', color: '#64748b' }]}>
                   {reformatDate(item.date)}
                 </Text>
               </View>
@@ -530,19 +542,19 @@ const StudentDashboard = ({
   };
 
   const renderOverview = () => (
-    <ScrollView 
-        style={styles.content} 
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 100, paddingHorizontal: 24 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={handleRefresh} 
-            colors={['#2563eb']} 
-            tintColor="#2563eb"
-          />
-        }
-        alwaysBounceVertical={true}
+    <ScrollView
+      style={styles.content}
+      contentContainerStyle={{ flexGrow: 1, paddingBottom: 100, paddingHorizontal: 24 }}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          colors={['#2563eb']}
+          tintColor="#2563eb"
+        />
+      }
+      alwaysBounceVertical={true}
     >
       <View style={{ marginTop: 10 }}>
         {/* School Calendar Status (Holiday/Weekend) */}
@@ -571,13 +583,13 @@ const StudentDashboard = ({
         {(() => {
           const selectedDateStr = formatDateString(selectedDate);
           let att = userAttendance.find(a => a.date === selectedDateStr && parseInt(a.hour || 0) === 0);
-          
-          if (!att) return null; // Only show if record exists in DB
+
+          if (!att || att.status.includes('present')) return null; // Hide if no record or if status is present
 
           const statusKey = att.status.split(':')[0];
           const isAbsent = statusKey === 'absent';
           const isWarning = statusKey === 'late' || statusKey === 'early_exit';
-          
+
           let statusColor = '#10b981'; // Green for present
           if (isAbsent) statusColor = '#ef4444'; // Red
           if (isWarning) statusColor = '#f59e0b'; // Orange
@@ -586,16 +598,16 @@ const StudentDashboard = ({
             present: 'P',
             absent: 'M',
             late: 'V',
-            early_exit: 'D'
+            early_exit: 'L'
           }[statusKey] || '?';
 
           const statusLabels = {
-            present: t('present') || 'Prezent',
-            absent: t('absent') || 'Mungon',
-            late: (t('late') || 'Vonesë').replace(/ \(.*\)/, ''), // removes the (Në hyrje) stuff
-            early_exit: (t('early_exit') || 'Dalje').split(' ')[0], // takes just 'Dalje' if 'Dalje Herët'
+            absent: t('absent') || "Mungesë",
+            late: t('late_entry') || "Vonesë",
+            early_exit: t('early_exit') || "Largim",
+            present: t('present') || "Prezent"
           };
-          
+
           const displayStatus = statusLabels[statusKey] || statusKey;
 
           return (
@@ -613,8 +625,8 @@ const StudentDashboard = ({
         {/* Disciplinary Notes ... */}
         {(() => {
           const selectedDateStr = formatDateString(selectedDate);
-          const selectedDateNotes = userNotes.filter(n => n.date === selectedDateStr || (n.created_at && n.created_at.startsWith(selectedDateStr)));
-          
+          const selectedDateNotes = userNotes.filter(n => n.date === selectedDateStr);
+
           if (selectedDateNotes.length > 0) {
             return (
               <View style={{ marginTop: 8, marginBottom: 4 }}>
@@ -675,7 +687,7 @@ const StudentDashboard = ({
         {(() => {
           const selectedDateStr = formatDateString(selectedDate);
           const dateHomework = (homework || []).filter(hw => hw.due_date === selectedDateStr && hw.class_id === user.classId);
-          
+
           if (dateHomework.length > 0) {
             return (
               <View style={{ marginTop: 8, marginBottom: 12 }}>
@@ -698,14 +710,14 @@ const StudentDashboard = ({
                     gap: 12
                   }}>
                     <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#3b82f6', shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 }}>
-                       <Book size={20} color="#2563eb" />
+                      <Book size={20} color="#2563eb" />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>{hw.subject}</Text>
                       <Text style={{ fontSize: 15, color: '#0c4a6e', fontWeight: '600' }}>{hw.description}</Text>
                       {hw.profiles && (
                         <Text style={{ fontSize: 11, fontWeight: '700', color: '#60a5fa', marginTop: 4 }}>
-                          {t('issued_by') || 'Lëshuar nga'}: {hw.profiles.first_name} {hw.profiles.last_name}
+                          {t('issued_by') || 'Leshuar nga'}: {hw.profiles.first_name} {hw.profiles.last_name}
                         </Text>
                       )}
                     </View>
@@ -721,7 +733,7 @@ const StudentDashboard = ({
           <Text style={styles.sectionTitle}>{t('lessons') || 'Mësimi'}</Text>
           <Book size={20} color="#2563eb" />
         </View>
-        
+
         <FlatList
           data={todayLessons}
           keyExtractor={item => item.id}
@@ -731,34 +743,34 @@ const StudentDashboard = ({
             const hourNum = topicParts ? topicParts[1] : '';
             const cleanTopic = topicParts ? topicParts[2] : item.topic;
             const profName = item.profiles ? `${item.profiles.first_name} ${item.profiles.last_name}` : '';
-            
+
             return (
-            <View style={styles.premiumCard}>
-              <View style={styles.hourContainer}>
-                <Text style={styles.hourNumber}>{hourNum}</Text>
-                <Text style={styles.hourLabel}>{t('hour').toUpperCase()}</Text>
-              </View>
-              <View style={styles.cardContent}>
-                <View style={styles.lessonHeader}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.lessonSubject}>{t(item.subject)}</Text>
-                    {profName ? <Text style={styles.profName}>{profName}</Text> : null}
-                  </View>
-                  {item.is_test && (
-                    <View style={[styles.hourBadge, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }]}>
-                      <Text style={[styles.hourBadgeText, { color: '#ef4444' }]}>TEST</Text>
-                    </View>
-                  )}
+              <View style={styles.premiumCard}>
+                <View style={styles.hourContainer}>
+                  <Text style={styles.hourNumber}>{hourNum}</Text>
+                  <Text style={styles.hourLabel}>{t('hour').toUpperCase()}</Text>
                 </View>
-                <Text style={styles.lessonTopic}>{cleanTopic}</Text>
-                {item.homework ? (
-                  <View style={styles.homeworkContainer}>
-                    <Clock size={14} color="#2563eb" />
-                    <Text style={styles.homeworkText}><Text style={{fontWeight: '800'}}>{t('homework_label')}:</Text> {item.homework}</Text>
+                <View style={styles.cardContent}>
+                  <View style={styles.lessonHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.lessonSubject}>{t(item.subject)}</Text>
+                      {profName ? <Text style={styles.profName}>{profName}</Text> : null}
+                    </View>
+                    {item.is_test && (
+                      <View style={[styles.hourBadge, { backgroundColor: '#fee2e2', borderColor: '#fecaca' }]}>
+                        <Text style={[styles.hourBadgeText, { color: '#ef4444' }]}>TEST</Text>
+                      </View>
+                    )}
                   </View>
-                ) : null}
+                  <Text style={styles.lessonTopic}>{cleanTopic}</Text>
+                  {item.homework ? (
+                    <View style={styles.homeworkContainer}>
+                      <Clock size={14} color="#2563eb" />
+                      <Text style={styles.homeworkText}><Text style={{ fontWeight: '800' }}>{t('homework_label')}:</Text> {item.homework}</Text>
+                    </View>
+                  ) : null}
+                </View>
               </View>
-            </View>
             );
           }}
           ListEmptyComponent={() => {
@@ -785,7 +797,7 @@ const StudentDashboard = ({
         {(() => {
           const selectedDateStr = formatDateString(selectedDate);
           const dateTests = (tests || []).filter(t => t.date === selectedDateStr && t.class_id === user.classId);
-          
+
           if (dateTests.length > 0) {
             return (
               <View style={{ marginTop: 24, marginBottom: 12 }}>
@@ -810,19 +822,19 @@ const StudentDashboard = ({
                     shadowRadius: 10,
                     elevation: 4,
                   }}>
-                     <View style={{ marginBottom: 8 }}>
-                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
-                        {test.profiles && (
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
-                            {test.profiles.first_name} {test.profiles.last_name}
-                          </Text>
-                        )}
-                     </View>
-                     <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
-                     <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
-                       {test.description}
-                     </Text>
-                   </View>
+                    <View style={{ marginBottom: 8 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
+                      {test.profiles && (
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
+                          {test.profiles.first_name} {test.profiles.last_name}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
+                    <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
+                      {test.description}
+                    </Text>
+                  </View>
                 ))}
               </View>
             );
@@ -839,189 +851,242 @@ const StudentDashboard = ({
 
   const renderGrades = () => {
     const isDetailView = gradeSemester !== 0 && selectedSubject;
-    const isSemesterView = gradeSemester !== 0 && !selectedSubject;
+    const isSemesterView = gradeSemester !== 0;
 
     return (
-    <View style={styles.content}>
-      {/* Semester filter */}
-      <View style={styles.semesterSelector}>
-        {[
-          { id: 0, label: t('all') },
-          { id: 1, label: t('first_semester') },
-          { id: 2, label: t('second_semester') },
-        ].map(sem => (
-          <TouchableOpacity
-            key={sem.id}
-            style={[styles.semesterChip, gradeSemester === sem.id && styles.activeSemesterChip]}
-            onPress={() => {
+      <View style={styles.content}>
+        {/* Semester filter */}
+        <View style={styles.semesterSelector}>
+          {[
+            { id: 0, label: t('all') },
+            { id: 1, label: t('first_semester') },
+            { id: 2, label: t('second_semester') },
+          ].map(sem => (
+            <TouchableOpacity
+              key={sem.id}
+              style={[styles.semesterChip, gradeSemester === sem.id && styles.activeSemesterChip]}
+              onPress={() => {
                 setGradeSemester(sem.id);
                 setSelectedSubject(null);
-            }}
-          >
-            <Text style={[styles.semesterChipText, gradeSemester === sem.id && styles.activeSemesterChipText]}>
-              {sem.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+              }}
+            >
+              <Text style={[styles.semesterChipText, gradeSemester === sem.id && styles.activeSemesterChipText]}>
+                {sem.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-      {/* 1. SEMESTER SUBJECT LIST VIEW */}
-      {isSemesterView && (
-        <ScrollView 
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
-          refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
-              tintColor="#2563eb"
-            />
-          }
-          alwaysBounceVertical={true}
-        >
-          <Text style={[styles.sectionTitleSmall, { marginBottom: 16 }]}>{t('mesatarja_sipas_lendeve')}</Text>
-          {subjectAverages.length > 0 ? (
-            subjectAverages.map((sub, idx) => {
-                const colors = getGradeColor(sub.average);
-                return (
-                  <TouchableOpacity 
-                    key={idx} 
-                    style={[styles.subjectRowFrame, { borderColor: colors.border }]}
-                    onPress={() => setSelectedSubject(sub.subject)}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.subjectNameLarge}>{t(sub.subject)}</Text>
-                    </View>
-                    <GradeRing value={sub.average} size={60} showProgress={true} />
-                  </TouchableOpacity>
-                );
-              })
-          ) : (
-            <View style={styles.emptyStateContainer}>
-              <Text style={styles.emptyText}>{t('nuk_ka_nota')}</Text>
-            </View>
-          )}
-        </ScrollView>
-      )}
-
-      {/* 2. SUBJECT DETAIL VIEW OR ALL LIST */}
-      {(gradeSemester === 0 || isDetailView) && (
-        <View style={{flex: 1}}>
-          {isDetailView && (
-             <View style={styles.detailHeader}>
-                <TouchableOpacity onPress={() => setSelectedSubject(null)} style={styles.backBtn}>
-                    <Text style={styles.backBtnText}>← {t('back')}</Text>
-                </TouchableOpacity>
-                <Text style={styles.detailTitle}>{t(selectedSubject)}</Text>
-             </View>
-          )}
-          
-          <FlatList
+        {/* 1. SEMESTER SUBJECT LIST VIEW */}
+        {isSemesterView && (
+          <ScrollView
             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
-            data={isDetailView 
-                ? [...filteredGrades].filter(g => g.subject === selectedSubject).reverse()
-                : [...filteredGrades].reverse()}
-            keyExtractor={item => item.id}
             refreshControl={
-              <RefreshControl 
-                refreshing={refreshing} 
-                onRefresh={handleRefresh} 
-                colors={['#2563eb']} 
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={['#2563eb']}
                 tintColor="#2563eb"
               />
             }
             alwaysBounceVertical={true}
-            renderItem={({ item }) => {
-              const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
-              let rawType = item.grade_type || (legacyParts ? legacyParts[1] : '');
-              const gradeType = rawType ? rawType.replace(/[\[\]]/g, '').trim() : '';
-              const gradeNotes = item.description ? (legacyParts ? legacyParts[2] : item.description) : '';
-              const gradeColors = getGradeColor(item.grade);
+          >
+            <Text style={[styles.sectionTitleSmall, { marginBottom: 16 }]}>{t('mesatarja_sipas_lendeve')}</Text>
+            {subjectAverages.length > 0 ? (
+              subjectAverages.map((sub, idx) => {
+                const colors = getGradeColor(sub.average);
+                const isExpanded = selectedSubject === sub.subject;
+                const subGrades = [...filteredGrades].filter(g => g.subject === sub.subject);
 
-              return (
-                <View style={[styles.gradeCard, { borderColor: gradeColors.border, padding: 16 }]}>
-                  <Text style={[styles.gradeDate, { marginBottom: 10 }]}>{reformatDate(item.date)}</Text>
-                  
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
-                    <GradeRing value={item.grade} size={48} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.gradeSubject}>{t(item.subject)}</Text>
-                      {gradeType ? <Text style={styles.typeLabelText}>{gradeType}</Text> : null}
-                      {gradeNotes ? (
-                        <Text style={styles.gradeComment} numberOfLines={3}>
-                          {gradeNotes}
-                        </Text>
-                      ) : null}
-                      {item.profiles && (
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', marginTop: 4 }}>
-                          {t('issued_by')}: {item.profiles.first_name} {item.profiles.last_name}
-                        </Text>
-                      )}
-                    </View>
+                return (
+                  <View key={idx} style={{ marginBottom: 12 }}>
+                    <TouchableOpacity
+                      style={[styles.subjectRowFrame, {
+                        borderColor: colors.border,
+                        marginBottom: 0,
+                        borderBottomLeftRadius: isExpanded ? 0 : 20,
+                        borderBottomRightRadius: isExpanded ? 0 : 20
+                      }]}
+                      onPress={() => setSelectedSubject(isExpanded ? null : sub.subject)}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.subjectNameLarge}>{t(sub.subject)}</Text>
+                      </View>
+                      <GradeRing value={sub.average} size={60} showProgress={true} />
+                    </TouchableOpacity>
+
+                    {isExpanded && (
+                      <View style={{
+                        backgroundColor: "#f8fafc",
+                        borderWidth: 1,
+                        borderTopWidth: 0,
+                        borderColor: colors.border,
+                        borderBottomLeftRadius: 20,
+                        borderBottomRightRadius: 20,
+                        padding: 12,
+                        paddingTop: 4,
+                        gap: 8
+                      }}>
+                        {subGrades.map(item => {
+                          const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
+                          let rawType = item.grade_type || (legacyParts ? legacyParts[1] : "");
+                          const gradeType = rawType ? rawType.replace(/[\[\]]/g, "").trim() : "";
+                          const gradeNotes = item.description ? (legacyParts ? legacyParts[2] : item.description) : "";
+                          const gradeColors = getGradeColor(item.grade);
+
+                          return (
+                            <View key={item.id} style={{
+                              backgroundColor: "white",
+                              borderRadius: 14,
+                              padding: 12,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 14,
+                              borderWidth: 1,
+                              borderColor: "#e2e8f0"
+                            }}>
+                              <GradeRing value={item.grade} size={48} />
+                              <View style={{ flex: 1, gap: 1 }}>
+                                <Text style={{ fontSize: 12, fontWeight: "700", color: "#64748b" }}>{reformatDate(item.date)}</Text>
+                                {gradeType ? <Text style={{ fontSize: 11, fontWeight: "800", color: "#94a3b8", textTransform: "uppercase" }}>{gradeType}</Text> : null}
+                                {item.profiles && (
+                                  <Text style={{ fontSize: 12, fontWeight: "700", color: "#64748b" }}>
+                                    {item.profiles.first_name} {item.profiles.last_name}
+                                  </Text>
+                                )}
+                                {gradeNotes ? (
+                                  <Text style={{ fontSize: 13, color: "#1e293b", fontWeight: "600", marginTop: 2 }} numberOfLines={2}>{gradeNotes}</Text>
+                                ) : null}
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
                   </View>
-                </View>
-              );
-            }}
-            ListEmptyComponent={() => (
+                );
+              })
+            ) : (
               <View style={styles.emptyStateContainer}>
                 <Text style={styles.emptyText}>{t('nuk_ka_nota')}</Text>
               </View>
             )}
-            ListHeaderComponent={() => {
-              if (isDetailView) return null;
-              
-              const overallColors = getGradeColor(averageGrade);
-              const sem1Colors = getGradeColor(firstSemAvg);
-              const sem2Colors = getGradeColor(secondSemAvg);
+          </ScrollView>
+        )}
 
-              return (
-                <View style={{ paddingBottom: 16 }}>
-                  <View style={styles.statsDashboard}>
-                    {/* Overall Column */}
-                    <View style={styles.statCard}>
-                      <View style={[styles.statIconBadge, { backgroundColor: overallColors.text + '10' }]}>
-                        <Award size={14} color={overallColors.text} />
-                      </View>
-                      <Text style={[styles.statCardTitle, { color: '#64748b' }]}>{t('total_avg')}</Text>
-                      <GradeRing value={averageGrade} size={70} showProgress={true} strokeWidth={8} />
-                    </View>
+        {/* 2. SUBJECT DETAIL VIEW OR ALL LIST */}
+        {gradeSemester === 0 && (
+          <View style={{ flex: 1 }}>
+            {isDetailView && (
+              <View style={styles.detailHeader}>
+                <TouchableOpacity onPress={() => setSelectedSubject(null)} style={[styles.backBtn, { flexDirection: "row", alignItems: "center", gap: 8 }]}>
+                  <ArrowLeft size={20} color="#1e293b" />
+                  {isDesktop && <Text style={styles.backBtnText}>{t('back')}</Text>}
+                </TouchableOpacity>
+              </View>
+            )}
 
-                    {/* Sem 1 Column */}
-                    <View style={styles.statCard}>
-                      <View style={[styles.statIconBadge, { backgroundColor: sem1Colors.text + '10' }]}>
-                        <BookIcon size={14} color={sem1Colors.text} />
-                      </View>
-                      <Text style={[styles.statCardTitle, { color: '#64748b' }]}>{t('first_semester')}</Text>
-                      <View style={styles.hBarContainer}>
-                        <Text style={[styles.hBarValue, {color: sem1Colors.text}]}>{firstSemAvg}</Text>
-                        <View style={[styles.hBarTrack, { height: 10, borderRadius: 5, backgroundColor: '#f1f5f9' }]}>
-                          <View style={[styles.hBarFill, { borderRadius: 5, width: `${Math.min(100, (parseFloat(firstSemAvg)/5)*100)}%`, backgroundColor: sem1Colors.ring }]} />
-                        </View>
-                      </View>
-                    </View>
+            <FlatList
+              contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120, flexGrow: 1 }}
+              data={isDetailView
+                ? [...filteredGrades].filter(g => g.subject === selectedSubject)
+                : filteredGrades}
+              keyExtractor={item => item.id}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={['#2563eb']}
+                  tintColor="#2563eb"
+                />
+              }
+              alwaysBounceVertical={true}
+              renderItem={({ item }) => {
+                const legacyParts = item.description?.match(/^\[(.*?)\] (.*)/);
+                let rawType = item.grade_type || (legacyParts ? legacyParts[1] : '');
+                const gradeType = rawType ? rawType.replace(/[\[\]]/g, '').trim() : '';
+                const gradeNotes = item.description ? (legacyParts ? legacyParts[2] : item.description) : '';
+                const gradeColors = getGradeColor(item.grade);
 
-                    {/* Sem 2 Column */}
-                    <View style={styles.statCard}>
-                      <View style={[styles.statIconBadge, { backgroundColor: sem2Colors.text + '10' }]}>
-                        <GraduationCap size={14} color={sem2Colors.text} />
-                      </View>
-                      <Text style={[styles.statCardTitle, { color: '#64748b' }]}>{t('second_semester')}</Text>
-                      <View style={styles.hBarContainer}>
-                        <Text style={[styles.hBarValue, {color: sem2Colors.text}]}>{secondSemAvg}</Text>
-                        <View style={[styles.hBarTrack, { height: 10, borderRadius: 5, backgroundColor: '#f1f5f9' }]}>
-                          <View style={[styles.hBarFill, { borderRadius: 5, width: `${Math.min(100, (parseFloat(secondSemAvg)/5)*100)}%`, backgroundColor: sem2Colors.ring }]} />
-                        </View>
+                return (
+                  <View style={[styles.gradeCard, { borderColor: gradeColors.border, padding: 14 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                      <GradeRing value={item.grade} size={52} />
+                      <View style={{ flex: 1, gap: 1 }}>
+                        <Text style={[styles.gradeSubject, { fontSize: 15, marginBottom: 0 }]}>{t(item.subject)}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: "#64748b" }}>{reformatDate(item.date)}</Text>
+                        {gradeType ? <Text style={{ fontSize: 10, fontWeight: "800", color: "#94a3b8", textTransform: "uppercase" }}>{gradeType}</Text> : null}
+                        {item.profiles && (
+                          <Text style={{ fontSize: 11, fontWeight: "700", color: "#64748b" }}>
+                            {item.profiles.first_name} {item.profiles.last_name}
+                          </Text>
+                        )}
+                        {gradeNotes ? (
+                          <Text style={[styles.gradeComment, { marginTop: 2, fontSize: 12 }]} numberOfLines={3}>
+                            {gradeNotes}
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
                   </View>
-                  <Text style={[styles.sectionTitleSmall, { marginBottom: 12, marginTop: 12 }]}>{t('te_gjitha_notat')}</Text>
+                );
+              }}
+              ListEmptyComponent={() => (
+                <View style={styles.emptyStateContainer}>
+                  <Text style={styles.emptyText}>{t('nuk_ka_nota')}</Text>
                 </View>
-              );
-            }}
-          />
-        </View>
-      )}
-    </View>
+              )}
+              ListHeaderComponent={() => {
+                if (isDetailView) return null;
+
+                const overallColors = getGradeColor(averageGrade);
+                const sem1Colors = getGradeColor(firstSemAvg);
+                const sem2Colors = getGradeColor(secondSemAvg);
+
+                return (
+                  <View style={{ paddingBottom: 16 }}>
+                    <View style={styles.statsDashboard}>
+                      {/* Overall Column */}
+                      <View style={styles.statCard}>
+                        <View style={[styles.statIconBadge, { backgroundColor: overallColors.text + '10' }]}>
+                          <Award size={14} color={overallColors.text} />
+                        </View>
+                        <Text style={[styles.statCardTitle, { color: '#64748b' }]}>{t('total_avg')}</Text>
+                        <GradeRing value={averageGrade} size={70} showProgress={true} strokeWidth={8} />
+                      </View>
+
+                      {/* Sem 1 Column */}
+                      <View style={styles.statCard}>
+                        <View style={[styles.statIconBadge, { backgroundColor: sem1Colors.text + "10", marginBottom: 8 }]}>
+                          <BookIcon size={14} color={sem1Colors.text} />
+                        </View>
+                        <Text style={[styles.statCardTitle, { color: "#64748b", marginBottom: 2, fontSize: 10 }]}>{t("first_semester")}</Text>
+                        <Text style={{ fontSize: 24, fontWeight: "900", color: sem1Colors.text, marginBottom: 8 }}>{firstSemAvg}</Text>
+                        <View style={{ width: "100%", height: 6, backgroundColor: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                          <View style={{ width: `${Math.min(100, (parseFloat(firstSemAvg) / 5) * 100)}%`, height: "100%", backgroundColor: sem1Colors.ring, borderRadius: 3 }} />
+                        </View>
+                      </View>
+
+                      {/* Sem 2 Column */}
+                      <View style={styles.statCard}>
+                        <View style={[styles.statIconBadge, { backgroundColor: sem2Colors.text + "10", marginBottom: 8 }]}>
+                          <GraduationCap size={14} color={sem2Colors.text} />
+                        </View>
+                        <Text style={[styles.statCardTitle, { color: "#64748b", marginBottom: 2, fontSize: 10 }]}>{t("second_semester")}</Text>
+                        <Text style={{ fontSize: 24, fontWeight: "900", color: sem2Colors.text, marginBottom: 8 }}>{secondSemAvg}</Text>
+                        <View style={{ width: "100%", height: 6, backgroundColor: "#f1f5f9", borderRadius: 3, overflow: "hidden" }}>
+                          <View style={{ width: `${Math.min(100, (parseFloat(secondSemAvg) / 5) * 100)}%`, height: "100%", backgroundColor: sem2Colors.ring, borderRadius: 3 }} />
+                        </View>
+                      </View>
+                    </View>
+                    <Text style={[styles.sectionTitleSmall, { marginBottom: 12, marginTop: 12 }]}>{t('te_gjitha_notat')}</Text>
+                  </View>
+                );
+              }}
+            />
+          </View>
+        )}
+      </View>
     );
   };
 
@@ -1038,10 +1103,10 @@ const StudentDashboard = ({
           data={schoolNotices}
           keyExtractor={item => item.id}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={handleRefresh} 
-              colors={['#2563eb']} 
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#2563eb']}
               tintColor="#2563eb"
             />
           }
@@ -1099,7 +1164,18 @@ const StudentDashboard = ({
                     {item.title}
                   </Text>
                   <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '500' }}>
-                    {new Date(item.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {(() => {
+                      const d = new Date(item.created_at);
+                      const day = String(d.getDate()).padStart(2, '0');
+                      const m = d.getMonth();
+                      const year = d.getFullYear();
+                      const months = language === 'sq'
+                        ? ['Jan', 'Shk', 'Mar', 'Pri', 'Maj', 'Qer', 'Kor', 'Gsh', 'Sht', 'Tet', 'Nën', 'Dhj']
+                        : language === 'sr'
+                          ? ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Avg', 'Sep', 'Okt', 'Nov', 'Dec']
+                          : ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+                      return `${day} ${months[m]} ${year}`;
+                    })()}
                   </Text>
                   {hasAttachment && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 }}>
@@ -1210,17 +1286,16 @@ const StudentDashboard = ({
 
         {activeTab === 'overview' && (() => {
           const matchedSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || (schools && schools.length > 0 ? schools[0] : null);
-          
+
           let startDate = matchedSchool?.school_year_start;
           let endDate = matchedSchool?.school_year_end;
 
           if (selectedGlobalAcademicYear) {
-            const archivedStart = (schoolCalendar || []).find(e => e.event_name?.includes(`Fillimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
-            const archivedEnd = (schoolCalendar || []).find(e => e.event_name?.includes(`Mbarimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
+            const archived = (academicYearHistory || []).find(h => h.academic_year === selectedGlobalAcademicYear);
 
-            if (archivedStart && archivedEnd) {
-              startDate = archivedStart;
-              endDate = archivedEnd;
+            if (archived?.school_year_start && archived?.school_year_end) {
+              startDate = archived.school_year_start;
+              endDate = archived.school_year_end;
             } else {
               const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
               if (!isNaN(startYear)) {
@@ -1231,11 +1306,12 @@ const StudentDashboard = ({
           }
 
           return (
-            <CalendarStrip 
-              selectedDate={selectedDate} 
-              onDateSelect={setSelectedDate} 
+            <CalendarStrip
+              selectedDate={selectedDate}
+              onDateSelect={setSelectedDate}
               schoolStartDate={startDate}
               schoolEndDate={endDate}
+              schoolCalendar={schoolCalendar}
             />
           );
         })()}
@@ -1312,16 +1388,22 @@ const StudentDashboard = ({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={modalStyles.title} numberOfLines={2}>{selectedNotice.title}</Text>
-                  <Text style={modalStyles.date}>{new Date(selectedNotice.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
+                  <Text style={modalStyles.date}>{(() => {
+                    const d = new Date(selectedNotice.created_at);
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const year = d.getFullYear();
+                    return `${day}/${month}/${year}`;
+                  })()}</Text>
                 </View>
               </View>
-              
+
               <ScrollView style={{ maxHeight: 300, paddingVertical: 20 }} showsVerticalScrollIndicator={false}>
                 <Text style={modalStyles.message}>{selectedNotice.message}</Text>
               </ScrollView>
 
               {selectedNotice.attachment_url && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={modalStyles.attachmentBtn}
                   onPress={() => {
                     const extension = selectedNotice.attachment_url.split('.').pop().split('?')[0] || 'pdf';
@@ -1334,7 +1416,7 @@ const StudentDashboard = ({
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={modalStyles.closeBtn}
                 onPress={() => setSelectedNotice(null)}
               >
@@ -1716,7 +1798,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 24,
     marginBottom: 20,
-    marginTop: 8,
+    marginTop: 0,
   },
   semesterChip: {
     flex: 1,
@@ -2035,3 +2117,6 @@ const modalStyles = StyleSheet.create({
 });
 
 export default StudentDashboard;
+
+
+

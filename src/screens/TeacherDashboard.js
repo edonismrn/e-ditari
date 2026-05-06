@@ -32,7 +32,7 @@ import {
   Trash2,
   ClipboardList,
   UserCheck,
-  Calendar,
+  Calendar as CalendarIcon,
   Home,
   LogOut,
   Lock,
@@ -55,7 +55,8 @@ import {
   FileText,
   Paperclip,
   Download,
-  Search
+  Search,
+  LayoutGrid
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { formatDate, formatDisplayDate } from '../utils/dateUtils';
@@ -65,6 +66,7 @@ import { useAlert } from '../context/AlertContext';
 import { useAuth } from '../context/AuthContext';
 import ProfileDropdown from '../components/ProfileDropdown';
 import PasswordChangeModal from '../components/PasswordChangeModal';
+import PremiumDatePicker from '../components/PremiumDatePicker';
 
 const { width } = Dimensions.get('window');
 
@@ -132,18 +134,60 @@ const GradeRing = ({ value, size = 64, showProgress = false }) => {
 };
 
 const TeacherDashboard = ({
-  user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices, tests,
-  onAddGrade, onUpdateGrade, onAddLesson, onUpdateLesson, onDeleteLesson, onToggleAttendance, onJustifyAttendance,
+  user, onLogout, classes, students, grades, lessons, attendance, homework, notes, notices, tests, teachers,
+  onAddGrade, onUpdateGrade, onDeleteGrade, onAddLesson, onUpdateLesson, onDeleteLesson, onToggleAttendance, onJustifyAttendance, onUnjustifyAttendance,
   onAddHomework, onAddNote, onAddTest, onDeleteTest, onRefresh,
   schoolCalendar, schools,
-  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear
+  availableAcademicYears, selectedGlobalAcademicYear, onChangeAcademicYear,
+  academicYearHistory
 }) => {
-  const { t } = useLanguage();
-  const { showAlert } = useAlert();
+  const { t, language } = useLanguage();
+  const { showAlert, showConfirm } = useAlert();
   const { updatePassword, login } = useAuth();
   const [activeView, setActiveView] = useState('home');
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    return d;
+  });
+  const [selectedClassId, setSelectedClassId] = useState(null);
   const [editingLesson, setEditingLesson] = useState(null);
+
+  const handleDeleteGrade = (grade) => {
+    showConfirm(
+      `${t('confirm_delete_grade') || 'A jeni i sigurt që dëshironi të fshini këtë notë?'}`,
+      async () => {
+        setIsUpdating(true);
+        const res = await onDeleteGrade(grade.id);
+        setIsUpdating(false);
+        if (!res?.error) {
+          showAlert(t('grade_deleted_success') || 'Nota u fshi me sukses!', 'success');
+          setEditingGrade(null);
+        } else {
+          showAlert(res.error.message, 'error');
+        }
+      }
+    );
+  };
+
+  const handleDeleteJustification = async () => {
+    const sId = selectedAttendanceForDetail.student_id || selectedAttendanceForDetail.studentId;
+    showConfirm(
+      `${t('confirm_delete_justification') || 'A jeni i sigurt që dëshironi të hiqni arsyetimin?'}`,
+      async () => {
+        setIsUpdating(true);
+        try {
+          await onUnjustifyAttendance(sId, selectedAttendanceForDetail.date);
+          setIsDetailModalVisible(false);
+          showAlert(t('justification_deleted_success') || 'Arsyetimi u hoq me sukses', 'success');
+        } catch (err) {
+          showAlert(err.message, 'error');
+        } finally {
+          setIsUpdating(false);
+        }
+      }
+    );
+  };
 
   const { width: windowWidth } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && windowWidth > 768;
@@ -154,13 +198,16 @@ const TeacherDashboard = ({
   // When returning to current year (null), jump back to today.
   React.useEffect(() => {
     if (selectedGlobalAcademicYear) {
-      // e.g. "2024/2025" → start year is 2024 → jump to 1 Sep 2024
-      const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
-      if (!isNaN(startYear)) {
-        setSelectedDate(new Date(startYear, 8, 1)); // month 8 = September
+      const parts = selectedGlobalAcademicYear.split('/');
+      if (parts.length === 2) {
+        const startYear = parseInt(parts[0]);
+        const d = new Date(startYear, 8, 1, 12, 0, 0);
+        setSelectedDate(d);
       }
     } else {
-      setSelectedDate(new Date()); // back to today
+      const d = new Date();
+      d.setHours(12, 0, 0, 0);
+      setSelectedDate(d);
     }
   }, [selectedGlobalAcademicYear]);
 
@@ -241,30 +288,30 @@ const TeacherDashboard = ({
         if (parts.length >= 4) {
           const classId = parts[2];
           const subview = parts[3];
-          
+
           const foundClass = classes?.find(c => c.id === classId) || { id: classId };
 
           if (subview === 'agjenda') {
-             setActiveView('home');
-             setNavigation({ view: 'class-agenda', data: foundClass });
+            setActiveView('home');
+            setNavigation({ view: 'class-agenda', data: foundClass });
           } else if (subview === 'regjistri') {
-             setActiveView('home');
-             setNavigation({ view: 'class-detail', data: foundClass });
+            setActiveView('home');
+            setNavigation({ view: 'class-detail', data: foundClass });
           } else if (subview === 'notat') {
-             setActiveView('home');
-             setNavigation({ view: 'class-notat-grid', data: foundClass });
+            setActiveView('home');
+            setNavigation({ view: 'class-notat-grid', data: foundClass });
           } else if (subview === 'mungesat') {
-             setActiveView('home');
-             setNavigation({ view: 'class-attendance-grid', data: foundClass });
-             if (user.is_kujdestar) {
-               setSelectedSubject('Ditore');
-             } else {
-               const classSubjects = getAvailableSubjects(foundClass);
-               setSelectedSubject(classSubjects.length > 0 ? classSubjects[0] : 'Ditore');
-             }
+            setActiveView('home');
+            setNavigation({ view: 'class-attendance-grid', data: foundClass });
+            if (user.is_kujdestar) {
+              setSelectedSubject('Ditore');
+            } else {
+              const classSubjects = getAvailableSubjects(foundClass);
+              setSelectedSubject(classSubjects.length > 0 ? classSubjects[0] : 'Ditore');
+            }
           } else if (subview === 'notat-students') {
-             setActiveView('home');
-             setNavigation({ view: 'notat-students', data: foundClass });
+            setActiveView('home');
+            setNavigation({ view: 'notat-students', data: foundClass });
           }
         }
       }
@@ -272,8 +319,8 @@ const TeacherDashboard = ({
 
     window.addEventListener('popstate', handlePopState);
     if (!window.teacherInitialLoadDone) {
-       handlePopState();
-       window.teacherInitialLoadDone = true;
+      handlePopState();
+      window.teacherInitialLoadDone = true;
     }
 
     return () => window.removeEventListener('popstate', handlePopState);
@@ -282,23 +329,23 @@ const TeacherDashboard = ({
   // Sync state changes to browser URL automatically
   React.useEffect(() => {
     if (!isDesktop || typeof window === 'undefined') return;
-    
+
     let targetUrl = '/';
     if (activeView === 'lajmerimet') {
-       targetUrl = '/lajmerimet';
+      targetUrl = '/lajmerimet';
     } else if (activeView === 'home') {
-       if (navigation.view === 'home') targetUrl = '/ballina';
-       else if (navigation.view === 'my-classes') targetUrl = '/klasat';
-       else if (navigation.view === 'class-agenda' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/agjenda`;
-       else if (navigation.view === 'class-detail' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/regjistri`;
-       else if (navigation.view === 'class-notat-grid' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/notat`;
-       else if (navigation.view === 'class-attendance-grid' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/mungesat`;
-       else if (navigation.view === 'notat-students' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/notat-students`;
-       else targetUrl = '/ballina';
+      if (navigation.view === 'home') targetUrl = '/ballina';
+      else if (navigation.view === 'my-classes') targetUrl = '/klasat';
+      else if (navigation.view === 'class-agenda' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/agjenda`;
+      else if (navigation.view === 'class-detail' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/regjistri`;
+      else if (navigation.view === 'class-notat-grid' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/notat`;
+      else if (navigation.view === 'class-attendance-grid' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/mungesat`;
+      else if (navigation.view === 'notat-students' && navigation.data?.id) targetUrl = `/klasat/${navigation.data.id}/notat-students`;
+      else targetUrl = '/ballina';
     }
-    
+
     if (window.location.pathname !== targetUrl) {
-       window.history.pushState({}, '', targetUrl);
+      window.history.pushState({}, '', targetUrl);
     }
   }, [activeView, navigation, isDesktop]);
 
@@ -336,11 +383,12 @@ const TeacherDashboard = ({
     const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
 
     // 1. Check school year boundaries
-    // Skip when viewing a past academic year — the stored boundaries belong to the CURRENT year
-    if (!selectedGlobalAcademicYear) {
-      if (school?.school_year_start && dateStr < school.school_year_start) return { isWork: false, reason: t('no_school_day') };
-      if (school?.school_year_end && dateStr > school.school_year_end) return { isWork: false, reason: t('no_school_day') };
-    }
+    const archivedYear = (academicYearHistory || []).find(h => h.academic_year === selectedGlobalAcademicYear);
+    const startDate = archivedYear?.school_year_start || school?.school_year_start;
+    const endDate = archivedYear?.school_year_end || school?.school_year_end;
+
+    if (startDate && dateStr < startDate) return { isWork: false, reason: t('no_school_day') };
+    if (endDate && dateStr > endDate) return { isWork: false, reason: t('no_school_day') };
 
     // 2. Check explicit calendar overrides
     // Look for class-specific holidays first (if viewing a class), then school-wide
@@ -368,9 +416,11 @@ const TeacherDashboard = ({
   const getTermForDate = (dateStr, dbTerm) => {
     if (dbTerm) return Number(dbTerm);
     const school = (schools || []).find(s => s.id === user.school_id) || schools?.[0];
-    if (school?.term_two_start_date && dateStr) {
+    const archivedYear = (academicYearHistory || []).find(h => h.academic_year === selectedGlobalAcademicYear);
+    const boundaryDate = archivedYear?.term_two_start_date || school?.term_two_start_date;
+    if (boundaryDate && dateStr) {
       const entryDateStr = dateStr.split('T')[0].split(' ')[0];
-      const boundaryDateStr = school.term_two_start_date.split('T')[0].split(' ')[0];
+      const boundaryDateStr = boundaryDate.split('T')[0].split(' ')[0];
       return (entryDateStr >= boundaryDateStr) ? 2 : 1;
     }
     if (!dateStr) return 1;
@@ -415,6 +465,7 @@ const TeacherDashboard = ({
   const [selMinute, setSelMinute] = useState('');
   const [isHourDropdownVisible, setIsHourDropdownVisible] = useState(false);
   const [isMinuteDropdownVisible, setIsMinuteDropdownVisible] = useState(false);
+  const [isSubjectDropdownVisible, setIsSubjectDropdownVisible] = useState(false);
   const [showHourlyAttendance, setShowHourlyAttendance] = useState(Dimensions.get('window').width > 768);
   const [absenceType, setAbsenceType] = useState('unjustified');
   const [justifyReason, setJustifyReason] = useState('');
@@ -449,6 +500,15 @@ const TeacherDashboard = ({
   const [selectedNotatSubject, setSelectedNotatSubject] = useState(null);
   const [lessonDate, setLessonDate] = useState(null); // null = use selectedDate
   const [selectedCoordinatorClassId, setSelectedCoordinatorClassId] = useState(null);
+  const [selectedCoordinatorSubject, setSelectedCoordinatorSubject] = useState(null);
+  const [selectedCoordinatorAttendanceSubject, setSelectedCoordinatorAttendanceSubject] = useState(null);
+  const [selectedGradeForDetail, setSelectedGradeForDetail] = useState(null);
+  const [isSubjectPickerVisible, setIsSubjectPickerVisible] = useState(false);
+  const [isAttendanceSubjectPickerVisible, setIsAttendanceSubjectPickerVisible] = useState(false);
+  const [coordinatorAttendanceTab, setCoordinatorAttendanceTab] = useState('daily'); // 'daily' or 'hourly'
+  const [teacherAttendanceTab, setTeacherAttendanceTab] = useState('daily'); // 'daily' or 'hourly'
+  const [selectedAttendanceForDetail, setSelectedAttendanceForDetail] = useState(null);
+  const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
 
   // Helper: compute what the daily status would be after setting studentId/date/hour to newStatus
   const computeNewDailyStatus = (studentId, date, changedHour, newStatus) => {
@@ -533,15 +593,33 @@ const TeacherDashboard = ({
   const [editGradeDate, setEditGradeDate] = useState(null);
 
   const teacherClasses = classes.filter(c => (c.teacherIds || []).includes(user.id));
+  let coordinatedClasses = classes.filter(c => c.coordinatorId === user.id);
+
+  // Fallback: If no classes have an explicit coordinator_id yet, but the user is_kujdestar, 
+  // show all their teacher classes (legacy behavior) to avoid empty states.
+  if (coordinatedClasses.length === 0 && user.is_kujdestar) {
+    coordinatedClasses = teacherClasses;
+  }
 
   // Helper to get merged subjects (from class link + teacher profile)
   const getAvailableSubjects = (currentClass) => {
     const classSubjects = currentClass?.subjects || [];
     const profileSubjects = user.subjects || [];
     let merged = [...new Set([...classSubjects, ...profileSubjects])];
-    // Filter out generic 'Mësues' if more specific subjects exist
-    if (merged.length > 1) merged = merged.filter(s => s !== 'Mësues');
-    return merged.length > 0 ? merged : ['Mësues'];
+    // Filter out generic 'Msues' if more specific subjects exist
+    if (merged.length > 1) merged = merged.filter(s => s !== 'Msues');
+    return merged.length > 0 ? merged : ['Msues'];
+  };
+
+  // Component-level grade color helper
+  const getGradeColor = (val) => {
+    const g = parseInt(val);
+    if (g === 1) return { bg: '#fee2e2', text: '#ef4444', border: '#fecaca' };
+    if (g === 2) return { bg: '#ffedd5', text: '#f97316', border: '#fed7aa' };
+    if (g === 3) return { bg: '#fef9c3', text: '#eab308', border: '#fef08a' };
+    if (g === 4) return { bg: '#dcfce7', text: '#16a34a', border: '#bbf7d0' };
+    if (g === 5) return { bg: '#dcfce7', text: '#16a34a', border: '#bbf7d0' };
+    return { bg: '#f1f5f9', text: '#64748b', border: '#e2e8f0' };
   };
 
   const getSubjectAverage = (studentId, subject) => {
@@ -566,7 +644,7 @@ const TeacherDashboard = ({
     if (name.includes('biologji')) return <Activity size={24} color="#059669" />;
     if (name.includes('histori')) return <Globe size={24} color="#92400e" />;
     if (name.includes('gjeografi')) return <Globe size={24} color="#0369a1" />;
-    if (name.includes('gjuhë')) return <BookIcon size={24} color="#2563eb" />;
+    if (name.includes('gjuh')) return <BookIcon size={24} color="#2563eb" />;
     if (name.includes('art')) return <Palette size={24} color="#ea580c" />;
     if (name.includes('muzik')) return <Music size={24} color="#8b5cf6" />;
     if (name.includes('sport')) return <Activity size={24} color="#dc2626" />;
@@ -609,79 +687,99 @@ const TeacherDashboard = ({
         {user.is_kujdestar && (
           <View style={{ marginBottom: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a', marginBottom: 12 }}>{t('coordinator_section') || 'Kujdestaria'}</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity
                 style={{
-                  width: '48%',
+                  flex: 1,
                   backgroundColor: '#fef2f2',
-                  padding: 16,
-                  borderRadius: 20,
+                  paddingVertical: 20,
+                  paddingHorizontal: 8,
+                  borderRadius: 24,
                   borderWidth: 1,
                   borderColor: '#fee2e2',
-                  flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 12
+                  gap: 12,
+                  justifyContent: 'center',
+                  minHeight: 110
                 }}
-                onPress={() => setNavigation({ view: 'coordinator-notes', data: null })}
+                onPress={() => {
+                  setSelectedCoordinatorClassId(null);
+                  setNavigation({ view: 'coordinator-notes', data: null });
+                }}
               >
-                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
-                  <ShieldCheck size={20} color="#e11d48" />
+                <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#e11d48', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 }}>
+                  <ShieldCheck size={22} color="#e11d48" />
                 </View>
-                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#9f1239' }}>{t('all_disciplinary_notes') || 'Shënimet Disiplinore'}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#9f1239', textAlign: 'center', lineHeight: 14 }} numberOfLines={3}>
+                  {t('all_disciplinary_notes') || 'Shnimet Disiplinore'}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={{
-                  width: '48%',
+                  flex: 1,
                   backgroundColor: '#f5f3ff',
-                  padding: 16,
-                  borderRadius: 20,
+                  paddingVertical: 20,
+                  paddingHorizontal: 8,
+                  borderRadius: 24,
                   borderWidth: 1,
                   borderColor: '#ddd6fe',
-                  flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 12
+                  gap: 12,
+                  justifyContent: 'center',
+                  minHeight: 110
                 }}
-                onPress={() => setNavigation({ view: 'coordinator-grades', data: null })}
+                onPress={() => {
+                  setSelectedCoordinatorClassId(null);
+                  setNavigation({ view: 'coordinator-grades', data: null });
+                }}
               >
-                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
-                  <Award size={20} color="#7c3aed" />
+                <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#7c3aed', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 }}>
+                  <Award size={22} color="#7c3aed" />
                 </View>
-                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#5b21b6' }}>{t('full_grades_matrix') || 'Grilja e Notave'}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#5b21b6', textAlign: 'center', lineHeight: 14 }} numberOfLines={3}>
+                  {t('full_grades_matrix') || 'Grilja e Notave'}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={{
-                  width: '100%',
+                  flex: 1,
                   backgroundColor: '#f0fdf4',
-                  padding: 16,
-                  borderRadius: 20,
+                  paddingVertical: 20,
+                  paddingHorizontal: 8,
+                  borderRadius: 24,
                   borderWidth: 1,
                   borderColor: '#dcfce7',
-                  flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 12
+                  gap: 12,
+                  justifyContent: 'center',
+                  minHeight: 110
                 }}
-                onPress={() => setNavigation({ view: 'coordinator-attendance', data: null })}
+                onPress={() => {
+                  setSelectedCoordinatorClassId(null);
+                  setNavigation({ view: 'coordinator-attendance', data: null });
+                }}
               >
-                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
-                  <UserCheck size={20} color="#16a34a" />
+                <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', shadowColor: '#16a34a', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 }}>
+                  <UserCheck size={22} color="#16a34a" />
                 </View>
-                <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: '#15803d' }}>{t('attendance_oversight') || 'Pasqyra e Mungesave'}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#15803d', textAlign: 'center', lineHeight: 14 }} numberOfLines={3}>
+                  {t('attendance_oversight') || 'Pasqyra e Mungesave'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
-
         {/* Quick Actions */}
         <View style={{ gap: 16 }}>
           {/* Today's Agenda Summary */}
           {!isDesktop && (() => {
             const todayStr = formatDate(new Date());
             const myLessonsToday = (lessons || [])
-              .filter(l => 
-                l.teacher_id === user.id && 
-                l.date === todayStr && 
+              .filter(l =>
+                l.teacher_id === user.id &&
+                l.date === todayStr &&
                 (l.academic_year === selectedGlobalAcademicYear || (!l.academic_year && !selectedGlobalAcademicYear))
               )
               .sort((a, b) => {
@@ -690,36 +788,35 @@ const TeacherDashboard = ({
                 return aH - bH;
               });
 
-            if (myLessonsToday.length === 0) return null;
+            if (myLessonsToday.length === 0 || !isDesktop) return null;
 
             return (
               <View style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                   <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('my_agenda')}</Text>
-                   <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#eff6ff', borderRadius: 8 }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>{formatDisplayDate(new Date())}</Text>
-                   </View>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <Text style={{ fontSize: 18, fontWeight: "900", color: "#0f172a" }}>{t("my_agenda")}</Text>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: "#eff6ff", borderRadius: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: "#2563eb" }}>{formatDisplayDate(new Date())}</Text>
+                  </View>
                 </View>
                 {myLessonsToday.map((lesson, idx) => {
                   const topicMatch = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
-                  const hour = topicMatch ? topicMatch[1] : '?';
+                  const hour = topicMatch ? topicMatch[1] : "?";
                   const topic = topicMatch ? topicMatch[2] : lesson.topic;
                   const cls = teacherClasses.find(c => c.id === lesson.class_id || c.id === lesson.classId);
 
                   return (
-                    <TouchableOpacity 
-                      key={lesson.id} 
+                    <TouchableOpacity
+                      key={lesson.id}
                       style={[styles.premiumCardAction, { marginBottom: 10, paddingVertical: 12 }]}
-                      onPress={() => setNavigation({ view: 'class-agenda', data: cls })}
+                      onPress={() => setNavigation({ view: "class-agenda", data: cls })}
                     >
-                      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                        <Text style={{ fontSize: 14, fontWeight: '900', color: '#64748b' }}>{hour}</Text>
+                      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                        <Text style={{ fontSize: 14, fontWeight: "900", color: "#64748b" }}>{hour}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#2563eb', marginBottom: 2 }}>{formatClassName(cls)}</Text>
-                        <Text style={{ fontSize: 15, fontWeight: '700', color: '#1e293b' }} numberOfLines={1}>{t(lesson.subject)}</Text>
+                        <Text style={{ fontSize: 15, fontWeight: "700", color: "#1e293b" }}>{topic}</Text>
+                        <Text style={{ fontSize: 12, color: "#64748b" }}>{cls?.name || t("unknown_class")}</Text>
                       </View>
-                      <ChevronRight size={18} color="#94a3b8" />
                     </TouchableOpacity>
                   );
                 })}
@@ -749,75 +846,129 @@ const TeacherDashboard = ({
 
     const studentIds = classStudents.map(s => s.id);
 
-    const isDailyView = selectedSubject === 'Ditore';
+    const isDailyView = teacherAttendanceTab === 'daily';
+    const teacherSubjects = user.subjects || [];
+    const mySubjects = (currentClass.subjects || []).filter(s => teacherSubjects.includes(s));
 
-    // Filter attendance by current class students, semester, and selected view mode
-    const classAttendance = attendance.filter(a => {
-      // 1. Basic matching for class students and semester filtering
-      const matchBasic = (studentIds.includes(a.student_id) || studentIds.includes(a.studentId)) &&
-        !a.status.includes('present') &&
-        (gradeSemester === 0 || getTermForDate(a.date, a.term) === gradeSemester);
-        
-      if (!matchBasic) return false;
-      
+    const classAttendanceMap = new Map();
+    attendance.forEach(a => {
+      const isStudent = studentIds.includes(a.student_id) || studentIds.includes(a.studentId);
+      if (!isStudent) return;
+      if (a.status.includes('present')) return;
+      if (gradeSemester !== 0 && getTermForDate(a.date, a.term) !== gradeSemester) return;
+
       const hourVal = parseInt(a.hour || 0, 10);
-
+      const dateKey = formatDate(a.date);
       if (isDailyView) {
-        // Daily View: ONLY show hour === 0
-        return hourVal === 0;
+        if (hourVal === 0) {
+          classAttendanceMap.set(`${a.student_id || a.studentId}-${dateKey}`, a);
+        }
       } else {
-        // Subject View: ONLY show hour > 0 AND maps to a lesson taught by this user for the selected subject
-        if (hourVal === 0) return false; // Ignore daily
-        // Find corresponding lesson
-        const lesson = lessons.find(l => 
-          l.class_id === currentClass.id && 
-          l.date === a.date && 
-          l.topic?.includes(`[Ora ${hourVal}]`)
-        );
-        return lesson && lesson.teacher_id === user.id && lesson.subject === selectedSubject;
+        if (hourVal > 0) {
+          const aSubject = a.subject || (lessons.find(l =>
+            (l.class_id === currentClass.id || l.classId === currentClass.id) &&
+            formatDate(l.date) === dateKey &&
+            l.topic?.includes(`[Ora ${a.hour}]`)
+          )?.subject);
+
+          if (selectedSubject === 'Tutte' ? mySubjects.includes(aSubject) : aSubject === selectedSubject) {
+            classAttendanceMap.set(`${a.student_id || a.studentId}-${dateKey}-${a.hour}`, a);
+          }
+        }
       }
     });
+    const classAttendance = Array.from(classAttendanceMap.values());
 
     return (
       <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => {
-            setNavigation({ view: 'my-classes', data: null });
-            setSelectedRegistryStudent(null);
-            setSelectedActionStudent(null);
-            setSelectedStudentForGrade(null);
-          }}>
+          <TouchableOpacity
+            style={[{ flexDirection: "row", alignItems: "center", gap: 8 }, styles.glassBackButton]}
+            onPress={() => {
+              setNavigation({ view: 'my-classes', data: null });
+              setSelectedRegistryStudent(null);
+              setSelectedActionStudent(null);
+              setSelectedStudentForGrade(null);
+            }}
+          >
             <ArrowLeft size={18} color="#1e293b" />
+            {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
           </TouchableOpacity>
-          <View style={{ marginLeft: 16 }}>
-            <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a' }}>{formatClassName(currentClass)}</Text>
-            <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{t('absences') || 'Mungesat'}</Text>
-          </View>
         </View>
 
-        <View style={{ padding: 20, paddingBottom: 10 }}>
-          <Text style={[styles.label, { marginBottom: 12 }]}>{t('absence_type') || 'Tipi i Mungesës'}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
-            {user.is_kujdestar && (
+        <View style={{ padding: 20, paddingBottom: 0 }}>
+          <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 16, padding: 4, marginBottom: 20 }}>
+            <TouchableOpacity
+              onPress={() => {
+                setTeacherAttendanceTab('daily');
+                setSelectedSubject('Tutte');
+              }}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: isDailyView ? 'white' : 'transparent',
+                alignItems: 'center',
+                shadowColor: isDailyView ? '#000' : 'transparent',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: isDailyView ? 2 : 0
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '900', color: isDailyView ? '#2563eb' : '#64748b' }}>{t('daily') || 'Ditore'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setTeacherAttendanceTab('hourly');
+                setSelectedSubject('Tutte');
+              }}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: !isDailyView ? 'white' : 'transparent',
+                alignItems: 'center',
+                shadowColor: !isDailyView ? '#000' : 'transparent',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: !isDailyView ? 2 : 0
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '900', color: !isDailyView ? '#2563eb' : '#64748b' }}>{t('hourly_absences') || 'Orare'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {!isDailyView && (
+            <View style={{ marginBottom: 16 }}>
+              <Text style={[styles.label, { marginBottom: 12 }]}>{t('lesson_subject')}</Text>
               <TouchableOpacity
-                style={[styles.subjectChip, selectedSubject === 'Ditore' && styles.activeSubjectChip, { marginRight: 8 }]}
-                onPress={() => setSelectedSubject('Ditore')}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: 'white',
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  borderRadius: 16,
+                  borderWidth: 1.5,
+                  borderColor: '#e2e8f0',
+                }}
+                onPress={() => setIsAttendanceSubjectPickerVisible(true)}
               >
-                <Text style={[styles.subjectChipText, selectedSubject === 'Ditore' && styles.activeSubjectChipText]}>
-                  Ditore
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ backgroundColor: '#eff6ff', padding: 8, borderRadius: 10 }}>
+                    <BookIcon size={18} color="#2563eb" />
+                  </View>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>
+                    {selectedSubject === 'Tutte' ? (t('all_subjects') || 'T gjitha lndt') : t(selectedSubject)}
+                  </Text>
+                </View>
+                <ChevronDown size={20} color="#64748b" />
               </TouchableOpacity>
-            )}
-            {getAvailableSubjects(currentClass).map(subject => (
-              <TouchableOpacity
-                key={subject}
-                style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, { marginRight: 8 }]}
-                onPress={() => setSelectedSubject(subject)}
-              >
-                <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{t(subject)}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+            </View>
+          )}
         </View>
 
         <View style={styles.semesterSelector}>
@@ -837,66 +988,193 @@ const TeacherDashboard = ({
             </TouchableOpacity>
           ))}
         </View>
-
-        <View style={{ flex: 1 }}>
-          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderTopLeftRadius: 32, borderTopRightRadius: 32, overflow: 'hidden', borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
             {classStudents.map((student, idx) => {
               const studentAtt = classAttendance.filter(a => a.student_id === student.id || a.studentId === student.id);
-              studentAtt.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-              const unjust = studentAtt.filter(a => a.status.includes('unjustified')).length;
-              const justified = studentAtt.filter(a => a.status.includes('justified')).length;
+              // Grouping logic: depends on view mode
+              const displayAtt = [];
+              if (isDailyView) {
+                const seenDates = new Set();
+                const sortedAtt = [...studentAtt].sort((a, b) => {
+                  const statusRank = s => s.includes('late') || s.includes('early') ? 2 : (s.includes('absent') ? 1 : 0);
+                  return statusRank(b.status) - statusRank(a.status);
+                });
+                for (const att of sortedAtt) {
+                  const dateKey = formatDate(att.date);
+                  if (!seenDates.has(dateKey)) {
+                    displayAtt.push(att);
+                    seenDates.add(dateKey);
+                  }
+                }
+              } else {
+                displayAtt.push(...studentAtt);
+              }
+
+              displayAtt.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+              const totalUnjustified = studentAtt.filter(a => !a.status.includes('justified') && !a.status.includes('present')).length;
+              const totalLate = studentAtt.filter(a => a.status.includes('late')).length;
+              const totalEarly = studentAtt.filter(a => a.status.includes('early')).length;
+              const totalAbsent = studentAtt.filter(a => a.status.includes('absent') && !a.status.includes('late') && !a.status.includes('early')).length;
+              const totalUnjustifiedAbsences = studentAtt.filter(a => !a.status.includes('justified') && !a.status.includes('present')).length;
 
               return (
-                <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa', minHeight: 80 }}>
-                  <View style={{ width: 150, paddingHorizontal: 12, paddingVertical: 12, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
-                    <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13 }} numberOfLines={3}>{student.name}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
-                      <View style={{ height: 18, paddingHorizontal: 6, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>{studentAtt.length} Mungesa</Text>
+                <View key={student.id} style={{
+                  backgroundColor: 'white',
+                  borderRadius: 24,
+                  marginBottom: 16,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: '#f1f5f9',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.03,
+                  shadowRadius: 10,
+                  elevation: 2
+                }}>
+                  {/* Top Header: Student Info */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                    <View style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 16,
+                      backgroundColor: idx % 2 === 0 ? '#eff6ff' : '#f8fafc',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 12,
+                      borderWidth: 1,
+                      borderColor: idx % 2 === 0 ? '#dbeafe' : '#e2e8f0'
+                    }}>
+                      <Text style={{ fontSize: 16, fontWeight: '900', color: idx % 2 === 0 ? '#2563eb' : '#64748b' }}>
+                        {(student.name || '?').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: '#0f172a' }}>{student.name}</Text>
+                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+                        {totalAbsent > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#ef4444' }}>
+                              {totalAbsent} {isDailyView ? (t('absent') || 'Mungesa') : (t('hourly_absences_unit') || 'Ore Mungese')}
+                            </Text>
+                          </View>
+                        )}
+                        {totalUnjustifiedAbsences > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#b91c1c' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#b91c1c' }}>
+                              {totalUnjustifiedAbsences} {t('unjustified_absences_short') || 'Pa arsye'}
+                            </Text>
+                          </View>
+                        )}
+                        {totalLate > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#f59e0b' }}>{totalLate} {t('late') || 'Vones'}</Text>
+                          </View>
+                        )}
+                        {totalEarly > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#f59e0b' }}>{totalEarly} {t('early_exit') || 'Largim'}</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
 
-                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 8, alignItems: 'center' }}>
-                    {studentAtt.map((attObj, aIdx) => {
-                      let color = '#ef4444'; 
-                      let bg = '#fef2f2';
-                      let char = 'M'; 
-                      
-                      if (attObj.status.includes('justified')) { color = '#10b981'; bg = '#f0fdf4'; char = 'M'; }
-                      else if (attObj.status.includes('late')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'V'; }
-                      else if (attObj.status.includes('early')) { color = '#8b5cf6'; bg = '#f5f3ff'; char = 'D'; }
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {/* Markers Grid */}
+                    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                      {displayAtt.length > 0 ? displayAtt.map((att, aIdx) => {
+                        let color = '#ef4444';
+                        let bg = '#fef2f2';
+                        let char = 'M';
 
-                      return (
-                        <TouchableOpacity 
-                          key={attObj.id || aIdx} 
-                          style={{ alignItems: 'center', gap: 2 }}
-                          onPress={() => {
-                            if (!isReadOnly && isDailyView) {
-                              setSelectedActionStudent(student);
-                              setSelectedDateToJustify(attObj.date);
-                              setJustifyReason('');
-                              setActiveActionTab('justify');
-                              setIsActionModalVisible(true);
-                            }
-                          }}
-                        >
-                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#1e293b' }}>
-                            {attObj.date.split('-').reverse().slice(0, 2).join('/')}
-                          </Text>
-                          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: color }}>
-                            <Text style={{ fontSize: 12, fontWeight: '900', color: color }}>{char}</Text>
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                        if (att.status.includes('late')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'V'; }
+                        else if (att.status.includes('early')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'L'; }
 
-                  <View style={[styles.averageColumn, { width: 80 }]}>
-                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase' }}>Të pa Ars.</Text>
-                    <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: unjust > 0 ? '#fef2f2' : '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: unjust > 0 ? '#ef4444' : '#e2e8f0' }}>
-                      <Text style={{ fontSize: 16, fontWeight: '900', color: unjust > 0 ? '#ef4444' : '#94a3b8' }}>{unjust}</Text>
+                        return (
+                          <TouchableOpacity
+                            key={att.id || aIdx}
+                            onPress={() => {
+                              if (!isReadOnly) {
+                                setSelectedAttendanceForDetail(att);
+                                setIsDetailModalVisible(true);
+                              }
+                            }}
+                            style={{ alignItems: 'center', gap: 6 }}
+                          >
+                            <View style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 22,
+                              backgroundColor: bg,
+                              borderWidth: 2,
+                              borderColor: color + '40',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              elevation: 2
+                            }}>
+                              <Text style={{ fontSize: 18, fontWeight: '900', color: color }}>{char}</Text>
+                            </View>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#64748b' }}>
+                              {formatDate(att.date).split('-').reverse().slice(0, 2).join('/')}
+                              {!isDailyView && att.hour ? ` (H${att.hour})` : ''}
+                            </Text>
+                            <View style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: 3,
+                              backgroundColor: att.status.includes('justified') ? '#10b981' : '#ef4444'
+                            }} />
+                          </TouchableOpacity>
+                        );
+                      }) : (
+                        <Text style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic', marginLeft: 4 }}>
+                          {t('no_records_found') || 'Nuk ka t dhna'}
+                        </Text>
+                      )}
+                    </View>
+
+                    {/* Summary Column on the Right */}
+                    <View style={{ marginLeft: 12, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: '#f1f5f9', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <View style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: totalAbsent > 0 ? '#fef2f2' : '#f8fafc',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 2,
+                          borderColor: totalAbsent > 0 ? '#ef4444' : '#e2e8f0',
+                        }}>
+                          <Text style={{ fontSize: 18, fontWeight: '900', color: totalAbsent > 0 ? '#ef4444' : '#64748b' }}>{totalAbsent}</Text>
+                        </View>
+                        <Text style={{ fontSize: 8, fontWeight: '800', color: '#64748b', marginTop: 4, textTransform: 'uppercase' }}>
+                          {isDailyView ? (t('daily') || 'Ditore') : (t('hourly') || 'Orare')}
+                        </Text>
+                      </View>
+
+                      <View style={{ alignItems: 'center' }}>
+                        <View style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: totalUnjustifiedAbsences > 0 ? '#fef2f2' : '#f8fafc',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 2,
+                          borderColor: totalUnjustifiedAbsences > 0 ? '#b91c1c' : '#e2e8f0',
+                        }}>
+                          <Text style={{ fontSize: 18, fontWeight: '900', color: totalUnjustifiedAbsences > 0 ? '#b91c1c' : '#94a3b8' }}>{totalUnjustifiedAbsences}</Text>
+                        </View>
+                        <Text style={{ fontSize: 8, fontWeight: '800', color: totalUnjustifiedAbsences > 0 ? '#b91c1c' : '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>{t('unjustified_short') || 'Pa ars.'}</Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -909,10 +1187,8 @@ const TeacherDashboard = ({
   };
 
   const renderClassNotatGrid = (currentClass) => {
-    const classStudents = students
-      .filter(s => s.classId === currentClass.id)
-      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
+    if (!currentClass) return null;
+    const classStudents = getDynamicClassStudents(currentClass.id);
     const studentIds = classStudents.map(s => s.id);
 
     // Filter grades by selected subject and current class students
@@ -922,40 +1198,113 @@ const TeacherDashboard = ({
       (gradeSemester === 0 || getTermForDate(g.date, g.term) === gradeSemester)
     );
 
+    const availableSubjects = getAvailableSubjects(currentClass);
 
     return (
-      <View style={[styles.viewContainer, { paddingHorizontal: 0 }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-          <TouchableOpacity style={[styles.glassBackButton]} onPress={() => {
-            setNavigation({ view: 'my-classes', data: null });
-            setSelectedRegistryStudent(null);
-            setSelectedActionStudent(null);
-            setSelectedStudentForGrade(null);
-          }}>
-            <ArrowLeft size={18} color="#1e293b" />
-          </TouchableOpacity>
-          <View style={{ marginLeft: 16 }}>
-            <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a' }}>{formatClassName(currentClass)}</Text>
-            <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{t('grades_matrix')}</Text>
+      <View style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+        {/* Stylish Centered Header */}
+        <View style={{
+          backgroundColor: 'white',
+          paddingTop: 16,
+          paddingBottom: 24,
+          paddingHorizontal: 20,
+          borderBottomLeftRadius: 32,
+          borderBottomRightRadius: 32,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.05,
+          shadowRadius: 15,
+          elevation: 5,
+          zIndex: 10
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+            <TouchableOpacity
+              style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16 }}
+              onPress={() => {
+                setNavigation({ view: 'my-classes', data: null });
+                setSelectedRegistryStudent(null);
+                setSelectedActionStudent(null);
+                setSelectedStudentForGrade(null);
+              }}
+            >
+              <ArrowLeft size={22} color="#1e293b" />
+              {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
+            </TouchableOpacity>
+          </View>
+
+          {/* Subject Dropdown */}
+          <View style={{ position: 'relative', zIndex: 20 }}>
+            <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{t('lesson_subject')}</Text>
+            <TouchableOpacity
+              onPress={() => setIsSubjectDropdownVisible(!isSubjectDropdownVisible)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#f1f5f9',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: isSubjectDropdownVisible ? '#2563eb' : 'transparent'
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <BookIcon size={18} color="#2563eb" />
+                <Text style={{ fontSize: 15, fontWeight: '800', color: '#1e293b' }}>
+                  {selectedSubject ? t(selectedSubject) : t('select_subject')}
+                </Text>
+              </View>
+              <ChevronDown size={20} color="#64748b" style={{ transform: [{ rotate: isSubjectDropdownVisible ? '180deg' : '0deg' }] }} />
+            </TouchableOpacity>
+
+            {isSubjectDropdownVisible && (
+              <View style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                marginTop: 8,
+                backgroundColor: 'white',
+                borderRadius: 16,
+                padding: 8,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.1,
+                shadowRadius: 20,
+                elevation: 10,
+                borderWidth: 1,
+                borderColor: '#f1f5f9'
+              }}>
+                {availableSubjects.map((sub) => (
+                  <TouchableOpacity
+                    key={sub}
+                    onPress={() => {
+                      setSelectedSubject(sub);
+                      setIsSubjectDropdownVisible(false);
+                    }}
+                    style={{
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      borderRadius: 10,
+                      backgroundColor: selectedSubject === sub ? '#eff6ff' : 'transparent',
+                      marginBottom: 4
+                    }}
+                  >
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: selectedSubject === sub ? '800' : '600',
+                      color: selectedSubject === sub ? '#2563eb' : '#475569'
+                    }}>{t(sub)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         </View>
 
-        <View style={{ padding: 20, paddingBottom: 10 }}>
-          <Text style={[styles.label, { marginBottom: 12 }]}>{t('lesson_subject')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
-            {getAvailableSubjects(currentClass).map(subject => (
-              <TouchableOpacity
-                key={subject}
-                style={[styles.subjectChip, selectedSubject === subject && styles.activeSubjectChip, { marginRight: 8 }]}
-                onPress={() => setSelectedSubject(subject)}
-              >
-                <Text style={[styles.subjectChipText, selectedSubject === subject && styles.activeSubjectChipText]}>{t(subject)}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        <View style={styles.semesterSelector}>
+        {/* Semester Selector */}
+        <View style={[styles.semesterSelector, { marginTop: 24, marginBottom: 12 }]}>
           {[
             { id: 0, label: t('all') },
             { id: 1, label: t('first_semester') },
@@ -975,48 +1324,61 @@ const TeacherDashboard = ({
 
         {selectedSubject ? (
           <View style={{ flex: 1 }}>
-            {/* Wrapped Data Rows */}
             <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
               {classStudents.map((student, idx) => {
-                const studentGrades = subjectGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
+                const studentGrades = subjectGrades
+                  .filter(g => g.student_id === student.id || g.studentId === student.id)
+                  .sort((a, b) => new Date(a.date) - new Date(b.date));
                 const avg = studentGrades.length > 0
                   ? (studentGrades.reduce((acc, curr) => acc + curr.grade, 0) / studentGrades.length).toFixed(1)
                   : '0.0';
 
                 return (
-                  <View key={student.id} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa', minHeight: 80 }}>
-                    {/* Student Info - Left Column */}
-                    <View style={{ width: 150, paddingHorizontal: 12, paddingVertical: 12, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
-                      <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13 }} numberOfLines={3}>{student.name}</Text>
+                  <View key={student.id} style={{
+                    flexDirection: 'row',
+                    backgroundColor: 'white',
+                    marginHorizontal: 16,
+                    marginBottom: 12,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#f1f5f9',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.02,
+                    shadowRadius: 5,
+                    elevation: 1,
+                    overflow: 'hidden'
+                  }}>
+                    {/* Student Info */}
+                    <View style={{ width: 140, padding: 16, borderRightWidth: 1, borderRightColor: '#f8fafc', justifyContent: 'center' }}>
+                      <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13 }} numberOfLines={2}>{student.name}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
                         <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
                           <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>{studentGrades.length}</Text>
                         </View>
-                        <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '600' }}>{t('grades') || 'Nota'}</Text>
+                        <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '600' }}>{t('grades')}</Text>
                       </View>
                     </View>
 
-                    {/* Grades Area - Wrapped Center Column */}
-                    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 12, alignItems: 'center' }}>
+                    {/* Grades Area */}
+                    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 12, alignItems: 'center' }}>
                       {studentGrades.map((gradeObj, gIdx) => (
                         <View key={gradeObj.id || gIdx} style={{ alignItems: 'center', gap: 2 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '900', color: '#1e293b' }}>
+                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#94a3b8' }}>
                             {gradeObj.date.split('-').reverse().slice(0, 2).join('/')}
                           </Text>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             onPress={() => !isReadOnly && handleEditGradeClick(gradeObj)}
                             disabled={isReadOnly}
                           >
-                            <GradeRing value={gradeObj.grade} size={42} />
+                            <GradeRing value={gradeObj.grade} size={38} />
                           </TouchableOpacity>
                         </View>
                       ))}
-
-                      {/* Quick Add Button */}
                       {!isReadOnly && (
                         <TouchableOpacity
                           style={{
-                            width: 42, height: 42, borderRadius: 21, backgroundColor: '#f8fafc',
+                            width: 38, height: 38, borderRadius: 19, backgroundColor: '#f8fafc',
                             alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
                             borderColor: '#e2e8f0', borderStyle: 'dashed'
                           }}
@@ -1025,15 +1387,22 @@ const TeacherDashboard = ({
                             setIsGradeModalVisible(true);
                           }}
                         >
-                          <Plus size={18} color="#cbd5e1" />
+                          <Plus size={16} color="#cbd5e1" />
                         </TouchableOpacity>
                       )}
                     </View>
 
-                    {/* Average - Right Column */}
-                    <View style={styles.averageColumn}>
-                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase' }}>{t('average') || 'Mes.'}</Text>
-                      <GradeRing value={avg} size={42} />
+                    {/* Average */}
+                    <View style={{
+                      width: 70,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: '#f8fafc',
+                      borderLeftWidth: 1,
+                      borderLeftColor: '#f1f5f9'
+                    }}>
+                      <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase' }}>{t('average')}</Text>
+                      <GradeRing value={avg} size={38} />
                     </View>
                   </View>
                 );
@@ -1041,9 +1410,12 @@ const TeacherDashboard = ({
             </ScrollView>
           </View>
         ) : (
-          <View style={{ padding: 40, alignItems: 'center' }}>
-            <ClipboardList size={40} color="#cbd5e1" />
-            <Text style={{ marginTop: 16, fontSize: 15, color: '#94a3b8', fontWeight: '700' }}>Ju lutem zgjidhni lëndën / Seleziona una materia</Text>
+          <View style={{ flex: 1, padding: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 80, height: 80, borderRadius: 30, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+              <BookIcon size={40} color="#2563eb" />
+            </View>
+            <Text style={{ fontSize: 16, color: '#1e293b', fontWeight: '800', textAlign: 'center' }}>{t('select_subject')}</Text>
+            <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '500', textAlign: 'center', marginTop: 4 }}>Ju lutem zgjidhni lndn pr t par notat</Text>
           </View>
         )}
       </View>
@@ -1065,7 +1437,7 @@ const TeacherDashboard = ({
             setSelectedStudentForGrade(null);
           }}>
             <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('back')}</Text>
+            {isDesktop && <Text style={styles.backButtonText}>{t('back')}</Text>}
           </TouchableOpacity>
         </View>
 
@@ -1115,128 +1487,135 @@ const TeacherDashboard = ({
             />
           }
           alwaysBounceVertical={true}
-          renderItem={({ item }) => (
-            <View style={{
-              backgroundColor: 'white',
-              borderRadius: 20,
-              padding: 16,
-              marginBottom: 16,
-              borderWidth: 1,
-              borderColor: '#f1f5f9',
-              shadowColor: '#94a3b8',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.1,
-              shadowRadius: 12,
-              elevation: 4,
-            }}>
-              <View style={styles.classCardHeader}>
-                <View>
-                  <Text style={styles.classCardTitle}>{formatClassName(item)}</Text>
-                  <Text style={styles.classCardSubtitle}>
-                    {getDynamicClassStudents(item.id).length} {t('students_count') || 'Nxënësit'}
-                  </Text>
-                </View>
-              </View>
+          renderItem={({ item }) => {
+            const isExpanded = selectedClassId === item.id;
 
-              <View style={styles.classActionGrid}>
+            return (
+              <View style={{
+                backgroundColor: 'white',
+                borderRadius: 20,
+                padding: 16,
+                marginBottom: 16,
+                borderWidth: 1,
+                borderColor: '#f1f5f9',
+                shadowColor: '#94a3b8',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.1,
+                shadowRadius: 12,
+                elevation: 4,
+              }}>
+                <TouchableOpacity
+                  onPress={() => setSelectedClassId(isExpanded ? null : item.id)}
+                  style={[styles.classCardHeader, { marginBottom: (isDesktop || isExpanded) ? 16 : 0 }]}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.classCardTitle}>{formatClassName(item)}</Text>
+                    <Text style={styles.classCardSubtitle}>
+                      {getDynamicClassStudents(item.id).length} {t('students_count') || 'nxënësit'}
+                    </Text>
+                  </View>
+                  {!isDesktop && (
+                    <ChevronDown
+                      size={20}
+                      color="#94a3b8"
+                      style={{ transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] }}
+                    />
+                  )}
+                </TouchableOpacity>
 
+                {(isDesktop || isExpanded) && (
+                  <View style={[styles.classActionGrid, !isDesktop && { flexDirection: 'column', gap: 8 }]}>
+                    {!isReadOnly && (
+                      <TouchableOpacity
+                        style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#f5f3ff' }]}
+                        onPress={() => {
+                          setNavigation({ view: 'my-classes', data: item });
+                          setIsLessonModalVisible(true);
+                          if (item.subjects && item.subjects.length > 0) {
+                            setSelectedSubject(item.subjects[0]);
+                          }
+                        }}
+                      >
+                        <BookIcon size={18} color="#7c3aed" />
+                        <Text style={[styles.classActionText, { color: '#7c3aed' }]} numberOfLines={1} adjustsFontSizeToFit>{t('register_lesson') || 'Regjistro Oren'}</Text>
+                      </TouchableOpacity>
+                    )}
 
-                {!isReadOnly && (
-                  <TouchableOpacity
-                    style={[styles.classActionButton, { backgroundColor: '#f5f3ff' }]}
-                    onPress={() => {
-                      setNavigation({ view: 'my-classes', data: item });
-                      setIsLessonModalVisible(true);
-                      if (item.subjects && item.subjects.length > 0) {
-                        setSelectedSubject(item.subjects[0]);
-                      }
-                    }}
-                  >
-                    <BookIcon size={18} color="#7c3aed" />
-                    <Text style={[styles.classActionText, { color: '#7c3aed' }]} numberOfLines={1} adjustsFontSizeToFit>{t('register_lesson') || 'Regjistro Oren'}</Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#f0fdf4' }]}
+                      onPress={() => setNavigation({ view: 'class-agenda', data: item })}
+                    >
+                      <CalendarIcon size={18} color="#16a34a" />
+                      <Text style={[styles.classActionText, { color: '#16a34a' }]} numberOfLines={1} adjustsFontSizeToFit>{t('agenda') === 'agenda' ? 'Agjenda' : (t('agenda') || 'Agjenda')}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#eff6ff' }]}
+                      onPress={() => setNavigation({ view: 'class-detail', data: item })}
+                    >
+                      <ClipboardList size={18} color="#2563eb" />
+                      <Text style={[styles.classActionText, { color: '#2563eb' }]} numberOfLines={1} adjustsFontSizeToFit>{t('class_registry') === 'class_registry' ? 'Regjistri' : (t('class_registry') || 'Regjistri')}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#fff1f2' }]}
+                      onPress={() => {
+                        setSelectedActionStudent({ name: formatClassName(item), classId: item.id });
+                        setIsActionModalVisible(true);
+                        setActiveActionTab('note');
+                        setIsClassNote(true);
+                      }}
+                    >
+                      <ShieldCheck size={18} color="#e11d48" />
+                      <Text style={[styles.classActionText, { color: '#e11d48' }]} numberOfLines={1} adjustsFontSizeToFit>{t('disciplinary_note') || 'Njoftim'}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#fdf4ff' }]}
+                      onPress={() => {
+                        setNavigation({ view: 'class-notat-grid', data: item });
+                        if (item.subjects && item.subjects.length > 0) {
+                          setSelectedSubject(item.subjects[0]);
+                        }
+                      }}
+                    >
+                      <Award size={18} color="#c026d3" />
+                      <Text style={[styles.classActionText, { color: '#c026d3' }]} numberOfLines={1} adjustsFontSizeToFit>{t('grades') || 'Notat'}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#fff7ed' }]}
+                      onPress={() => setNavigation({ view: 'class-attendance-grid', data: item })}
+                    >
+                      <Clock size={18} color="#ea580c" />
+                      <Text style={[styles.classActionText, { color: '#ea580c' }]} numberOfLines={1} adjustsFontSizeToFit>{t('attendance') || 'Mungesat'}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#fffbeb' }]}
+                      onPress={() => {
+                        setNavigation({ view: 'my-classes', data: item });
+                        setIsTestModalVisible(true);
+                        if (item.subjects && item.subjects.length > 0) {
+                          setSelectedSubject(item.subjects[0]);
+                        }
+                      }}
+                    >
+                      <BookIcon size={18} color="#d97706" />
+                      <Text style={[styles.classActionText, { color: '#d97706' }]} numberOfLines={1} adjustsFontSizeToFit>{t('test_exam') || 'Test/Provim'}</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
-
-                <TouchableOpacity
-                  style={[styles.classActionButton, { backgroundColor: '#f0fdf4' }]}
-                  onPress={() => setNavigation({ view: 'class-agenda', data: item })}
-                >
-                  <Calendar size={18} color="#16a34a" />
-                  <Text style={[styles.classActionText, { color: '#16a34a' }]} numberOfLines={1} adjustsFontSizeToFit>{t('agenda') === 'agenda' ? 'Agjenda' : (t('agenda') || 'Agjenda')}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.classActionButton, { backgroundColor: '#eff6ff' }]}
-                  onPress={() => setNavigation({ view: 'class-detail', data: item })}
-                >
-                  <ClipboardList size={18} color="#2563eb" />
-                  <Text style={[styles.classActionText, { color: '#2563eb' }]} numberOfLines={1} adjustsFontSizeToFit>{t('class_registry') === 'class_registry' ? 'Regjistri' : (t('class_registry') || 'Regjistri')}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.classActionButton, { backgroundColor: '#fff1f2' }]}
-                  onPress={() => {
-                    setSelectedActionStudent({ name: formatClassName(item), classId: item.id });
-                    setIsActionModalVisible(true);
-                    setActiveActionTab('note');
-                    setIsClassNote(true);
-                  }}
-                >
-                  <ShieldCheck size={18} color="#e11d48" />
-                  <Text style={[styles.classActionText, { color: '#e11d48' }]} numberOfLines={1} adjustsFontSizeToFit>{t('disciplinary_note') || 'Njoftim'}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.classActionButton, { backgroundColor: '#fdf4ff' }]}
-                  onPress={() => {
-                    setNavigation({ view: 'class-notat-grid', data: item });
-                    if (item.subjects && item.subjects.length > 0) {
-                      setSelectedSubject(item.subjects[0]);
-                    }
-                  }}
-                >
-                  <Award size={18} color="#c026d3" />
-                  <Text style={[styles.classActionText, { color: '#c026d3' }]} numberOfLines={1} adjustsFontSizeToFit>{t('grades') || 'Notat'}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.classActionButton, { backgroundColor: '#f0fdfa' }]}
-                  onPress={() => {
-                    setNavigation({ view: 'class-attendance-grid', data: item });
-                    if (user.is_kujdestar) {
-                      setSelectedSubject('Ditore');
-                    } else {
-                      const subjects = getAvailableSubjects(item);
-                      if (subjects.length > 0) setSelectedSubject(subjects[0]);
-                    }
-                  }}
-                >
-                  <UserCheck size={18} color="#0f766e" />
-                  <Text style={[styles.classActionText, { color: '#0f766e' }]} numberOfLines={1} adjustsFontSizeToFit>{t('mungesa') || 'Mungesat'}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.classActionButton, { backgroundColor: '#fffbeb' }]}
-                  onPress={() => {
-                    setNavigation({ view: 'my-classes', data: item });
-                    setIsTestModalVisible(true);
-                    if (item.subjects && item.subjects.length > 0) {
-                      setSelectedSubject(item.subjects[0]);
-                    }
-                  }}
-                >
-                  <BookIcon size={18} color="#d97706" />
-                  <Text style={[styles.classActionText, { color: '#d97706' }]} numberOfLines={1} adjustsFontSizeToFit>{t('test_exam') || 'Test/Provim'}</Text>
-                </TouchableOpacity>
               </View>
-            </View>
-          )}
+            );
+          }}
           ListEmptyComponent={() => (
             <View style={styles.emptyStateContainer}>
               <View style={[styles.avatarPlaceholder, { width: 80, height: 80, borderRadius: 30 }]}>
                 <BookIcon size={40} color="#cbd5e1" />
               </View>
-              <Text style={styles.emptyStateTitle}>{t('no_classes_assigned') || 'Nuk keni klasa të caktuara'}</Text>
+              <Text style={styles.emptyStateTitle}>{t('no_classes_assigned') || 'Nuk keni klasa t caktuara'}</Text>
             </View>
           )}
         />
@@ -1249,7 +1628,7 @@ const TeacherDashboard = ({
     <View style={styles.viewContainer}>
       <View style={styles.homeHeader}>
         <Text style={styles.homeTitle}>{title || t('class_register')}</Text>
-        <Text style={styles.homeSubtitle}>{t('select_class_instruction') || 'Zgjidh klasën'}</Text>
+        <Text style={styles.homeSubtitle}>{t('select_class_instruction') || 'Zgjidh klasn'}</Text>
       </View>
       <FlatList
         data={teacherClasses}
@@ -1270,7 +1649,10 @@ const TeacherDashboard = ({
             style={styles.premiumCard}
             onPress={() => {
               setNavigation({ view: targetView, data: item });
-              if (item.subjects && item.subjects.length > 0) {
+              if (targetView === 'class-attendance-grid') {
+                setTeacherAttendanceTab('daily');
+                setSelectedSubject('Tutte');
+              } else if (item.subjects && item.subjects.length > 0) {
                 setSelectedSubject(item.subjects[0]);
               }
             }}
@@ -1287,7 +1669,7 @@ const TeacherDashboard = ({
             <View style={[styles.avatarPlaceholder, { width: 80, height: 80, borderRadius: 30 }]}>
               <BookIcon size={40} color="#cbd5e1" />
             </View>
-            <Text style={styles.emptyStateTitle}>{t('no_classes_assigned') || 'Nuk keni klasa të caktuara'}</Text>
+            <Text style={styles.emptyStateTitle}>{t('no_classes_assigned') || 'Nuk keni klasa t caktuara'}</Text>
           </View>
         )}
       />
@@ -1295,7 +1677,7 @@ const TeacherDashboard = ({
   );
 
   const renderActionModal = () => {
-    if (!selectedActionStudent) return null;
+    if (!selectedActionStudent || isDetailModalVisible) return null;
 
     const dateStr = gradeCustomDate || formatDate(selectedDate);
     const displayDateStr = formatDisplayDate(gradeCustomDate || selectedDate);
@@ -1315,7 +1697,7 @@ const TeacherDashboard = ({
               <View>
                 <Text style={styles.modalTitleEmphasized}>{selectedActionStudent.name}</Text>
                 <Text style={styles.modalSubtitle}>
-                  {displayDateStr} {activeActionTab === 'attendance' && selectedAttendanceHour ? `• Ora ${selectedAttendanceHour}` : ''}
+                  {displayDateStr} {activeActionTab === 'attendance' && selectedAttendanceHour ? `"¢ Ora ${selectedAttendanceHour}` : ''}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => {
@@ -1324,6 +1706,7 @@ const TeacherDashboard = ({
                 setSelectedAttendanceHour(null);
                 setIsHourDropdownVisible(false);
                 setIsMinuteDropdownVisible(false);
+                setGradeCustomDate(null);
               }} style={styles.closeModalBtn}>
                 <X size={20} color="#64748b" />
               </TouchableOpacity>
@@ -1351,50 +1734,12 @@ const TeacherDashboard = ({
 
             {/* Date selection - moved below tabs */}
             <View style={{ marginBottom: 16 }}>
-              <Text style={styles.label}>{t('registration_date')}</Text>
-              <TouchableOpacity
-                style={styles.premiumDatePickerField}
-                onPress={() => {
-                  if (Platform.OS === 'web') {
-                    document.getElementById('hidden-date-input').showPicker();
-                  }
-                }}
-              >
-                <View style={styles.premiumDatePickerContent}>
-                  <Calendar size={18} color="#2563eb" />
-                  <Text style={styles.premiumDatePickerText}>
-                    {displayDateStr}
-                  </Text>
-                </View>
-                {Platform.OS === 'web' && (
-                  <input
-                    id="hidden-date-input"
-                    type="date"
-                    style={{
-                      position: 'absolute',
-                      opacity: 0,
-                      width: '100%',
-                      height: '100%',
-                      cursor: 'pointer'
-                    }}
-                    value={gradeCustomDate || formatDate(selectedDate)}
-                    max={formatDate(new Date())}
-                    onChange={(e) => {
-                      const text = e.target.value;
-                      const picked = new Date(text);
-                      const today = new Date();
-                      today.setHours(23, 59, 59, 999);
-
-                      if (picked <= today) {
-                        setGradeCustomDate(text);
-                      } else {
-                        showAlert(t('future_date_error') || "Data nuk mund të jetë në të ardhmen!", 'error');
-                        setGradeCustomDate(formatDate(new Date()));
-                      }
-                    }}
-                  />
-                )}
-              </TouchableOpacity>
+              <PremiumDatePicker
+                label={t('registration_date')}
+                value={gradeCustomDate || formatDate(selectedDate)}
+                onChange={(date) => setGradeCustomDate(date)}
+                placeholder="DD/MM/YYYY"
+              />
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -1428,7 +1773,7 @@ const TeacherDashboard = ({
 
                   <Text style={styles.label}>{t('grade_type')}</Text>
                   <View style={styles.chipGrid}>
-                    {[{ id: 'Me Shkrim', key: 'written' }, { id: 'Me Gojë', key: 'oral' }, { id: 'Praktikë', key: 'practical' }].map(type => (
+                    {[{ id: 'Me Shkrim', key: 'written' }, { id: 'Me Goj', key: 'oral' }, { id: 'Praktik', key: 'practical' }].map(type => (
                       <TouchableOpacity
                         key={type.id}
                         style={[styles.subjectChip, gradeType === type.id && styles.activeSubjectChip]}
@@ -1454,7 +1799,7 @@ const TeacherDashboard = ({
                       const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
                       if (!dayStatus.isWork) {
                         setIsActionModalVisible(false);
-                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                        showAlert(t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.', 'info');
                         return;
                       }
                       onAddGrade({
@@ -1600,7 +1945,7 @@ const TeacherDashboard = ({
                       const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
                       if (!dayStatus.isWork) {
                         setIsActionModalVisible(false);
-                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                        showAlert(t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.', 'info');
                         return;
                       }
 
@@ -1608,7 +1953,7 @@ const TeacherDashboard = ({
                       const finalTime = (tempAttendanceStatus === 'late' || tempAttendanceStatus === 'early_exit') ? `${selHour}:${selMinute}` : '';
                       const result = await onToggleAttendance(
                         selectedActionStudent.id,
-                        formatDate(selectedDate),
+                        gradeCustomDate || formatDate(selectedDate),
                         tempAttendanceStatus,
                         selectedAttendanceHour,
                         finalTime
@@ -1642,7 +1987,7 @@ const TeacherDashboard = ({
                           );
                           // Only prompt for time if daily is becoming late/early_exit for the first time
                           if ((newDaily === 'late' || newDaily === 'early_exit') &&
-                              (prevDailyType !== 'late' && prevDailyType !== 'early_exit')) {
+                            (prevDailyType !== 'late' && prevDailyType !== 'early_exit')) {
                             setPendingTimeType(newDaily);
                             setPendingTimeStudentId(selectedActionStudent.id);
                             setPendingTimeDate(formatDate(selectedDate));
@@ -1653,8 +1998,9 @@ const TeacherDashboard = ({
                             setIsTimeModalVisible(true);
                           }
                         }
-                        setSelectedAttendanceHour(null);
+                        setGradeCustomDate(null);
                       }
+                      setSelectedAttendanceHour(null);
                     }}
                   >
                     <Text style={styles.premiumSubmitButtonText}>
@@ -1676,8 +2022,9 @@ const TeacherDashboard = ({
                   />
 
                   <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 }}
-                    onPress={() => setIsClassNote(!isClassNote)}
+                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10, opacity: selectedActionStudent?.id ? 1 : 0.7 }}
+                    onPress={selectedActionStudent?.id ? () => setIsClassNote(!isClassNote) : null}
+                    disabled={!selectedActionStudent?.id}
                   >
                     <View style={[
                       { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
@@ -1695,7 +2042,7 @@ const TeacherDashboard = ({
                       const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
                       if (!dayStatus.isWork) {
                         setIsActionModalVisible(false);
-                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                        showAlert(t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.', 'info');
                         return;
                       }
 
@@ -1717,6 +2064,7 @@ const TeacherDashboard = ({
                       setIsActionModalVisible(false);
                       setNoteText('');
                       setIsClassNote(false);
+                      setGradeCustomDate(null);
                     }}
                   >
                     <Text style={styles.premiumSubmitButtonText}>{t('save_note')}</Text>
@@ -1729,7 +2077,7 @@ const TeacherDashboard = ({
                   <Text style={styles.label}>{t('attendance_to_justify')}</Text>
 
                   {Array.from(new Set(attendance
-                    .filter(a => (a.student_id === selectedActionStudent.id || a.studentId === selectedActionStudent.id) && !a.status.includes('present') && !a.status.includes('justified'))
+                    .filter(a => (a.student_id === selectedActionStudent.id || a.studentId === selectedActionStudent.id) && !a.status.includes('present') && !a.status.includes('justified') && (a.hour === 0 || a.hour === '0'))
                     .map(a => a.date)
                   ))
                     .sort((a, b) => new Date(b) - new Date(a))
@@ -1751,7 +2099,7 @@ const TeacherDashboard = ({
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <View>
                               <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 15 }}>{reformatDate(dateStr)}</Text>
-                              <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{t('absence_of_day') || "Mungesë ditore"}</Text>
+                              <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{t('absence_of_day') || "Munges ditore"}</Text>
                             </View>
                             <ChevronRight size={18} color={isSelected ? '#2563eb' : '#cbd5e1'} />
                           </View>
@@ -1847,11 +2195,11 @@ const TeacherDashboard = ({
                     onPress={async () => {
                       const finalTopic = `[Ora ${lessonHour}] ${lessonTopic}`.trim();
                       const finalDate = lessonDate || formatDate(selectedDate);
-                      
+
                       const dayStatus = isSchoolDay(new Date(finalDate));
                       if (!dayStatus.isWork) {
                         setIsLessonModalVisible(false);
-                        showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                        showAlert(t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.', 'info');
                         return;
                       }
 
@@ -1904,7 +2252,7 @@ const TeacherDashboard = ({
             <View style={styles.modalHeaderScroll}>
               <View>
                 <Text style={styles.modalTitleEmphasized}>
-                  {editingLesson ? t('edit_lesson') || 'Modifiko Orën' : t('register_lesson')}
+                  {editingLesson ? t('edit_lesson') || 'Modifiko Orn' : t('register_lesson')}
                 </Text>
                 <Text style={styles.modalSubtitle}>
                   {formatClassName(currentClass || editingLesson?.class_id)}
@@ -1921,59 +2269,15 @@ const TeacherDashboard = ({
             </View>
 
             <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-              <View style={{ marginBottom: 24 }}>
-                <Text style={styles.label}>{t('zgjidh_daten') || 'Zgjidh datën'}</Text>
-                <TouchableOpacity
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: '#f8fafc',
-                    borderRadius: 16,
-                    padding: 16,
-                    borderWidth: 1.5,
-                    borderColor: '#e2e8f0',
-                    gap: 12
-                  }}
-                  onPress={() => {
-                    if (Platform.OS === 'web') {
-                      document.getElementById('lesson-date-input').showPicker();
-                    }
-                  }}
-                >
-                  <Calendar size={20} color="#2563eb" />
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>
-                    {formatDisplayDate(lessonDate || selectedDate)}
-                  </Text>
-
-                  {Platform.OS === 'web' && (
-                    <input
-                      id="lesson-date-input"
-                      type="date"
-                      style={{
-                        position: 'absolute',
-                        opacity: 0,
-                        width: '100%',
-                        height: '100%',
-                        cursor: 'pointer'
-                      }}
-                      value={lessonDate || formatDate(selectedDate)}
-                      onChange={(e) => {
-                        const text = e.target.value;
-                        const picked = new Date(text);
-                        const today = new Date();
-                        today.setHours(23, 59, 59, 999);
-
-                        if (picked <= today) {
-                          setLessonDate(text);
-                        } else {
-                          showAlert(t('future_date_error') || "Data nuk mund të jetë në të ardhmen!", 'error');
-                          setLessonDate(formatDate(new Date()));
-                        }
-                      }}
-                    />
-                  )}
-                </TouchableOpacity>
+              <View style={{ marginBottom: 8 }}>
+                <PremiumDatePicker
+                  label={t('zgjidh_daten') || 'Zgjidh datn'}
+                  value={lessonDate || formatDate(selectedDate)}
+                  onChange={(date) => setLessonDate(date)}
+                  placeholder="DD/MM/YYYY"
+                />
               </View>
+              <View style={{ height: 16 }} />
 
               <View>
                 <Text style={styles.label}>{t('lesson_subject')}</Text>
@@ -2023,13 +2327,7 @@ const TeacherDashboard = ({
                   onChangeText={setLessonTopic}
                 />
 
-                <Text style={styles.label}>{t('homework')}</Text>
-                <TextInput
-                  style={styles.premiumInput}
-                  placeholder={t('homework_placeholder')}
-                  value={lessonHomework}
-                  onChangeText={setLessonHomework}
-                />
+
 
                 <TouchableOpacity
                   style={[styles.premiumSubmitButton, !lessonTopic && { opacity: 0.5 }, { marginTop: 16 }]}
@@ -2038,7 +2336,7 @@ const TeacherDashboard = ({
                     const dayStatus = isSchoolDay(new Date(lessonDate || selectedDate));
                     if (!dayStatus.isWork) {
                       setIsLessonModalVisible(false);
-                      showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                      showAlert(t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.', 'info');
                       return;
                     }
                     onAddLesson({
@@ -2084,45 +2382,12 @@ const TeacherDashboard = ({
 
             <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
               <View style={{ marginBottom: 24 }}>
-                <Text style={styles.label}>{t('zgjidh_daten') || 'Zgjidh datën'}</Text>
-                <TouchableOpacity
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: '#f8fafc',
-                    borderRadius: 16,
-                    padding: 16,
-                    borderWidth: 1.5,
-                    borderColor: '#e2e8f0',
-                    gap: 12
-                  }}
-                  onPress={() => {
-                    if (Platform.OS === 'web') {
-                      document.getElementById('test-date-input').showPicker();
-                    }
-                  }}
-                >
-                  <Calendar size={20} color="#f43f5e" />
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b' }}>
-                    {formatDisplayDate(lessonDate || selectedDate)}
-                  </Text>
-
-                  {Platform.OS === 'web' && (
-                    <input
-                      id="test-date-input"
-                      type="date"
-                      style={{
-                        position: 'absolute',
-                        opacity: 0,
-                        width: '100%',
-                        height: '100%',
-                        cursor: 'pointer'
-                      }}
-                      value={lessonDate || formatDate(selectedDate)}
-                      onChange={(e) => setLessonDate(e.target.value)}
-                    />
-                  )}
-                </TouchableOpacity>
+                <PremiumDatePicker
+                  label={t('zgjidh_daten') || 'Zgjidh datn'}
+                  value={lessonDate || formatDate(selectedDate)}
+                  onChange={(date) => setLessonDate(date)}
+                  placeholder="DD/MM/YYYY"
+                />
               </View>
 
               <View>
@@ -2139,10 +2404,10 @@ const TeacherDashboard = ({
                   ))}
                 </View>
 
-                <Text style={styles.label}>{t('test_description') || 'Përshkrimi i testit'}</Text>
+                <Text style={styles.label}>{t('test_description') || 'Prshkrimi i testit'}</Text>
                 <TextInput
                   style={styles.premiumInput}
-                  placeholder={t('test_description_placeholder') || 'Psh: Provim i dytë periodik...'}
+                  placeholder={t('test_description_placeholder') || 'Psh: Provim i dyt periodik...'}
                   value={testDescription}
                   onChangeText={setTestDescription}
                   multiline
@@ -2157,7 +2422,7 @@ const TeacherDashboard = ({
                     const dayStatus = isSchoolDay(new Date(dateToUse));
                     if (!dayStatus.isWork) {
                       setIsTestModalVisible(false);
-                      showAlert(t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.', 'info');
+                      showAlert(t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.', 'info');
                       return;
                     }
                     await onAddTest({
@@ -2189,7 +2454,7 @@ const TeacherDashboard = ({
           <View style={[styles.premiumActionModal, { maxHeight: '90%' }]}>
             <View style={styles.modalHeaderScroll}>
               <View>
-                <Text style={styles.modalTitleEmphasized}>{t('edit_lesson') || 'Ndrysho Orën'}</Text>
+                <Text style={styles.modalTitleEmphasized}>{t('edit_lesson') || 'Ndrysho Orn'}</Text>
                 <Text style={styles.modalSubtitle}>{editLessonData.subject}</Text>
               </View>
               <TouchableOpacity onPress={() => setIsEditLessonModalVisible(false)} style={styles.closeModalBtn}>
@@ -2238,13 +2503,7 @@ const TeacherDashboard = ({
                   onChangeText={setLessonTopic}
                 />
 
-                <Text style={styles.label}>{t('homework')}</Text>
-                <TextInput
-                  style={styles.premiumInput}
-                  placeholder={t('homework_placeholder')}
-                  value={lessonHomework}
-                  onChangeText={setLessonHomework}
-                />
+
 
                 <TouchableOpacity
                   style={[styles.premiumSubmitButton, (isUpdating || !lessonTopic) && { opacity: 0.5 }, { marginTop: 20 }]}
@@ -2275,7 +2534,7 @@ const TeacherDashboard = ({
                     if (result?.error) {
                       showAlert(result.error.message, 'error');
                     } else {
-                      showAlert(t('lesson_updated_success') || 'Ora u përditësua me sukses!', 'success');
+                      showAlert(t('lesson_updated_success') || 'Ora u prditsua me sukses!', 'success');
                       setIsEditLessonModalVisible(false);
                       setEditLessonData(null);
                       setLessonTopic('');
@@ -2343,8 +2602,8 @@ const TeacherDashboard = ({
 
     // Lesson hours registered for this class on the selected date
     const dayLessons = lessons
-      .filter(l => 
-        (l.class_id === currentClass.id || l.classId === currentClass.id) && 
+      .filter(l =>
+        (l.class_id === currentClass.id || l.classId === currentClass.id) &&
         l.date === dateStr &&
         (l.academic_year === selectedGlobalAcademicYear || (!l.academic_year && !selectedGlobalAcademicYear))
       );
@@ -2379,43 +2638,56 @@ const TeacherDashboard = ({
     const StatusCell = ({ status, isLocked }) => {
       if (isLocked && status === 'none') return <Lock size={14} color="#cbd5e1" />;
       if (status === 'present') return <Text style={{ fontSize: 16, fontWeight: '900', color: '#16a34a' }}>P</Text>;
+
+      const timeMatch = status?.match(/(\d{1,2}):(\d{2})/);
+      const timeVal = timeMatch ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}` : '';
+
       if (status === 'absent' || status === 'absent_unjustified' || status === 'absent_justified') return <Text style={{ fontSize: 16, fontWeight: '900', color: '#ef4444' }}>M</Text>;
-      if (status?.startsWith('late')) return <Text style={{ fontSize: 16, fontWeight: '900', color: '#d97706' }}>V</Text>;
-      if (status?.startsWith('early')) return <Text style={{ fontSize: 16, fontWeight: '900', color: '#ea580c' }}>D</Text>;
+
+      if (status?.startsWith('late')) {
+        return (
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 15, fontWeight: '900', color: '#d97706' }}>V</Text>
+            {timeVal ? <Text style={{ fontSize: 8, fontWeight: '800', color: '#d97706', marginTop: -2 }}>{timeVal}</Text> : null}
+          </View>
+        );
+      }
+      if (status?.startsWith('early')) {
+        return (
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 15, fontWeight: '900', color: '#ea580c' }}>L</Text>
+            {timeVal ? <Text style={{ fontSize: 8, fontWeight: '800', color: '#ea580c', marginTop: -2 }}>{timeVal}</Text> : null}
+          </View>
+        );
+      }
       return <Text style={{ fontSize: 18, color: '#e2e8f0', fontWeight: '300' }}>·</Text>;
     };
 
     const rowBtns = [
-      { icon: ClipboardList, label: 'Notën', color: '#2563eb', bg: '#eff6ff', tab: 'grade', extra: () => { } },
-      { icon: UserCheck, label: 'Praninë', color: '#16a34a', bg: '#f0fdf4', tab: 'attendance', extra: () => { } },
-      { icon: ShieldCheck, label: 'Disiplinë', color: '#dc2626', bg: '#fff1f2', tab: 'note', extra: () => setIsClassNote(false) },
-      { icon: Pencil, label: 'Justifiko', color: '#7c3aed', bg: '#f5f3ff', tab: 'justify', extra: () => { } },
+      { icon: ClipboardList, label: 'Notn', color: '#2563eb', bg: '#eff6ff', tab: 'grade', extra: () => { } },
+      { icon: ShieldCheck, label: 'Disiplin', color: '#dc2626', bg: '#fff1f2', tab: 'note', extra: () => setIsClassNote(false) },
     ];
 
     const sel = selectedRegistryStudent;
 
     return (
       <View style={[styles.viewContainer, { flex: 1 }]}>
-        {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, position: 'relative', justifyContent: 'center', minHeight: 70 }}>
-          <TouchableOpacity style={[styles.glassBackButton, { position: 'absolute', left: 20, zIndex: 10 }]} onPress={() => {
-            setNavigation({ view: 'my-classes', data: null });
-            setSelectedRegistryStudent(null);
-            setSelectedActionStudent(null);
-            setSelectedStudentForGrade(null);
-          }}>
-            <ArrowLeft size={18} color="#1e293b" />
-          </TouchableOpacity>
-          <View style={{ alignItems: 'center', paddingTop: 4, paddingBottom: 4 }}>
-            <Text style={{ fontSize: 26, fontWeight: '900', color: '#0f172a', letterSpacing: -0.8, textAlign: 'center', lineHeight: 30 }}>{formatClassName(currentClass)}</Text>
-          </View>
-        </View>
-
-        {/* Action Toolbar */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+        {/* Compact Back Button + Action Toolbar */}
+        <View style={{ paddingHorizontal: 16, marginTop: 16, marginBottom: 12 }}>
           {sel ? (
             <View style={{ backgroundColor: '#eff6ff', borderRadius: 24, padding: 16, borderWidth: 1, borderColor: '#bfdbfe' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 12 }}>
+                <TouchableOpacity
+                  style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => {
+                    setNavigation({ view: 'my-classes', data: null });
+                    setSelectedRegistryStudent(null);
+                    setSelectedActionStudent(null);
+                    setSelectedStudentForGrade(null);
+                  }}
+                >
+                  <ArrowLeft size={20} color="#2563eb" />
+                </TouchableOpacity>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>Studenti i zgjedhur</Text>
                   <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e3a8a' }} numberOfLines={1}>{sel.name}</Text>
@@ -2431,10 +2703,10 @@ const TeacherDashboard = ({
                   return (
                     <TouchableOpacity
                       key={btn.label}
-                      style={{ 
-                        flex: 1, 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
                         justifyContent: 'center',
                         gap: 8,
                         backgroundColor: btn.bg,
@@ -2463,9 +2735,22 @@ const TeacherDashboard = ({
               </View>
             </View>
           ) : (
-            <View style={{ backgroundColor: '#f8fafc', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'center', gap: 12, borderStyle: 'dashed' }}>
-              <Users size={20} color="#94a3b8" />
-              <Text style={{ color: '#94a3b8', fontSize: 15, fontWeight: '600', fontStyle: 'italic' }}>Klikoni mbi emrin e nxënësit për veprime</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TouchableOpacity
+                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5 }}
+                onPress={() => {
+                  setNavigation({ view: 'my-classes', data: null });
+                  setSelectedRegistryStudent(null);
+                  setSelectedActionStudent(null);
+                  setSelectedStudentForGrade(null);
+                }}
+              >
+                <ArrowLeft size={22} color="#1e293b" />
+              </TouchableOpacity>
+              <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 20, padding: 12, borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'center', gap: 10, borderStyle: 'dashed' }}>
+                <Users size={18} color="#94a3b8" />
+                <Text style={{ color: '#94a3b8', fontSize: 13, fontWeight: '600', fontStyle: 'italic', flex: 1 }}>Klikoni mbi emrin e nxënësit pr veprime</Text>
+              </View>
             </View>
           )}
         </View>
@@ -2493,7 +2778,7 @@ const TeacherDashboard = ({
                 {showHourlyAttendance && allHours.map((hour) => {
                   const hasLesson = getLessonForHour(hour);
                   const isMine = hasLesson && hasLesson.teacher_id === user.id;
-                  const teacher = hasLesson ? (user.teacherProfiles?.find(p => p.id === hasLesson.teacher_id) || (isMine ? user : { first_name: 'Mës', last_name: '' })) : null;
+                  const teacher = hasLesson ? (user.teacherProfiles?.find(p => p.id === hasLesson.teacher_id) || (isMine ? user : { first_name: 'Ms', last_name: '' })) : null;
 
                   return (
                     <View key={hour} style={{ width: 68, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRightWidth: 1, borderRightColor: '#f1f5f9', backgroundColor: hasLesson ? (isMine ? '#eff6ff' : '#f8fafc') : '#f8fafc' }}>
@@ -2501,9 +2786,9 @@ const TeacherDashboard = ({
                       <Text style={{ fontSize: 16, fontWeight: '900', color: hasLesson ? (isMine ? '#1e293b' : '#64748b') : '#cbd5e1' }}>{hour}</Text>
 
                       {hasLesson && !isMine && (
-                         <Text style={{ fontSize: 7, fontWeight: '800', color: '#64748b', marginTop: 2, textAlign: 'center' }} numberOfLines={1}>
-                           {teacher.last_name || teacher.first_name}
-                         </Text>
+                        <Text style={{ fontSize: 7, fontWeight: '800', color: '#64748b', marginTop: 2, textAlign: 'center' }} numberOfLines={1}>
+                          {teacher.last_name || teacher.first_name}
+                        </Text>
                       )}
 
                     </View>
@@ -2794,7 +3079,7 @@ const TeacherDashboard = ({
 
   const handleEditGradeClick = (grade) => {
     if ((grade.modification_count || 0) >= 1) {
-      showAlert("Keni shfrytëzuar mundësinë tuaj të vetme për të ndryshuar këtë notë. Për ndryshime të tjera, kontaktoni administratorin e shkollës.", "info");
+      showAlert("Keni shfrytzuar mundsin tuaj t vetme pr t ndryshuar kt not. Pr ndryshime t tjera, kontaktoni administratorin e shkolls.", "info");
       return;
     }
 
@@ -2812,7 +3097,7 @@ const TeacherDashboard = ({
       <Modal visible={!!editingGrade} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.premiumActionModal}>
-            <View style={styles.modalHeader}>
+            <View style={styles.modalHeaderScroll}>
               <View>
                 <Text style={styles.modalTitleEmphasized}>{t('edit_grade')}</Text>
                 <Text style={styles.modalSubtitle}>{t('nota_e_sotme')}</Text>
@@ -2824,38 +3109,12 @@ const TeacherDashboard = ({
 
             {/* Date selection for editing */}
             <View style={{ marginBottom: 16 }}>
-              <Text style={styles.label}>{t('date_of_grade')}</Text>
-              <TouchableOpacity
-                style={styles.premiumDatePickerField}
-                onPress={() => {
-                  if (Platform.OS === 'web') {
-                    document.getElementById('edit-grade-date-input').showPicker();
-                  }
-                }}
-              >
-                <View style={styles.premiumDatePickerContent}>
-                  <Calendar size={18} color="#2563eb" />
-                  <Text style={styles.premiumDatePickerText}>
-                    {formatDisplayDate(editGradeDate)}
-                  </Text>
-                </View>
-                {Platform.OS === 'web' && (
-                  <input
-                    id="edit-grade-date-input"
-                    type="date"
-                    style={{
-                      position: 'absolute',
-                      opacity: 0,
-                      width: '100%',
-                      height: '100%',
-                      cursor: 'pointer'
-                    }}
-                    value={editGradeDate}
-                    max={formatDate(new Date())}
-                    onChange={(e) => setEditGradeDate(e.target.value)}
-                  />
-                )}
-              </TouchableOpacity>
+              <PremiumDatePicker
+                label={t('date_of_grade')}
+                value={editGradeDate}
+                onChange={(date) => setEditGradeDate(date)}
+                placeholder="DD/MM/YYYY"
+              />
             </View>
 
             <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
@@ -2875,7 +3134,7 @@ const TeacherDashboard = ({
 
                 <Text style={styles.label}>{t('grade_type')}</Text>
                 <View style={styles.chipGrid}>
-                  {[{ id: 'Me Shkrim', key: 'written' }, { id: 'Me Gojë', key: 'oral' }, { id: 'Praktikë', key: 'practical' }].map(type => (
+                  {[{ id: 'Me Shkrim', key: 'written' }, { id: 'Me Goj', key: 'oral' }, { id: 'Praktik', key: 'practical' }].map(type => (
                     <TouchableOpacity
                       key={type.id}
                       style={[styles.subjectChip, editGradeType === type.id && styles.activeSubjectChip]}
@@ -2894,29 +3153,38 @@ const TeacherDashboard = ({
                   onChangeText={setEditGradeComment}
                 />
 
-                <TouchableOpacity
-                  style={[styles.premiumSubmitButton, !editGradeValue && { opacity: 0.5 }]}
-                  disabled={!editGradeValue}
-                  onPress={async () => {
-                    if (isReadOnly) return;
-                    const result = await onUpdateGrade(
-                      editingGrade.id,
-                      parseInt(editGradeValue),
-                      `[${editGradeType}] ${editGradeComment}`.trim(),
-                      editGradeType,
-                      editGradeDate
-                    );
+                <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                  <TouchableOpacity
+                    style={[styles.premiumSubmitButton, { flex: 1, backgroundColor: '#f1f5f9' }]}
+                    onPress={() => handleDeleteGrade(editingGrade)}
+                  >
+                    <Text style={[styles.premiumSubmitButtonText, { color: '#ef4444' }]}>{t('delete')}</Text>
+                  </TouchableOpacity>
 
-                    if (result.error) {
-                      showAlert(result.error.message, 'error');
-                    } else {
-                      showAlert(t('grade_updated_success') || "Nota u përditësua me sukses!", 'success');
-                      setEditingGrade(null);
-                    }
-                  }}
-                >
-                  <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.premiumSubmitButton, { flex: 1.5 }, !editGradeValue && { opacity: 0.5 }]}
+                    disabled={!editGradeValue}
+                    onPress={async () => {
+                      if (isReadOnly) return;
+                      const result = await onUpdateGrade(
+                        editingGrade.id,
+                        parseInt(editGradeValue),
+                        `[${editGradeType}] ${editGradeComment}`.trim(),
+                        editGradeType,
+                        editGradeDate
+                      );
+
+                      if (result.error) {
+                        showAlert(result.error.message, 'error');
+                      } else {
+                        showAlert(t('grade_updated_success') || "Nota u prditsua me sukses!", 'success');
+                        setEditingGrade(null);
+                      }
+                    }}
+                  >
+                    <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </ScrollView>
           </View>
@@ -2926,7 +3194,9 @@ const TeacherDashboard = ({
   };
 
   const renderGradeHistory = (data) => {
-    const history = grades.filter(g => g.student_id === data.student.id && g.subject === data.subject);
+    const history = grades
+      .filter(g => (g.student_id === data.student.id || g.studentId === data.student.id) && g.subject === data.subject)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     const average = history.length > 0
       ? (history.reduce((acc, curr) => acc + curr.grade, 0) / history.length).toFixed(1)
@@ -2947,7 +3217,7 @@ const TeacherDashboard = ({
         </View>
 
         <FlatList
-          data={[...history].reverse()}
+          data={history}
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
@@ -2982,12 +3252,20 @@ const TeacherDashboard = ({
                 </View>
 
                 {!isReadOnly && (
-                  <TouchableOpacity
-                    onPress={() => handleEditGradeClick(item)}
-                    style={styles.editIconContainer}
-                  >
-                    <Pencil size={22} color={(item.modification_count || 0) >= 1 ? '#cbd5e1' : '#2563eb'} />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => handleEditGradeClick(item)}
+                      style={styles.editIconContainer}
+                    >
+                      <Pencil size={22} color={(item.modification_count || 0) >= 1 ? '#cbd5e1' : '#2563eb'} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteGrade(item)}
+                      style={[styles.editIconContainer, { backgroundColor: '#fef2f2' }]}
+                    >
+                      <Trash2 size={22} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
             );
@@ -2998,135 +3276,113 @@ const TeacherDashboard = ({
     );
   };
 
-  const renderGradeModal = () => (
-    <Modal visible={isGradeModalVisible} animationType="fade" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.premiumActionModal}>
-          <View style={styles.modalHeaderScroll}>
-            <View>
-              <Text style={styles.modalTitleEmphasized}>{t('register_grade')}</Text>
-              <Text style={styles.modalSubtitle}>{selectedStudentForGrade?.name}</Text>
-            </View>
-            <TouchableOpacity onPress={() => setIsGradeModalVisible(false)} style={styles.closeModalBtn}>
-              <X size={20} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Date selection */}
-            <View style={{ marginBottom: 16 }}>
-              <Text style={styles.label}>{t('registration_date') || 'Data e regjistrimit'}</Text>
-              <TouchableOpacity
-                style={styles.premiumDatePickerField}
-                onPress={() => {
-                  if (Platform.OS === 'web') {
-                    document.getElementById('hidden-grade-date-input').showPicker();
-                  }
-                }}
-              >
-                <View style={styles.premiumDatePickerContent}>
-                  <Calendar size={18} color="#2563eb" />
-                  <Text style={styles.premiumDatePickerText}>
-                    {formatDisplayDate(selectedDate)}
-                  </Text>
-                </View>
-                {Platform.OS === 'web' && (
-                  <input
-                    id="hidden-grade-date-input"
-                    type="date"
-                    style={{
-                      position: 'absolute',
-                      opacity: 0,
-                      width: '100%',
-                      height: '100%',
-                      cursor: 'pointer'
-                    }}
-                    value={formatDate(selectedDate)}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setSelectedDate(new Date(e.target.value));
-                      }
-                    }}
-                  />
-                )}
+  const renderGradeModal = () => {
+    if (isDetailModalVisible) return null;
+    return (
+      <Modal visible={isGradeModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.premiumActionModal}>
+            <View style={styles.modalHeaderScroll}>
+              <View>
+                <Text style={styles.modalTitleEmphasized}>{t('register_grade')}</Text>
+                <Text style={styles.modalSubtitle}>{selectedStudentForGrade?.name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsGradeModalVisible(false)} style={styles.closeModalBtn}>
+                <X size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.label}>{t('grade_value')}</Text>
-            <View style={styles.gradeButtonGrid}>
-              {[1, 2, 3, 4, 5].map(val => (
-                <TouchableOpacity
-                  key={val}
-                  style={[styles.gradeButton, gradeValue === val.toString() && styles.activeGradeButton]}
-                  onPress={() => setGradeValue(val.toString())}
-                >
-                  <Text style={[styles.gradeButtonText, gradeValue === val.toString() && styles.activeGradeButtonText]}>{val}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={styles.label}>{t('grade_type')}</Text>
-            <View style={styles.chipGrid}>
-              {[
-                { id: 'Me Shkrim', key: 'written' },
-                { id: 'Me Gojë', key: 'oral' },
-                { id: 'Praktikë', key: 'practical' }
-              ].map(type => (
-                <TouchableOpacity
-                  key={type.id}
-                  style={[styles.subjectChip, gradeType === type.id && styles.activeSubjectChip]}
-                  onPress={() => setGradeType(type.id)}
-                >
-                  <Text style={[styles.subjectChipText, gradeType === type.id && styles.activeSubjectChipText]}>
-                    {t(type.key)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Date selection */}
+              <View style={{ marginBottom: 16 }}>
+                <PremiumDatePicker
+                  label={t('registration_date') || 'Data e regjistrimit'}
+                  value={formatDate(selectedDate)}
+                  onChange={(date) => {
+                    const d = new Date(date);
+                    d.setHours(12, 0, 0, 0);
+                    setSelectedDate(d);
+                  }}
+                  placeholder="DD/MM/YYYY"
+                />
+              </View>
 
-            <Text style={styles.label}>{t('comment')}</Text>
-            <TextInput
-              style={styles.premiumInput}
-              placeholder={t('comment_placeholder')}
-              value={gradeComment}
-              onChangeText={setGradeComment}
-            />
-            <TouchableOpacity
-              style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]}
-              disabled={!gradeValue}
-              onPress={() => {
-                if (isReadOnly) return;
-                // Holiday Block Check
-                if (!isSchoolDay(selectedDate).isWork) {
+              <Text style={styles.label}>{t('grade_value')}</Text>
+              <View style={styles.gradeButtonGrid}>
+                {[1, 2, 3, 4, 5].map(val => (
+                  <TouchableOpacity
+                    key={val}
+                    style={[styles.gradeButton, gradeValue === val.toString() && styles.activeGradeButton]}
+                    onPress={() => setGradeValue(val.toString())}
+                  >
+                    <Text style={[styles.gradeButtonText, gradeValue === val.toString() && styles.activeGradeButtonText]}>{val}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.label}>{t('grade_type')}</Text>
+              <View style={styles.chipGrid}>
+                {[
+                  { id: 'Me Shkrim', key: 'written' },
+                  { id: 'Me Goj', key: 'oral' },
+                  { id: 'Praktik', key: 'practical' }
+                ].map(type => (
+                  <TouchableOpacity
+                    key={type.id}
+                    style={[styles.subjectChip, gradeType === type.id && styles.activeSubjectChip]}
+                    onPress={() => setGradeType(type.id)}
+                  >
+                    <Text style={[styles.subjectChipText, gradeType === type.id && styles.activeSubjectChipText]}>
+                      {t(type.key)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>{t('comment')}</Text>
+              <TextInput
+                style={styles.premiumInput}
+                placeholder={t('comment_placeholder')}
+                value={gradeComment}
+                onChangeText={setGradeComment}
+              />
+              <TouchableOpacity
+                style={[styles.premiumSubmitButton, !gradeValue && { opacity: 0.5 }]}
+                disabled={!gradeValue}
+                onPress={() => {
+                  if (isReadOnly) return;
+                  // Holiday Block Check
+                  if (!isSchoolDay(selectedDate).isWork) {
+                    setIsGradeModalVisible(false);
+                    showAlert(
+                      t('holiday_registration_blocked') || 'Data e przgjedhur sht fest/pushim. Nuk sht e mundur t caktohet not, munges, or msimi apo shnim disiplinor.',
+                      'warning',
+                      t('holiday_registration_blocked_title') || 'Pushim'
+                    );
+                    return;
+                  }
+
+                  onAddGrade({
+                    studentId: selectedStudentForGrade.id,
+                    classId: navigation.data?.id,
+                    subject: selectedSubject,
+                    value: parseInt(gradeValue),
+                    comment: gradeComment,
+                    type: gradeType,
+                    date: formatDate(selectedDate)
+                  });
                   setIsGradeModalVisible(false);
-                  showAlert(
-                    t('holiday_registration_blocked') || 'Data e përzgjedhur është festë/pushim. Nuk është e mundur të caktohet notë, mungesë, orë mësimi apo shënim disiplinor.',
-                    'warning',
-                    t('holiday_registration_blocked_title') || 'Pushim'
-                  );
-                  return;
-                }
-
-                onAddGrade({
-                  studentId: selectedStudentForGrade.id,
-                  classId: navigation.data?.id,
-                  subject: selectedSubject,
-                  value: parseInt(gradeValue),
-                  comment: gradeComment,
-                  type: gradeType,
-                  date: formatDate(selectedDate)
-                });
-                setIsGradeModalVisible(false);
-                setGradeValue('');
-                setGradeComment('');
-              }}
-            >
-              <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
-            </TouchableOpacity>
-          </ScrollView>
+                  setGradeValue('');
+                  setGradeComment('');
+                }}
+              >
+                <Text style={styles.premiumSubmitButtonText}>{t('save')}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
         </View>
-      </View>
-    </Modal>
-  );
+      </Modal>
+    );
+  };
 
 
 
@@ -3198,8 +3454,8 @@ const TeacherDashboard = ({
   const renderClassAgenda = (currentClass) => {
     const selectedDateStr = formatDate(selectedDate);
     const dayLessons = lessons
-      .filter(l => 
-        (l.class_id === currentClass?.id || l.classId === currentClass?.id) && 
+      .filter(l =>
+        (l.class_id === currentClass?.id || l.classId === currentClass?.id) &&
         l.date === selectedDateStr &&
         (l.academic_year === selectedGlobalAcademicYear || (!l.academic_year && !selectedGlobalAcademicYear))
       )
@@ -3211,333 +3467,381 @@ const TeacherDashboard = ({
 
     const dateTests = (tests || []).filter(t => t.date === selectedDateStr && t.class_id === currentClass?.id);
 
+    const schoolDayInfo = isSchoolDay(selectedDate);
+    const isWorkDay = schoolDayInfo.isWork;
+
     return (
       <View style={styles.viewContainer}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, height: 60, marginBottom: 24 }}>
-          <TouchableOpacity
-            style={[styles.glassBackButton, { position: 'absolute', left: 16, zIndex: 10 }]}
-            onPress={() => setNavigation({ view: 'my-classes', data: null })}
-          >
-            <ArrowLeft size={18} color="#1e293b" />
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={[styles.viewTitleHeader, { fontSize: 20, fontWeight: '900', textAlign: 'center' }]}>{formatClassName(currentClass)}</Text>
-          </View>
-          {!isReadOnly && (
-            <View style={{ flexDirection: 'row', gap: 8, position: 'absolute', right: 16 }}>
-              <TouchableOpacity
-                onPress={() => {
-                  const subjects = currentClass.subjects || [];
-                  if (subjects.length > 0) setSelectedSubject(subjects[0]);
-                  setIsLessonModalVisible(true);
-                  setLessonDate(formatDate(selectedDate));
-                }}
-                style={{ backgroundColor: '#2563eb', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-              >
-                <PlusCircle size={16} color="white" />
-                <Text style={{ color: 'white', fontWeight: '800', fontSize: 12 }}>{t('add_lesson') || 'Shto Orën'}</Text>
-              </TouchableOpacity>
+        <View style={{
+          flexDirection: isDesktop ? 'row' : 'column',
+          alignItems: 'center',
+          paddingHorizontal: 16,
+          paddingVertical: 16,
+          marginBottom: 10,
+          backgroundColor: 'white',
+          borderBottomWidth: 1,
+          borderBottomColor: '#f1f5f9'
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' }}>
+            <TouchableOpacity
+              style={[{ flexDirection: "row", alignItems: "center", gap: 8 }, styles.glassBackButton, { position: 'absolute', left: 0 }]}
+              onPress={() => setNavigation({ view: 'my-classes', data: null })}
+            >
+              <ArrowLeft size={18} color="#1e293b" />
+              {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => {
-                  const subjects = currentClass.subjects || [];
-                  if (subjects.length > 0) setSelectedSubject(subjects[0]);
-                  setIsTestModalVisible(true);
-                  setLessonDate(formatDate(selectedDate));
-                }}
-                style={{ backgroundColor: '#f43f5e', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-              >
-                <Users size={16} color="white" />
-                <Text style={{ color: 'white', fontWeight: '800', fontSize: 12 }}>{t('register_test') || 'Provim'}</Text>
-              </TouchableOpacity>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{formatClassName(currentClass)}</Text>
+              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600' }}>{t('agenda') || 'Ditari'}</Text>
             </View>
-          )}
+          </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-          {/* Agenda Filter Toggle */}
-          <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 16, padding: 4, marginBottom: 24 }}>
-            <TouchableOpacity 
-              onPress={() => setAgendaFilter('all')}
-              style={{ 
-                flex: 1, 
-                paddingVertical: 10, 
-                borderRadius: 12, 
-                backgroundColor: agendaFilter === 'all' ? 'white' : 'transparent',
-                alignItems: 'center',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: agendaFilter === 'all' ? 0.05 : 0,
-                shadowRadius: 2,
-                elevation: agendaFilter === 'all' ? 2 : 0
-              }}
-            >
-              <Text style={{ fontSize: 13, fontWeight: '800', color: agendaFilter === 'all' ? '#2563eb' : '#64748b' }}>{t('all_lessons') || 'Të gjitha orët'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => setAgendaFilter('mine')}
-              style={{ 
-                flex: 1, 
-                paddingVertical: 10, 
-                borderRadius: 12, 
-                backgroundColor: agendaFilter === 'mine' ? 'white' : 'transparent',
-                alignItems: 'center',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: agendaFilter === 'mine' ? 0.05 : 0,
-                shadowRadius: 2,
-                elevation: agendaFilter === 'mine' ? 2 : 0
-              }}
-            >
-              <Text style={{ fontSize: 13, fontWeight: '800', color: agendaFilter === 'mine' ? '#2563eb' : '#64748b' }}>{t('my_lessons_only') || 'Vetëm orët e mia'}</Text>
-            </TouchableOpacity>
+        {!isWorkDay && (
+          <View style={{
+            marginHorizontal: 16,
+            marginBottom: 16,
+            padding: 16,
+            backgroundColor: '#fff7ed',
+            borderRadius: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+            borderWidth: 1,
+            borderColor: '#ffedd5'
+          }}>
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#ffedd5', alignItems: 'center', justifyContent: 'center' }}>
+              <CalendarIcon size={20} color="#f97316" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: '#9a3412' }}>{schoolDayInfo.reason || t('no_school_day')}</Text>
+              <Text style={{ fontSize: 13, color: '#c2410c', fontWeight: '500' }}>{t('no_lessons_scheduled') || 'Nuk ka orë mësimore të planifikuara.'}</Text>
+            </View>
           </View>
+        )}
 
-          {(() => {
-            const dayStatus = isSchoolDay(selectedDate);
-            // ... (rest of the code)
-            // Show banner if not a work day (Holiday or Weekend)
-            if (dayStatus.isWork) return null;
-
-            return (
-              <View style={{
+        {!isReadOnly && isWorkDay && (
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedSubject(null);
+                setIsLessonModalVisible(true);
+              }}
+              style={{
+                flex: 1,
                 flexDirection: 'row',
                 alignItems: 'center',
-                padding: 16,
-                backgroundColor: '#f8fafc',
-                borderRadius: 20,
-                borderWidth: 1.5,
-                borderColor: '#cbd5e1',
-                borderStyle: 'dashed',
-                marginBottom: 24,
-                gap: 15
-              }}>
-                <View style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: '#94a3b8',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <Calendar size={22} color="white" />
+                justifyContent: 'center',
+                gap: isDesktop ? 8 : 4,
+                backgroundColor: '#2563eb',
+                paddingVertical: 12,
+                borderRadius: 12,
+                shadowColor: '#2563eb',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 8,
+                elevation: 4
+              }}
+            >
+              <Plus size={20} color="white" />
+              {isDesktop && <Text style={{ color: 'white', fontWeight: '800', fontSize: 14 }} numberOfLines={1}>{t('add_lesson_short') || 'Shto orën'}</Text>}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedSubject(null);
+                setIsTestModalVisible(true);
+              }}
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: isDesktop ? 8 : 4,
+                backgroundColor: '#f43f5e',
+                paddingVertical: 12,
+                borderRadius: 12,
+                shadowColor: '#f43f5e',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 8,
+                elevation: 4
+              }}
+            >
+              <ClipboardList size={20} color="white" />
+              {isDesktop && <Text style={{ color: 'white', fontWeight: '800', fontSize: 14 }} numberOfLines={1}>{t('regjistro_test_provim') || 'Regjistro Provim'}</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+          <View style={{ paddingHorizontal: 20 }}>
+            {/* Lessons Section */}
+            {dayLessons.length > 0 && (
+              <View style={{ marginBottom: 20 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                  <BookIcon size={18} color="#2563eb" />
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('lessons') || 'Msimi'}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{
-                    fontSize: 20,
-                    fontWeight: '900',
-                    color: '#475569',
-                    textTransform: 'uppercase',
-                    letterSpacing: -0.5
-                  }}>
-                    {t('holiday') || 'Pushim'}
-                  </Text>
-                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '700' }}>
-                    {dayStatus.reason}
-                  </Text>
-                </View>
-              </View>
-            );
-          })()}
-          {/* Lessons Section */}
-          {dayLessons.length > 0 && (
-            <View style={{ marginBottom: 20 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-                <BookIcon size={18} color="#2563eb" />
-                <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>{t('lessons') || 'Mësimi'}</Text>
-              </View>
-               {dayLessons
-                .filter(l => (agendaFilter === 'all' || l.teacher_id === user.id) && (l.academic_year === selectedGlobalAcademicYear || (!l.academic_year && !selectedGlobalAcademicYear)))
-                .map((lesson, idx) => {
-                const topicParts = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
-                const hourNum = topicParts ? topicParts[1] : (lesson.hour || null);
-                const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
+                {dayLessons
+                  .filter(l => (agendaFilter === 'all' || l.teacher_id === user.id) && (l.academic_year === selectedGlobalAcademicYear || (!l.academic_year && !selectedGlobalAcademicYear)))
+                  .map((lesson, idx) => {
+                    const topicParts = lesson.topic?.match(/^\[Ora (\d+)\] (.*)/);
+                    const hourNum = topicParts ? topicParts[1] : (lesson.hour || null);
+                    const cleanTopic = topicParts ? topicParts[2] : lesson.topic;
 
-                // Find matching homework from the homework table
-                const lessonHomeworkObj = (homework || []).find(hw =>
-                  hw.class_id === lesson.class_id &&
-                  hw.subject === lesson.subject &&
-                  hw.due_date === lesson.date
-                );
-                const lessonHomework = lessonHomeworkObj?.description;
+                    const lessonHomeworkObj = (homework || []).find(hw =>
+                      hw.class_id === lesson.class_id &&
+                      hw.subject === lesson.subject &&
+                      hw.due_date === lesson.date
+                    );
+                    const lessonHomework = lessonHomeworkObj?.description;
 
-                const teacher = user.teacherProfiles?.find(p => p.id === lesson.teacher_id) || (lesson.teacher_id === user.id ? user : { first_name: 'Mësu' + 'es', last_name: '' });
-                const isMyLesson = lesson.teacher_id === user.id;
+                    const teacher = user.teacherProfiles?.find(p => p.id === lesson.teacher_id) || (lesson.teacher_id === user.id ? user : { first_name: 'Msues', last_name: '' });
+                    const isMyLesson = lesson.teacher_id === user.id;
 
-                return (
-                  <View key={lesson.id} style={[styles.premiumCard, { 
-                    marginBottom: 16, 
-                    padding: 20, 
-                    borderLeftWidth: 4, 
-                    borderLeftColor: isMyLesson ? '#2563eb' : '#cbd5e1',
-                    backgroundColor: isMyLesson ? 'white' : '#f8fafc'
-                  }]}>
-                    <View style={{ flexDirection: 'row', gap: 16 }}>
-                      <View style={{
-                        width: 54,
-                        height: 54,
-                        borderRadius: 16,
-                        backgroundColor: '#f8fafc',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 1.5,
-                        borderColor: '#f1f5f9'
-                      }}>
-                        <Text style={{ fontSize: 22, fontWeight: '900', color: '#1e293b' }}>{hourNum || idx + 1}</Text>
-                        <Text style={{ fontSize: 8, fontWeight: '800', color: '#64748b', marginTop: -2, textTransform: 'uppercase' }}>{t('hour') || 'Ora'}</Text>
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 17, fontWeight: '800', color: '#0f172a', marginBottom: 2 }}>{lesson.subject}</Text>
-                            <Text style={{ fontSize: 13, fontWeight: '600', color: '#64748b', marginBottom: 8 }}>
-                              {teacher.first_name} {teacher.last_name}
-                              {' '}
-                              <Text style={{ fontSize: 10, fontWeight: '800', color: isMyLesson ? '#2563eb' : '#94a3b8' }}>
-                                • {isMyLesson ? (t('your_lesson') || 'Ora juaj') : (t('colleague_lesson') || 'Kolegu')}
-                              </Text>
-                            </Text>
+                    return (
+                      <View key={lesson.id} style={[styles.premiumCard, {
+                        marginBottom: 16,
+                        padding: 20,
+                        borderLeftWidth: 4,
+                        borderLeftColor: isMyLesson ? '#2563eb' : '#cbd5e1',
+                        backgroundColor: isMyLesson ? 'white' : '#f8fafc'
+                      }]}>
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                          <View style={{
+                            width: 54,
+                            height: 54,
+                            borderRadius: 16,
+                            backgroundColor: '#f8fafc',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 1.5,
+                            borderColor: '#f1f5f9'
+                          }}>
+                            <Text style={{ fontSize: 22, fontWeight: '900', color: '#1e293b' }}>{hourNum || idx + 1}</Text>
+                            <Text style={{ fontSize: 8, fontWeight: '800', color: '#64748b', marginTop: -2, textTransform: 'uppercase' }}>{t('hour') || 'Ora'}</Text>
                           </View>
-                          {isMyLesson && !isReadOnly && (
+
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 17, fontWeight: '800', color: '#0f172a', marginBottom: 2 }}>{lesson.subject}</Text>
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: '#64748b', marginBottom: 8 }}>
+                                  {teacher.first_name} {teacher.last_name}
+                                </Text>
+                              </View>
+                              {isMyLesson && !isReadOnly && (
+                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      setEditLessonData(lesson);
+                                      setLessonTopic(cleanTopic);
+                                      setLessonHour(hourNum || '1');
+                                      setLessonHomework(lessonHomework || '');
+                                      setSelectedSubject(lesson.subject);
+                                      setIsEditLessonModalVisible(true);
+                                    }}
+                                    style={{ padding: 8, backgroundColor: '#f1f5f9', borderRadius: 10 }}
+                                  >
+                                    <Pencil size={16} color="#2563eb" />
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      confirmDelete(
+                                        t('confirm_delete_lesson_msg') || 'Dshironi ta fshini kt or msimore?',
+                                        async () => {
+                                          const result = await onDeleteLesson(lesson.id);
+                                          if (result?.error) {
+                                            showAlert(result.error.message, 'error');
+                                          } else {
+                                            // Cleanup related attendance records to prevent ghost absences
+                                            const match = lesson.topic?.match(/^\[Ora (\d+)\]/);
+                                            const hNum = match ? match[1] : null;
+                                            const currentClassStudents = getDynamicClassStudents(lesson.class_id || lesson.classId);
+
+                                            if (hNum && currentClassStudents.length > 0) {
+                                              // Loop through students who have records at this hour and reset them
+                                              for (const student of currentClassStudents) {
+                                                const hasRecord = (attendance || []).some(a =>
+                                                  (a.student_id === student.id || a.studentId === student.id) &&
+                                                  a.date === lesson.date &&
+                                                  String(a.hour) === String(hNum) &&
+                                                  a.status !== 'present'
+                                                );
+
+                                                if (hasRecord) {
+                                                  await onToggleAttendance(student.id, lesson.date, 'present', hNum, '');
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      );
+                                    }}
+                                    style={{ padding: 8, backgroundColor: '#fff1f2', borderRadius: 10 }}
+                                  >
+                                    <Trash2 size={16} color="#ef4444" />
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </View>
+
+                            <View style={{ height: 1.5, backgroundColor: '#f8fafc', marginBottom: 10 }} />
+
                             <View style={{ flexDirection: 'row', gap: 8 }}>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setEditLessonData(lesson);
-                                  setLessonTopic(cleanTopic);
-                                  setLessonHour(hourNum || '1');
-                                  setLessonHomework(lessonHomework || '');
-                                  setSelectedSubject(lesson.subject);
-                                  setIsEditLessonModalVisible(true);
-                                }}
-                                style={{ padding: 8, backgroundColor: '#f1f5f9', borderRadius: 10 }}
-                              >
-                                <Pencil size={16} color="#2563eb" />
-                              </TouchableOpacity>
-
-                              <TouchableOpacity
-                                onPress={() => {
-                                  confirmDelete(
-                                    t('confirm_delete_lesson_msg') || 'Dëshironi ta fshini këtë orë mësimore?',
-                                    async () => {
-                                      const result = await onDeleteLesson(lesson.id);
-                                      if (result?.error) {
-                                        showAlert(result.error.message, 'error');
-                                      }
-                                    }
-                                  );
-                                }}
-                                style={{ padding: 8, backgroundColor: '#fff1f2', borderRadius: 10 }}
-                              >
-                                <Trash2 size={16} color="#ef4444" />
-                              </TouchableOpacity>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('lesson_topic') || 'Tema'}</Text>
+                                <Text style={{ fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' }}>{cleanTopic}</Text>
+                              </View>
                             </View>
-                          )}
-                        </View>
 
-                        <View style={{ height: 1.5, backgroundColor: '#f8fafc', marginBottom: 10 }} />
-
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('lesson_topic') || 'Tema'}</Text>
-                            <Text style={{ fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' }}>{cleanTopic}</Text>
+                            {lessonHomework ? (
+                              <View style={{ backgroundColor: '#f5f3ff', padding: 10, borderRadius: 10, marginTop: 12, borderWidth: 1, borderColor: '#ddd6fe', borderLeftWidth: 3, borderLeftColor: '#8b5cf6' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                  <BookIcon size={12} color="#7c3aed" />
+                                  <Text style={{ fontWeight: '800', color: '#7c3aed', fontSize: 10, textTransform: 'uppercase' }}>{t('homework_assignment') || 'Detyrat'}</Text>
+                                </View>
+                                <Text style={{ color: '#4c1d95', fontSize: 13, lineHeight: 18 }}>{lessonHomework}</Text>
+                              </View>
+                            ) : null}
                           </View>
                         </View>
-
-                        {lessonHomework ? (
-                          <View style={{ backgroundColor: '#f5f3ff', padding: 10, borderRadius: 10, marginTop: 12, borderWidth: 1, borderColor: '#ddd6fe', borderLeftWidth: 3, borderLeftColor: '#8b5cf6' }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                              <BookIcon size={12} color="#7c3aed" />
-                              <Text style={{ fontWeight: '800', color: '#7c3aed', fontSize: 10, textTransform: 'uppercase' }}>{t('homework_assignment') || 'Detyrat'}</Text>
-                            </View>
-                            <Text style={{ color: '#4c1d95', fontSize: 13, lineHeight: 18 }}>{lessonHomework}</Text>
-                          </View>
-                        ) : null}
                       </View>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Tests Section */}
-          {dateTests.length > 0 && (
-            <View style={{ marginTop: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
-                <Text style={{ fontSize: 16, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase' }}>{t('test_exam') || 'Verifica / Provim'}</Text>
+                    );
+                  })}
               </View>
-              {dateTests.map((test, idx) => {
-                const teacher = user.teacherProfiles?.find(p => p.id === test.teacher_id) || (test.teacher_id === user.id ? user : { first_name: 'Mësues', last_name: '' });
-                const isMyTest = test.teacher_id === user.id;
+            )}
 
-                return (
-                  <View key={test.id || idx} style={{
-                    backgroundColor: 'white',
-                    borderRadius: 20,
-                    padding: 18,
-                    marginBottom: 16,
-                    borderWidth: 2,
-                    borderColor: '#f43f5e',
-                    borderLeftWidth: 8,
-                    shadowColor: '#f43f5e',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 10,
-                    elevation: 4,
-                  }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
-                          {teacher.first_name} {teacher.last_name}
-                        </Text>
+            {/* Tests Section */}
+            {dateTests.length > 0 && (
+              <View style={{ marginTop: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase' }}>{t('test_exam') || 'Verifica / Provim'}</Text>
+                </View>
+                {dateTests.map((test, idx) => {
+                  const teacher = user.teacherProfiles?.find(p => p.id === test.teacher_id) || (test.teacher_id === user.id ? user : { first_name: 'Msues', last_name: '' });
+                  const isMyTest = test.teacher_id === user.id;
+
+                  return (
+                    <View key={test.id || idx} style={{
+                      backgroundColor: 'white',
+                      borderRadius: 20,
+                      padding: 18,
+                      marginBottom: 16,
+                      borderWidth: 2,
+                      borderColor: '#f43f5e',
+                      borderLeftWidth: 8,
+                      shadowColor: '#f43f5e',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.15,
+                      shadowRadius: 10,
+                      elevation: 4,
+                    }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
+                            {teacher.first_name} {teacher.last_name}
+                          </Text>
+                        </View>
+                        {isMyTest && !isReadOnly && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              confirmDelete(t('confirm_delete_test') || 'Dshironi ta fshini kt test?', async () => {
+                                await onDeleteTest(test.id);
+                              });
+                            }}
+                            style={{ padding: 6, backgroundColor: '#fff1f2', borderRadius: 8 }}
+                          >
+                            <Trash2 size={16} color="#ef4444" />
+                          </TouchableOpacity>
+                        )}
                       </View>
-                      {isMyTest && !isReadOnly && (
-                        <TouchableOpacity
-                          onPress={() => {
-                            confirmDelete(t('confirm_delete_test') || 'Dëshironi ta fshini këtë test?', async () => {
-                              await onDeleteTest(test.id);
-                            });
-                          }}
-                          style={{ padding: 6, backgroundColor: '#fff1f2', borderRadius: 8 }}
-                        >
-                          <Trash2 size={16} color="#ef4444" />
-                        </TouchableOpacity>
-                      )}
+                      <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
+                      <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
+                        {test.description}
+                      </Text>
                     </View>
-                    <View style={{ height: 1, backgroundColor: '#ffe4e6', marginBottom: 10 }} />
-                    <Text style={{ fontSize: 14, color: '#4c0519', fontWeight: '600', lineHeight: 20 }}>
-                      {test.description}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {dayLessons.length === 0 && dateTests.length === 0 && (
-            <View style={styles.emptyStateContainer}>
-              <View style={[styles.avatarPlaceholder, { width: 80, height: 80, borderRadius: 30 }]}>
-                <Calendar size={40} color="#cbd5e1" />
+                  );
+                })}
               </View>
-              <Text style={styles.emptyStateTitle}>{t('nuk_ka_ore') || 'Nuk ka asgjë të regjistruar për këtë ditë.'}</Text>
-            </View>
-          )}
+            )}
+
+            {dayLessons.length === 0 && dateTests.length === 0 && isWorkDay && (
+              <View style={styles.emptyStateContainer}>
+                <View style={[styles.avatarPlaceholder, { width: 80, height: 80, borderRadius: 30 }]}>
+                  <CalendarIcon size={40} color="#cbd5e1" />
+                </View>
+                <Text style={styles.emptyStateTitle}>{t('nuk_ka_ore') || 'Nuk ka asgj t regjistruar pr kt dit.'}</Text>
+              </View>
+            )}
+          </View>
         </ScrollView>
       </View>
     );
   };
 
+  const renderCoordinatorClassSelection = (targetView, title) => (
+    <View style={styles.viewContainer}>
+      <View style={styles.navigationHeader}>
+        <TouchableOpacity
+          style={[{ flexDirection: "row", alignItems: "center", gap: 8 }, styles.glassBackButton]}
+          onPress={() => setNavigation({ view: 'home', data: null })}
+        >
+          <ArrowLeft size={18} color="#1e293b" />
+          {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
+        </TouchableOpacity>
+      </View>
+
+      <View style={{ paddingHorizontal: 20, marginBottom: 20 }}>
+        <Text style={{ fontSize: 15, color: '#64748b', fontWeight: '600' }}>{t('select_coordinated_class') || 'Zgjidhni klasn pr t ciln jeni kujdestar:'}</Text>
+      </View>
+
+      <FlatList
+        data={coordinatedClasses}
+        keyExtractor={item => item.id}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={[styles.premiumCard, { marginBottom: 16, padding: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white' }]}
+            onPress={() => setSelectedCoordinatorClassId(item.id)}
+          >
+            <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+              <LayoutGrid size={24} color="#2563eb" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b' }}>{formatClassName(item)}</Text>
+              <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 2 }}>
+                {getDynamicClassStudents(item.id).length} {t('students_count')}
+              </Text>
+            </View>
+            <ChevronRight size={22} color="#94a3b8" />
+          </TouchableOpacity>
+        )}
+        ListEmptyComponent={() => (
+          <View style={styles.emptyStateContainer}>
+            <ShieldCheck size={48} color="#cbd5e1" />
+            <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnj klas'}</Text>
+          </View>
+        )}
+      />
+    </View>
+  );
+
   const renderCoordinatorNotes = () => {
-    const coordinatedClasses = teacherClasses; 
-    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId) || coordinatedClasses[0];
+    if (!selectedCoordinatorClassId && coordinatedClasses.length > 0) {
+      return renderCoordinatorClassSelection('coordinator-notes', t('all_disciplinary_notes'));
+    }
+    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId);
 
     if (!currentCls) return (
       <View style={styles.emptyStateContainer}>
         <ShieldCheck size={40} color="#cbd5e1" />
-        <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnjë klasë'}</Text>
+        <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnj klas'}</Text>
       </View>
     );
 
@@ -3547,28 +3851,37 @@ const TeacherDashboard = ({
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <TouchableOpacity style={[{ flexDirection: "row", alignItems: "center", gap: 8 }, styles.glassBackButton]} onPress={() => setNavigation({ view: 'home', data: null })}>
             <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('ballina')}</Text>
+            {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
           </TouchableOpacity>
-          <Text style={styles.viewTitleHeader}>{t('all_disciplinary_notes')}</Text>
         </View>
 
         {/* Professional Class Switcher */}
-        <View style={styles.proTabContainer}>
-          {coordinatedClasses.map(c => {
-            const isActive = (selectedCoordinatorClassId === c.id) || (!selectedCoordinatorClassId && c.id === coordinatedClasses[0].id);
-            return (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.proTab, isActive && styles.proTabActive]}
-                onPress={() => setSelectedCoordinatorClassId(c.id)}
-              >
-                <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {coordinatedClasses.length > 1 && (
+          <View style={styles.proTabContainer}>
+            <TouchableOpacity
+              style={{ marginRight: 12, padding: 8 }}
+              onPress={() => setSelectedCoordinatorClassId(null)}
+            >
+              <ArrowLeft size={20} color="#64748b" />
+            </TouchableOpacity>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {coordinatedClasses.map(c => {
+                const isActive = (selectedCoordinatorClassId === c.id);
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.proTab, isActive && styles.proTabActive]}
+                    onPress={() => setSelectedCoordinatorClassId(c.id)}
+                  >
+                    <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
 
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
           {studentsInClass.map(student => {
@@ -3581,9 +3894,9 @@ const TeacherDashboard = ({
                   </View>
                   <Text style={{ fontSize: 17, fontWeight: '900', color: '#0f172a', flex: 1 }}>{student.name}</Text>
                   {studentNotes.length > 0 && (
-                     <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '900', color: '#e11d48' }}>{studentNotes.length}</Text>
-                     </View>
+                    <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '900', color: '#e11d48' }}>{studentNotes.length}</Text>
+                    </View>
                   )}
                 </View>
 
@@ -3594,13 +3907,13 @@ const TeacherDashboard = ({
                         <View key={n.id} style={{ backgroundColor: 'white', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' }}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Calendar size={12} color="#64748b" />
+                              <CalendarIcon size={12} color="#64748b" />
                               <Text style={{ fontSize: 12, fontWeight: '800', color: '#64748b' }}>{reformatDate(n.date)}</Text>
                             </View>
                             <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                               <Text style={{ fontSize: 9, fontWeight: '700', color: '#64748b' }}>
-                                 {user.teacherProfiles?.find(p => p.id === n.teacher_id)?.last_name || 'Prof'}
-                               </Text>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: '#64748b' }}>
+                                {user.teacherProfiles?.find(p => p.id === n.teacher_id)?.last_name || 'Prof'}
+                              </Text>
                             </View>
                           </View>
                           <Text style={{ fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' }}>{n.message || n.note}</Text>
@@ -3609,7 +3922,7 @@ const TeacherDashboard = ({
                     </View>
                   ) : (
                     <View style={{ alignItems: 'center', paddingVertical: 10 }}>
-                       <Text style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>{t('no_notes_found')}</Text>
+                      <Text style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>{t('no_notes_found')}</Text>
                     </View>
                   )}
                 </View>
@@ -3621,261 +3934,733 @@ const TeacherDashboard = ({
     );
   };
 
-  const renderCoordinatorGrades = () => {
-    const coordinatedClasses = teacherClasses;
-    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId) || coordinatedClasses[0];
+  const renderGradeDetailModal = () => {
+    const teacherId = selectedGradeForDetail?.teacher_id || selectedGradeForDetail?.teacherId;
+    let gradeTeacherName = '';
 
+    if (selectedGradeForDetail?.profiles) {
+      gradeTeacherName = `${selectedGradeForDetail.profiles.first_name} ${selectedGradeForDetail.profiles.last_name}`;
+    } else {
+      const gradeTeacher = (teachers || []).find(tc => tc.id === teacherId);
+      gradeTeacherName = gradeTeacher?.name || '';
+    }
+
+    return (
+      <Modal visible={!!selectedGradeForDetail} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.premiumActionModal, { maxHeight: '65%' }]}>
+            <View style={styles.modalHeaderScroll}>
+              <View>
+                <Text style={styles.modalTitleEmphasized}>{t('grade_details') || 'Detajet e Nots'}</Text>
+                <Text style={styles.modalSubtitle}>{selectedGradeForDetail?.subject}</Text>
+                {gradeTeacherName ? (
+                  <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 2 }}>{gradeTeacherName}</Text>
+                ) : null}
+              </View>
+              <TouchableOpacity onPress={() => setSelectedGradeForDetail(null)} style={styles.closeModalBtn}>
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <View style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: selectedGradeForDetail ? getGradeColor(selectedGradeForDetail.grade).bg : '#f1f5f9',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 3,
+                borderColor: selectedGradeForDetail ? getGradeColor(selectedGradeForDetail.grade).border : '#e2e8f0',
+                marginBottom: 16
+              }}>
+                <Text style={{ fontSize: 32, fontWeight: '900', color: selectedGradeForDetail ? getGradeColor(selectedGradeForDetail.grade).text : '#64748b' }}>
+                  {selectedGradeForDetail?.grade}
+                </Text>
+              </View>
+
+              <View style={{ width: '100%', gap: 10 }}>
+                <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 16 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('date') || 'Data'}</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '900', color: '#1e293b' }}>{selectedGradeForDetail ? reformatDate(selectedGradeForDetail.date) : ''}</Text>
+                </View>
+
+                <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 16 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('grade_type') || 'Lloji i vlersimit'}</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '900', color: '#1e293b' }}>{selectedGradeForDetail?.grade_type || 'Vlersim i rregullt'}</Text>
+                </View>
+
+                <View style={{ backgroundColor: '#f8fafc', padding: 12, borderRadius: 16 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>{t('comment') || 'Koment'}</Text>
+                  <Text style={{ fontSize: 14, color: '#475569', fontWeight: '600', fontStyle: 'italic' }}>
+                    {selectedGradeForDetail?.description || t('no_comment') || 'Nuk ka koment'}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setSelectedGradeForDetail(null)}
+                style={{
+                  marginTop: 20,
+                  backgroundColor: '#2563eb',
+                  paddingVertical: 12,
+                  paddingHorizontal: 40,
+                  borderRadius: 16,
+                  width: '100%',
+                  alignItems: 'center'
+                }}
+              >
+                <Text style={{ color: 'white', fontWeight: '900', fontSize: 16 }}>{t('close') || 'Mbyll'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  const renderCoordinatorGrades = () => {
+    if (!selectedCoordinatorClassId && coordinatedClasses.length > 0) {
+      return renderCoordinatorClassSelection('coordinator-grades', t('full_grades_matrix'));
+    }
+    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId);
     if (!currentCls) return null;
 
     const studentsInClass = getDynamicClassStudents(currentCls.id).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    const classGrades = grades.filter(g => (g.class_id === currentCls.id || g.classId === currentCls.id) && (g.academic_year === selectedGlobalAcademicYear || (!g.academic_year && !selectedGlobalAcademicYear)));
-    const subjects = [...new Set(classGrades.map(g => g.subject))].sort();
+    const classGrades = grades.filter(g =>
+      (g.class_id === currentCls.id || g.classId === currentCls.id) &&
+      (g.academic_year === selectedGlobalAcademicYear || (!g.academic_year && !selectedGlobalAcademicYear)) &&
+      (gradeSemester === 0 || getTermForDate(g.date, g.term) === gradeSemester)
+    );
 
-    const getGradeColor = (val) => {
-      const g = parseInt(val);
-      if (g === 1) return { bg: '#fee2e2', text: '#ef4444' };
-      if (g === 2) return { bg: '#ffedd5', text: '#f97316' };
-      if (g === 3) return { bg: '#fef9c3', text: '#ca8a04' };
-      if (g === 4) return { bg: '#dcfce7', text: '#22c55e' };
-      if (g === 5) return { bg: '#dbeafe', text: '#2563eb' };
-      return { bg: '#f1f5f9', text: '#64748b' };
-    };
+    // Use subjects taught in this class, sorted alphabetically
+    const subjectsWithGrades = [...new Set(classGrades.map(g => g.subject))];
+    const classSubjects = getAvailableSubjects(currentCls);
+    const allSubjects = ['Tutte', ...[...new Set([...classSubjects, ...subjectsWithGrades])].sort((a, b) => a.localeCompare(b, 'sq'))];
+
+    // Auto-select 'Tutte' if none selected yet
+    if (!selectedCoordinatorSubject) {
+      setSelectedCoordinatorSubject('Tutte');
+    }
 
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <TouchableOpacity style={[{ flexDirection: "row", alignItems: "center", gap: 8 }, styles.glassBackButton]} onPress={() => setNavigation({ view: 'home', data: null })}>
             <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('ballina')}</Text>
+            {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
           </TouchableOpacity>
-          <Text style={styles.viewTitleHeader}>{t('full_grades_matrix')}</Text>
         </View>
 
         {/* Professional Class Switcher */}
-        <View style={styles.proTabContainer}>
-          {coordinatedClasses.map(c => {
-            const isActive = (selectedCoordinatorClassId === c.id) || (!selectedCoordinatorClassId && c.id === coordinatedClasses[0].id);
-            return (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.proTab, isActive && styles.proTabActive]}
-                onPress={() => setSelectedCoordinatorClassId(c.id)}
-              >
-                <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
-              </TouchableOpacity>
-            );
-          })}
+        {coordinatedClasses.length > 1 && (
+          <View style={styles.proTabContainer}>
+            <TouchableOpacity
+              style={{ marginRight: 12, padding: 8 }}
+              onPress={() => {
+                setSelectedCoordinatorClassId(null);
+                setSelectedCoordinatorSubject(null);
+              }}
+            >
+              <ArrowLeft size={20} color="#64748b" />
+            </TouchableOpacity>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {coordinatedClasses.map(c => {
+                const isActive = (selectedCoordinatorClassId === c.id);
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.proTab, isActive && styles.proTabActive]}
+                    onPress={() => {
+                      setSelectedCoordinatorClassId(c.id);
+                      setSelectedCoordinatorSubject(null);
+                    }}
+                  >
+                    <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Premium Subject Dropdown */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('select_subject') || 'Zgjidh Lndn'}</Text>
+          <TouchableOpacity
+            onPress={() => setIsSubjectPickerVisible(true)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: 'white',
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: '#e2e8f0',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.05,
+              shadowRadius: 10,
+              elevation: 2
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                <BookIcon size={18} color="#2563eb" />
+              </View>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>
+                {selectedCoordinatorSubject === 'Tutte' ? (t('all_subjects') || 'T gjitha lndt') : (selectedCoordinatorSubject || (t('select_subject') || 'Zgjidh Lndn'))}
+              </Text>
+            </View>
+            <ChevronDown size={20} color="#64748b" />
+          </TouchableOpacity>
         </View>
 
-        <View style={{ flex: 1, backgroundColor: 'white', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 }}>
-          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
-            {studentsInClass.map((student, idx) => {
-              const sGrades = classGrades.filter(g => g.student_id === student.id || g.studentId === student.id);
-              const totalAvgStr = sGrades.length > 0 ? (sGrades.reduce((acc, curr) => acc + curr.grade, 0) / sGrades.length).toFixed(1) : '0.0';
-              const studentSubjects = [...new Set(sGrades.map(g => g.subject))].sort();
+        {/* Semester 3-Switch Tab */}
+        <View style={styles.semesterSelector}>
+          {[
+            { id: 0, label: t('all') || 'T gjitha' },
+            { id: 1, label: t('first_semester') || 'Semestri 1' },
+            { id: 2, label: t('second_semester') || 'Semestri 2' },
+          ].map(sem => (
+            <TouchableOpacity
+              key={sem.id}
+              style={[styles.semesterChip, gradeSemester === sem.id && styles.activeSemesterChip]}
+              onPress={() => setGradeSemester(sem.id)}
+            >
+              <Text style={[styles.semesterChipText, gradeSemester === sem.id && styles.activeSemesterChipText]}>
+                {sem.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-              return (
-                <View key={student.id} style={{ 
-                  flexDirection: 'row', 
-                  borderBottomWidth: 1, 
-                  borderBottomColor: '#f1f5f9', 
-                  backgroundColor: idx % 2 === 0 ? 'white' : '#fcfdfe',
-                  minHeight: 100
-                }}>
-                  {/* Left: Student Info */}
-                  <View style={{ width: 150, padding: 15, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
-                    <View style={{ 
-                      width: 40, 
-                      height: 40, 
-                      borderRadius: 14, 
-                      backgroundColor: idx % 2 === 0 ? '#eff6ff' : '#f8fafc', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
+        {/* Subject Picker Modal */}
+        <Modal visible={isSubjectPickerVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.premiumActionModal, { maxHeight: '70%' }]}>
+              <View style={styles.modalHeaderScroll}>
+                <Text style={styles.modalTitleEmphasized}>{t('select_subject') || 'Zgjidh Lndn'}</Text>
+                <TouchableOpacity onPress={() => setIsSubjectPickerVisible(false)} style={styles.closeModalBtn}>
+                  <X size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={{ padding: 10 }} showsVerticalScrollIndicator={false}>
+                {allSubjects.map(sub => (
+                  <TouchableOpacity
+                    key={sub}
+                    onPress={() => {
+                      setSelectedCoordinatorSubject(sub);
+                      setIsSubjectPickerVisible(false);
+                    }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: 16,
+                      borderRadius: 14,
+                      backgroundColor: selectedCoordinatorSubject === sub ? '#eff6ff' : 'white',
                       marginBottom: 8,
                       borderWidth: 1,
-                      borderColor: idx % 2 === 0 ? '#dbeafe' : '#e2e8f0'
-                    }}>
-                      <Text style={{ fontSize: 15, fontWeight: '900', color: idx % 2 === 0 ? '#2563eb' : '#64748b' }}>
-                        {(student.name || '?').charAt(0).toUpperCase()}
-                      </Text>
+                      borderColor: selectedCoordinatorSubject === sub ? '#2563eb' : '#f1f5f9'
+                    }}
+                  >
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: selectedCoordinatorSubject === sub ? '#2563eb' : '#475569' }}>
+                      {sub === 'Tutte' ? (t('all_subjects') || 'T gjitha lndt') : sub}
+                    </Text>
+                    {selectedCoordinatorSubject === sub && <Check size={20} color="#2563eb" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 32, overflow: 'hidden', borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+            {studentsInClass.map((student, idx) => {
+              const sGrades = classGrades.filter(g =>
+                (g.student_id === student.id || g.studentId === student.id) &&
+                (selectedCoordinatorSubject === 'Tutte' || g.subject === selectedCoordinatorSubject)
+              );
+              const avg = sGrades.length > 0 ? (sGrades.reduce((acc, curr) => acc + curr.grade, 0) / sGrades.length).toFixed(1) : '0.0';
+
+              return (
+                <View key={student.id} style={{
+                  backgroundColor: 'white',
+                  borderRadius: 24,
+                  marginBottom: 16,
+                  padding: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: '#f1f5f9',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.03,
+                  shadowRadius: 10,
+                  elevation: 2
+                }}>
+                  {/* Student Avatar & Info */}
+                  <View style={{ width: 50, height: 50, borderRadius: 18, backgroundColor: idx % 2 === 0 ? '#eff6ff' : '#f8fafc', alignItems: 'center', justifyContent: 'center', marginRight: 15, borderWidth: 1, borderColor: idx % 2 === 0 ? '#dbeafe' : '#e2e8f0' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '900', color: idx % 2 === 0 ? '#2563eb' : '#64748b' }}>
+                      {(student.name || '?').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '900', color: '#0f172a' }}>{student.name}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
+                      {sGrades.sort((a, b) => new Date(a.date) - new Date(b.date)).map(g => (
+                        <TouchableOpacity
+                          key={g.id}
+                          onPress={() => setSelectedGradeForDetail(g)}
+                          style={{ alignItems: 'center', gap: 6 }}
+                        >
+                          <View style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            backgroundColor: getGradeColor(g.grade).bg,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 2.5,
+                            borderColor: getGradeColor(g.grade).border,
+                            shadowColor: getGradeColor(g.grade).text,
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.1,
+                            shadowRadius: 4,
+                            elevation: 2
+                          }}>
+                            <Text style={{ fontSize: 18, fontWeight: '900', color: getGradeColor(g.grade).text }}>{g.grade}</Text>
+                          </View>
+                          <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748b' }}>{g.date.split('-').reverse().slice(0, 2).join('/')}</Text>
+                        </TouchableOpacity>
+                      ))}
+                      {sGrades.length === 0 && (
+                        <Text style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>{t('no_grades') || 'Pa nota'}</Text>
+                      )}
                     </View>
-                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>{student.name}</Text>
-                    <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>{sGrades.length} {t('grades')}</Text>
                   </View>
 
-                  {/* Center: Subjects and Grades Area */}
-                  <View style={{ flex: 1, padding: 10, gap: 12 }}>
-                    {studentSubjects.length > 0 ? studentSubjects.map(sub => {
-                      const subGrades = sGrades.filter(g => g.subject === sub).sort((a,b) => b.id - a.id);
-                      const subAvg = (subGrades.reduce((acc, curr) => acc + curr.grade, 0) / subGrades.length).toFixed(1);
-                      return (
-                        <View key={sub} style={{ backgroundColor: '#f8fafc', borderRadius: 16, padding: 10, borderWidth: 1, borderColor: '#f1f5f9' }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#475569' }}>{sub}</Text>
-                            <Text style={{ fontSize: 11, fontWeight: '900', color: '#2563eb', backgroundColor: '#eff6ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
-                              Avg: {subAvg}
-                            </Text>
-                          </View>
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                            {subGrades.map(g => (
-                              <View key={g.id} style={[styles.gradeBadge, { backgroundColor: getGradeColor(g.grade).bg, width: 28, height: 28, borderRadius: 10 }]}>
-                                <Text style={[styles.gradeBadgeText, { color: getGradeColor(g.grade).text, fontSize: 13 }]}>{g.grade}</Text>
-                              </View>
-                            ))}
-                          </View>
-                        </View>
-                      );
-                    }) : (
-                      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                         <Text style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>{t('no_grades_found')}</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Right: Total Average */}
-                  <View style={{ width: 80, padding: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: idx % 2 === 0 ? '#f8fafc' : '#f1f5f9' }}>
-                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#94a3b8', marginBottom: 8, textTransform: 'uppercase' }}>{t('average_short')}</Text>
-                    <GradeRing value={totalAvgStr} size={48} />
+                  {/* Average Ring */}
+                  <View style={{ marginLeft: 15, alignItems: 'center' }}>
+                    <GradeRing value={avg} size={54} />
+                    <Text style={{ fontSize: 9, fontWeight: '900', color: '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>{t('average_short')}</Text>
                   </View>
                 </View>
               );
             })}
           </ScrollView>
         </View>
+        {renderGradeDetailModal()}
       </View>
     );
   };
 
+
   const renderCoordinatorAttendance = () => {
-    const coordinatedClasses = teacherClasses; 
-    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId) || coordinatedClasses[0];
+    if (!selectedCoordinatorClassId && coordinatedClasses.length > 0) {
+      return renderCoordinatorClassSelection('coordinator-attendance', t('attendance_oversight'));
+    }
+    const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId);
 
     if (!currentCls) return (
       <View style={styles.emptyStateContainer}>
         <UserCheck size={40} color="#cbd5e1" />
-        <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnjë klasë'}</Text>
+        <Text style={styles.emptyStateSubtitle}>{t('no_classes_coordinated') || 'Nuk koordinoni asnj klas'}</Text>
       </View>
     );
 
     const studentsInClass = getDynamicClassStudents(currentCls.id).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    const classAttendance = (attendance || []).filter(a => (a.class_id === currentCls.id || a.classId === currentCls.id) && (a.academic_year === selectedGlobalAcademicYear || (!a.academic_year && !selectedGlobalAcademicYear)));
-    const todayStr = formatDate(new Date());
+    const classAttendance = (attendance || []).filter(a =>
+      (a.class_id === currentCls.id || a.classId === currentCls.id) &&
+      (a.academic_year === selectedGlobalAcademicYear || (!a.academic_year && !selectedGlobalAcademicYear)) &&
+      (gradeSemester === 0 || getTermForDate(a.date, a.term) === gradeSemester)
+    );
+
+    // Get class subjects for hourly filtering - broaden discovery for coordinators
+    const subjectsWithAttendance = [...new Set(classAttendance.map(a => a.subject).filter(Boolean))];
+    const subjectsFromLessons = [...new Set((lessons || []).filter(l => l.class_id === currentCls.id || l.classId === currentCls.id).map(l => l.subject).filter(Boolean))];
+    const classSubjects = currentCls.subjects || [];
+
+    const availableAttendanceSubjects = [...new Set([...classSubjects, ...subjectsWithAttendance, ...subjectsFromLessons])].filter(s => s !== 'Msues').sort((a, b) => a.localeCompare(b, 'sq'));
+
+    if (!selectedCoordinatorAttendanceSubject) {
+      setSelectedCoordinatorAttendanceSubject('Tutte');
+    }
 
     return (
       <View style={styles.viewContainer}>
         <View style={styles.navigationHeader}>
-          <TouchableOpacity style={styles.glassBackButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+          <TouchableOpacity style={[{ flexDirection: "row", alignItems: "center", gap: 8 }, styles.glassBackButton]} onPress={() => setNavigation({ view: 'home', data: null })}>
             <ArrowLeft size={18} color="#1e293b" />
-            <Text style={styles.backButtonText}>{t('ballina')}</Text>
+            {isDesktop && <Text style={{ fontSize: 16, fontWeight: "700", color: "#1e293b" }}>{t('back')}</Text>}
           </TouchableOpacity>
-          <Text style={styles.viewTitleHeader}>{t('attendance_oversight')}</Text>
         </View>
 
         {/* Professional Class Switcher */}
-        <View style={styles.proTabContainer}>
-          {coordinatedClasses.map(c => {
-            const isActive = (selectedCoordinatorClassId === c.id) || (!selectedCoordinatorClassId && c.id === coordinatedClasses[0].id);
-            return (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.proTab, isActive && styles.proTabActive]}
-                onPress={() => setSelectedCoordinatorClassId(c.id)}
-              >
-                <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
-              </TouchableOpacity>
-            );
-          })}
+        {coordinatedClasses.length > 1 && (
+          <View style={styles.proTabContainer}>
+            <TouchableOpacity
+              style={{ marginRight: 12, padding: 8 }}
+              onPress={() => {
+                setSelectedCoordinatorClassId(null);
+                setSelectedCoordinatorSubject(null);
+                setSelectedCoordinatorAttendanceSubject(null);
+              }}
+            >
+              <ArrowLeft size={20} color="#64748b" />
+            </TouchableOpacity>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {coordinatedClasses.map(c => {
+                const isActive = (selectedCoordinatorClassId === c.id);
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.proTab, isActive && styles.proTabActive]}
+                    onPress={() => {
+                      setSelectedCoordinatorClassId(c.id);
+                      setSelectedCoordinatorAttendanceSubject(null);
+                    }}
+                  >
+                    <Text style={[styles.proTabText, isActive && styles.proTabTextActive]}>{formatClassName(c)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Tab Switcher: Daily vs Hourly */}
+        <View style={{ flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 12 }}>
+          <TouchableOpacity
+            onPress={() => setCoordinatorAttendanceTab('daily')}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 16,
+              backgroundColor: coordinatorAttendanceTab === 'daily' ? '#2563eb' : 'white',
+              alignItems: 'center',
+              borderWidth: 1.5,
+              borderColor: coordinatorAttendanceTab === 'daily' ? '#2563eb' : '#e2e8f0',
+              flexDirection: 'row',
+              justifyContent: 'center',
+              gap: 8
+            }}
+          >
+            <CalendarIcon size={18} color={coordinatorAttendanceTab === 'daily' ? 'white' : '#64748b'} />
+            <Text style={{ fontWeight: '800', color: coordinatorAttendanceTab === 'daily' ? 'white' : '#64748b' }}>
+              {t('daily') || 'Ditore'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setCoordinatorAttendanceTab('hourly')}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 16,
+              backgroundColor: coordinatorAttendanceTab === 'hourly' ? '#2563eb' : 'white',
+              alignItems: 'center',
+              borderWidth: 1.5,
+              borderColor: coordinatorAttendanceTab === 'hourly' ? '#2563eb' : '#e2e8f0',
+              flexDirection: 'row',
+              justifyContent: 'center',
+              gap: 8
+            }}
+          >
+            <Clock size={18} color={coordinatorAttendanceTab === 'hourly' ? 'white' : '#64748b'} />
+            <Text style={{ fontWeight: '800', color: coordinatorAttendanceTab === 'hourly' ? 'white' : '#64748b' }}>
+              {t('hourly') || 'Orare'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={{ flex: 1, backgroundColor: 'white', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#f1f5f9', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 5 }}>
-          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
+        {/* Subject Dropdown for Hourly tab */}
+        {coordinatorAttendanceTab === 'hourly' && (
+          <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => setIsAttendanceSubjectPickerVisible(true)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: 'white',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: '#e2e8f0',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.05,
+                shadowRadius: 10,
+                elevation: 2
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
+                  <BookIcon size={18} color="#2563eb" />
+                </View>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>
+                  {selectedCoordinatorAttendanceSubject === 'Tutte' ? (t('all_subjects') || 'T gjitha lndt') : (selectedCoordinatorAttendanceSubject || t('select_subject'))}
+                </Text>
+              </View>
+              <ChevronDown size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View style={styles.semesterSelector}>
+          {[
+            { id: 0, label: t('all') || 'T gjitha' },
+            { id: 1, label: t('first_semester') || 'Semestri 1' },
+            { id: 2, label: t('second_semester') || 'Semestri 2' },
+          ].map(sem => (
+            <TouchableOpacity
+              key={sem.id}
+              style={[styles.semesterChip, gradeSemester === sem.id && styles.activeSemesterChip]}
+              onPress={() => setGradeSemester(sem.id)}
+            >
+              <Text style={[styles.semesterChipText, gradeSemester === sem.id && styles.activeSemesterChipText]}>
+                {sem.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderTopLeftRadius: 32, borderTopRightRadius: 32, overflow: 'hidden', borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
             {studentsInClass.map((student, idx) => {
-              const sAttendance = classAttendance.filter(a => a.student_id === student.id || a.studentId === student.id);
+              const sAttendanceMap = new Map();
+              classAttendance.forEach(a => {
+                const isStudent = a.student_id === student.id || a.studentId === student.id;
+                if (!isStudent) return;
+                if (a.status === 'present') return;
+
+                if (coordinatorAttendanceTab === 'daily') {
+                  if (a.hour === 0 || a.hour === '0') {
+                    sAttendanceMap.set(formatDate(a.date), a);
+                  }
+                } else {
+                  const hourVal = parseInt(a.hour || 0, 10);
+                  if (hourVal > 0) {
+                    const dateKey = formatDate(a.date);
+                    const aSubject = a.subject || (lessons.find(l =>
+                      (l.class_id === currentCls.id || l.classId === currentCls.id) &&
+                      formatDate(l.date) === dateKey &&
+                      l.topic?.includes(`[Ora ${a.hour}]`)
+                    )?.subject);
+
+                    if (selectedCoordinatorAttendanceSubject === 'Tutte' || aSubject === selectedCoordinatorAttendanceSubject) {
+                      // Include subject in key to show all absences if Tutte is selected, 
+                      // even if they happen at the same hour (e.g. split class)
+                      const subjectKey = (selectedCoordinatorAttendanceSubject === 'Tutte') ? `-${aSubject || 'NoSub'}` : '';
+                      sAttendanceMap.set(`${dateKey}-${a.hour}${subjectKey}`, a);
+                    }
+                  }
+                }
+              });
+              const sAttendance = Array.from(sAttendanceMap.values());
+
               sAttendance.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-              const totalDaysAbsent = sAttendance.filter(a => (a.hour === 0 || a.hour === '0') && a.status.startsWith('absent')).length;
-              const totalHoursAbsent = sAttendance.filter(a => (a.hour > 0 || a.hour !== '0') && a.status.startsWith('absent')).length;
-              const totalUnjustified = sAttendance.filter(a => a.status.includes('unjustified')).length;
+              const totalAbsent = sAttendance.filter(a => a.status.includes('absent') && !a.status.includes('late') && !a.status.includes('early')).length;
+              const totalLate = sAttendance.filter(a => a.status.includes('late')).length;
+              const totalEarly = sAttendance.filter(a => a.status.includes('early')).length;
+              const totalUnjustified = sAttendance.filter(a => !a.status.includes('justified') && !a.status.includes('present')).length;
+              const totalUnjustifiedAbsences = sAttendance.filter(a => !a.status.includes('justified') && !a.status.includes('present')).length;
 
               return (
-                <View key={student.id} style={{ 
-                  flexDirection: 'row', 
-                  borderBottomWidth: 1, 
-                  borderBottomColor: '#f1f5f9', 
-                  backgroundColor: idx % 2 === 0 ? 'white' : '#fcfdfe',
-                  minHeight: 100
+                <View key={student.id} style={{
+                  backgroundColor: 'white',
+                  borderRadius: 24,
+                  marginBottom: 16,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: '#f1f5f9',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.03,
+                  shadowRadius: 10,
+                  elevation: 2
                 }}>
-                  {/* Left: Student Info */}
-                  <View style={{ width: 140, padding: 15, borderRightWidth: 1, borderRightColor: '#f1f5f9', justifyContent: 'center' }}>
-                    <View style={{ 
-                      width: 40, 
-                      height: 40, 
-                      borderRadius: 14, 
-                      backgroundColor: idx % 2 === 0 ? '#f0fdf4' : '#f8fafc', 
-                      alignItems: 'center', 
+                  {/* Top Header: Student Info */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                    <View style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 16,
+                      backgroundColor: idx % 2 === 0 ? '#eff6ff' : '#f8fafc',
+                      alignItems: 'center',
                       justifyContent: 'center',
-                      marginBottom: 8,
+                      marginRight: 12,
                       borderWidth: 1,
-                      borderColor: idx % 2 === 0 ? '#dcfce7' : '#e2e8f0'
+                      borderColor: idx % 2 === 0 ? '#dbeafe' : '#e2e8f0'
                     }}>
-                      <Text style={{ fontSize: 15, fontWeight: '900', color: idx % 2 === 0 ? '#16a34a' : '#64748b' }}>
+                      <Text style={{ fontSize: 16, fontWeight: '900', color: idx % 2 === 0 ? '#2563eb' : '#64748b' }}>
                         {(student.name || '?').charAt(0).toUpperCase()}
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>{student.name}</Text>
-                    <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 }}>{sAttendance.length} {t('records') || 'Të dhëna'}</Text>
-                  </View>
-
-                  {/* Center: Attendance Ledger Area */}
-                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 10, alignItems: 'center' }}>
-                    {sAttendance.length > 0 ? sAttendance.map((att, aIdx) => {
-                      let color = '#ef4444'; 
-                      let bg = '#fef2f2';
-                      let char = 'M'; 
-                      
-                      if (att.status.includes('justified')) { color = '#10b981'; bg = '#f0fdf4'; char = 'M'; }
-                      else if (att.status.includes('late')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'V'; }
-                      else if (att.status.includes('early')) { color = '#8b5cf6'; bg = '#f5f3ff'; char = 'D'; }
-
-                      return (
-                        <View key={att.id || aIdx} style={{ alignItems: 'center', gap: 2 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>
-                            {att.date.split('-').reverse().slice(0, 2).join('/')}
-                          </Text>
-                          <View style={{ 
-                            width: 32, 
-                            height: 32, 
-                            borderRadius: 12, 
-                            backgroundColor: bg, 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            borderWidth: 1.5, 
-                            borderColor: color 
-                          }}>
-                            <Text style={{ fontSize: 12, fontWeight: '900', color: color }}>{char}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: '#0f172a' }}>{student.name}</Text>
+                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                        {totalAbsent > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#ef4444' }}>
+                              {totalAbsent} {coordinatorAttendanceTab === 'hourly' ? (t('hourly_absences_unit') || 'Ore Mungese') : (t('absent') || 'Mungesa')}
+                            </Text>
                           </View>
-                        </View>
-                      );
-                    }) : (
-                      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                         <Text style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>{t('no_absences_found')}</Text>
+                        )}
+                        {totalUnjustifiedAbsences > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#b91c1c' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#b91c1c' }}>
+                              {totalUnjustifiedAbsences} {t('unjustified_absences_short') || 'Pa arsye'}
+                            </Text>
+                          </View>
+                        )}
+                        {totalLate > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#f59e0b' }}>{totalLate} {t('late') || 'Vones'}</Text>
+                          </View>
+                        )}
+                        {totalEarly > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#f59e0b' }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#f59e0b' }}>{totalEarly} {t('early_exit') || 'Largim'}</Text>
+                          </View>
+                        )}
+                        {/* Old general unjustified counter - removing as it might be redundant now, or keep it if it covers late/early too */}
+                        {(totalUnjustified - totalUnjustifiedAbsences) > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#b91c1c', opacity: 0.6 }} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#b91c1c', opacity: 0.6 }}>{(totalUnjustified - totalUnjustifiedAbsences)} {t('other_unjustified') || 'Tjera pa ars.'}</Text>
+                          </View>
+                        )}
                       </View>
-                    )}
+                    </View>
                   </View>
 
-                  {/* Right: Summary Metrics */}
-                  <View style={{ width: 100, padding: 10, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: idx % 2 === 0 ? '#f8fafc' : '#f1f5f9' }}>
-                    <View style={{ alignItems: 'center' }}>
-                       <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 2 }}>{t('days') || 'Ditë'}</Text>
-                       <View style={{ backgroundColor: totalDaysAbsent > 0 ? '#fee2e2' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '900', color: totalDaysAbsent > 0 ? '#ef4444' : '#64748b' }}>{totalDaysAbsent}</Text>
-                       </View>
+                  {/* Attendance Content & Right Summary */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {/* Markers Grid */}
+                    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                      {(() => {
+                        const displayAtt = [];
+                        if (coordinatorAttendanceTab === 'daily') {
+                          const seenDates = new Set();
+                          const sorted = [...sAttendance].sort((a, b) => {
+                            const rank = s => s.includes('late') || s.includes('early') ? 2 : (s.includes('absent') ? 1 : 0);
+                            return rank(b.status) - rank(a.status);
+                          });
+                          for (const att of sorted) {
+                            if (!seenDates.has(att.date)) {
+                              displayAtt.push(att);
+                              seenDates.add(att.date);
+                            }
+                          }
+                        } else {
+                          displayAtt.push(...sAttendance);
+                        }
+                        displayAtt.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                        return displayAtt.length > 0 ? displayAtt.map((att, aIdx) => {
+                          let color = '#ef4444';
+                          let bg = '#fef2f2';
+                          let char = 'M';
+
+                          if (att.status.includes('late')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'V'; }
+                          else if (att.status.includes('early')) { color = '#f59e0b'; bg = '#fffbeb'; char = 'L'; }
+
+                          return (
+                            <TouchableOpacity
+                              key={att.id || aIdx}
+                              onPress={() => {
+                                // Aggressively clear ALL other modal states to prevent double-modals
+                                setIsActionModalVisible(false);
+                                setSelectedActionStudent(null);
+                                setSelectedRegistryStudent(null);
+                                setSelectedStudentForGrade(null);
+                                setIsGradeModalVisible(false);
+                                setIsSubjectPickerVisible(false);
+                                setIsAttendanceSubjectPickerVisible(false);
+
+                                setSelectedAttendanceForDetail(att);
+                                setIsDetailModalVisible(true);
+                              }}
+                              style={{ alignItems: 'center', gap: 6 }}
+                            >
+                              <View style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: bg,
+                                borderWidth: 2,
+                                borderColor: color + '40',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                shadowColor: color,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.1,
+                                shadowRadius: 4,
+                                elevation: 2
+                              }}>
+                                <Text style={{ fontSize: 18, fontWeight: '900', color: color }}>{char}</Text>
+                              </View>
+                              <Text style={{ fontSize: 10, fontWeight: '800', color: '#64748b' }}>
+                                {att.date.split('-').reverse().slice(0, 2).join('/')}
+                                {coordinatorAttendanceTab === 'hourly' && att.hour ? ` (H${att.hour})` : ''}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        }) : (
+                          <Text style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic', marginLeft: 4 }}>
+                            {t('no_records_found') || 'Nuk ka t dhna'}
+                          </Text>
+                        );
+                      })()}
                     </View>
-                    <View style={{ alignItems: 'center' }}>
-                       <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 2 }}>{t('hours') || 'Orë'}</Text>
-                       <View style={{ backgroundColor: totalHoursAbsent > 0 ? '#fee2e2' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '900', color: totalHoursAbsent > 0 ? '#ef4444' : '#64748b' }}>{totalHoursAbsent}</Text>
-                       </View>
+
+                    {/* Right Summary Columns */}
+                    <View style={{ marginLeft: 16, paddingLeft: 16, borderLeftWidth: 1, borderLeftColor: '#f1f5f9', gap: 12, alignItems: 'center', justifyContent: 'center' }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <View style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: totalAbsent > 0 ? '#fef2f2' : '#f8fafc',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 2,
+                          borderColor: totalAbsent > 0 ? '#ef4444' : '#e2e8f0',
+                        }}>
+                          <Text style={{ fontSize: 18, fontWeight: '900', color: totalAbsent > 0 ? '#ef4444' : '#64748b' }}>{totalAbsent}</Text>
+                        </View>
+                        <Text style={{ fontSize: 8, fontWeight: '800', color: '#64748b', marginTop: 4, textTransform: 'uppercase' }}>
+                          {coordinatorAttendanceTab === 'daily' ? (t('daily') || 'Ditore') : (t('hourly') || 'Orare')}
+                        </Text>
+                      </View>
+
+                      <View style={{ alignItems: 'center' }}>
+                        <View style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: totalUnjustifiedAbsences > 0 ? '#fef2f2' : '#f8fafc',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 2,
+                          borderColor: totalUnjustifiedAbsences > 0 ? '#b91c1c' : '#e2e8f0',
+                        }}>
+                          <Text style={{ fontSize: 18, fontWeight: '900', color: totalUnjustifiedAbsences > 0 ? '#b91c1c' : '#94a3b8' }}>{totalUnjustifiedAbsences}</Text>
+                        </View>
+                        <Text style={{ fontSize: 8, fontWeight: '800', color: totalUnjustifiedAbsences > 0 ? '#b91c1c' : '#94a3b8', marginTop: 4, textTransform: 'uppercase' }}>{t('unjustified_short') || 'Pa ars.'}</Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -3883,6 +4668,8 @@ const TeacherDashboard = ({
             })}
           </ScrollView>
         </View>
+
+
       </View>
     );
   };
@@ -3962,12 +4749,23 @@ const TeacherDashboard = ({
                     {item.title}
                   </Text>
                   <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '500' }}>
-                    {new Date(item.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {(() => {
+                      const d = new Date(item.created_at);
+                      const day = String(d.getDate()).padStart(2, '0');
+                      const m = d.getMonth();
+                      const year = d.getFullYear();
+                      const months = language === 'sq'
+                        ? ['Jan', 'Shk', 'Mar', 'Pri', 'Maj', 'Qer', 'Kor', 'Gsh', 'Sht', 'Tet', 'Nn', 'Dhj']
+                        : language === 'sr'
+                          ? ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Avg', 'Sep', 'Okt', 'Nov', 'Dec']
+                          : ['Oca', 'Åžub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'AÄŸu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+                      return `${day} ${months[m]} ${year}`;
+                    })()}
                   </Text>
                   {hasAttachment && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 }}>
                       <FileText size={11} color="#2563eb" />
-                      <Text style={{ fontSize: 11, color: '#2563eb', fontWeight: '700' }}>{t('attachment') || 'Bashkëngjitje'}</Text>
+                      <Text style={{ fontSize: 11, color: '#2563eb', fontWeight: '700' }}>{t('attachment') || 'Bashkngjitje'}</Text>
                     </View>
                   )}
                 </View>
@@ -4006,7 +4804,7 @@ const TeacherDashboard = ({
                 <Text style={{ fontSize: 16, fontWeight: '800', color: activeView === 'home' ? '#2563eb' : '#64748b' }}>{t('ballina') || 'Ballina'}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => { setActiveView('lajmerimet'); setNavigation({ view: 'home', data: null }); }} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: activeView === 'lajmerimet' ? '#eff6ff' : 'transparent' }}>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: activeView === 'lajmerimet' ? '#2563eb' : '#64748b' }}>{t('notices') || 'Lajmërime'}</Text>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: activeView === 'lajmerimet' ? '#2563eb' : '#64748b' }}>{t('notices') || 'Lajmrime'}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -4025,17 +4823,16 @@ const TeacherDashboard = ({
         </View>
         {(activeView === 'home' && (navigation.view === 'class-agenda' || navigation.view === 'class-detail')) && (() => {
           const matchedSchool = (schools || []).find(s => s.id === user.school_id || s.id === user.schoolId) || (schools && schools.length > 0 ? schools[0] : null);
-          
+
           let startDate = matchedSchool?.school_year_start;
           let endDate = matchedSchool?.school_year_end;
 
           if (selectedGlobalAcademicYear) {
-            const archivedStart = (schoolCalendar || []).find(e => e.event_name?.includes(`Fillimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
-            const archivedEnd = (schoolCalendar || []).find(e => e.event_name?.includes(`Mbarimi i Vitit ${selectedGlobalAcademicYear}`))?.date;
+            const archived = (academicYearHistory || []).find(h => h.academic_year === selectedGlobalAcademicYear);
 
-            if (archivedStart && archivedEnd) {
-              startDate = archivedStart;
-              endDate = archivedEnd;
+            if (archived?.school_year_start && archived?.school_year_end) {
+              startDate = archived.school_year_start;
+              endDate = archived.school_year_end;
             } else {
               const startYear = parseInt(selectedGlobalAcademicYear.split('/')[0]);
               if (!isNaN(startYear)) {
@@ -4051,6 +4848,7 @@ const TeacherDashboard = ({
               onDateSelect={setSelectedDate}
               schoolStartDate={startDate}
               schoolEndDate={endDate}
+              schoolCalendar={schoolCalendar}
             />
           );
         })()}
@@ -4068,7 +4866,7 @@ const TeacherDashboard = ({
           }}>
             <AlertTriangle size={18} color="#ea580c" />
             <Text style={{ fontSize: 13, fontWeight: '700', color: '#ea580c', flex: 1 }}>
-              {t('readonly_year_banner')?.replace('{{year}}', selectedGlobalAcademicYear) || `Po shikoni vitin: ${selectedGlobalAcademicYear} (Vetëm Lexim)`}
+              {t('readonly_year_banner')?.replace('{{year}}', selectedGlobalAcademicYear) || `Po shikoni vitin: ${selectedGlobalAcademicYear} (Vetm Lexim)`}
             </Text>
           </View>
         )}
@@ -4104,6 +4902,304 @@ const TeacherDashboard = ({
       {renderTestRegistrationModal(navigation.data)}
       {renderEditLessonModal()}
       {renderConfirmModal()}
+
+      {/* Global Attendance Subject Picker Modal */}
+      <Modal visible={isAttendanceSubjectPickerVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.premiumActionModal, { maxHeight: '70%' }]}>
+            <View style={styles.modalHeaderScroll}>
+              <Text style={styles.modalTitleEmphasized}>{t('select_subject') || 'Zgjidh Lndn'}</Text>
+              <TouchableOpacity onPress={() => setIsAttendanceSubjectPickerVisible(false)} style={styles.closeModalBtn}>
+                <X size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ padding: 10 }} showsVerticalScrollIndicator={false}>
+              {(() => {
+                let options = [];
+                let currentVal = '';
+                let onSelect = (val) => { };
+
+                if (navigation.view === 'class-attendance-grid') {
+                  const classSubs = navigation.data?.subjects || [];
+                  const teacherSubjects = user.subjects || [];
+                  const filteredSubs = classSubs.filter(s => teacherSubjects.includes(s));
+                  options = ['Tutte', ...filteredSubs];
+                  currentVal = selectedSubject;
+                  onSelect = (val) => setSelectedSubject(val);
+                } else if (navigation.view === 'coordinator-attendance') {
+                  const currentCls = coordinatedClasses.find(c => c.id === selectedCoordinatorClassId);
+                  if (currentCls) {
+                    const cAttendance = (attendance || []).filter(a => (a.class_id === currentCls.id || a.classId === currentCls.id));
+                    const subjectsWithAttendance = [...new Set(cAttendance.map(a => a.subject).filter(Boolean))];
+                    const subjectsFromLessons = [...new Set((lessons || []).filter(l => l.class_id === currentCls.id || l.classId === currentCls.id).map(l => l.subject).filter(Boolean))];
+                    const classSubjects = currentCls.subjects || [];
+
+                    const availableSubs = [...new Set([...classSubjects, ...subjectsWithAttendance, ...subjectsFromLessons])].filter(s => s !== 'Msues').sort((a, b) => a.localeCompare(b, 'sq'));
+                    options = ['Tutte', ...availableSubs];
+                  }
+                  currentVal = selectedCoordinatorAttendanceSubject;
+                  onSelect = (val) => setSelectedCoordinatorAttendanceSubject(val);
+                }
+
+                return options.map(sub => (
+                  <TouchableOpacity
+                    key={sub}
+                    onPress={() => {
+                      onSelect(sub);
+                      setIsAttendanceSubjectPickerVisible(false);
+                    }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: 16,
+                      borderRadius: 14,
+                      backgroundColor: currentVal === sub ? '#eff6ff' : 'white',
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: currentVal === sub ? '#2563eb' : '#f1f5f9'
+                    }}
+                  >
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: currentVal === sub ? '#2563eb' : '#475569' }}>
+                      {sub === 'Tutte' ? (t('all_subjects') || 'T gjitha lndt') : t(sub)}
+                    </Text>
+                    {currentVal === sub && <Check size={20} color="#2563eb" />}
+                  </TouchableOpacity>
+                ));
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Attendance Detail Modal (Moved here to be available globally) */}
+      <Modal visible={isDetailModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.premiumActionModal, { padding: 24, alignItems: 'center' }]}>
+            <View style={{
+              width: 70,
+              height: 70,
+              borderRadius: 35,
+              backgroundColor: (() => {
+                const s = selectedAttendanceForDetail?.status || '';
+                if (s.includes('late')) return '#fffbeb';
+                if (s.includes('early')) return '#f5f3ff';
+                return '#fef2f2';
+              })(),
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 3,
+              borderColor: (() => {
+                const s = selectedAttendanceForDetail?.status || '';
+                if (s.includes('late')) return '#fef3c7';
+                if (s.includes('early')) return '#ede9fe';
+                return '#fee2e2';
+              })(),
+              marginBottom: 20
+            }}>
+              <Text style={{
+                fontSize: 28,
+                fontWeight: '900',
+                color: (() => {
+                  const s = selectedAttendanceForDetail?.status || '';
+                  if (s.includes('late')) return '#f59e0b';
+                  if (s.includes('early')) return '#8b5cf6';
+                  return '#ef4444';
+                })()
+              }}>
+                {selectedAttendanceForDetail?.status.includes('late') ? 'V' : (selectedAttendanceForDetail?.status.includes('early') ? 'L' : 'M')}
+              </Text>
+            </View>
+
+            <Text style={{ fontSize: 26, fontWeight: '900', color: '#0f172a', marginBottom: 12, textAlign: 'center' }}>
+              {(() => {
+                const s = selectedAttendanceForDetail?.status || '';
+                let type = t('absent') || 'Munges';
+                if (s.includes('late')) type = t('late') || 'Vones';
+                if (s.includes('early')) type = t('early_exit') || 'Largim';
+
+                const isJustified = s.includes('justified');
+                return type;
+              })()}
+            </Text>
+
+            <View style={{ backgroundColor: '#f8fafc', paddingHorizontal: 20, paddingVertical: 18, borderRadius: 20, width: '100%', marginBottom: 30, borderWidth: 1, borderColor: '#f1f5f9' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
+                <Text style={{ color: '#64748b', fontWeight: '700', fontSize: 15 }}>{t('date') || 'Data'}:</Text>
+                <Text style={{ color: '#1e293b', fontWeight: '900', fontSize: 15 }}>{selectedAttendanceForDetail ? formatDisplayDate(selectedAttendanceForDetail.date) : ''}</Text>
+              </View>
+              {selectedAttendanceForDetail?.hour > 0 && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <Text style={{ color: '#64748b', fontWeight: '700', fontSize: 15 }}>{t('hour') || 'Ora'}:</Text>
+                  <Text style={{ color: '#2563eb', fontWeight: '900', fontSize: 18 }}>{selectedAttendanceForDetail.hour}h</Text>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ color: '#64748b', fontWeight: '700', fontSize: 15 }}>{t('status') || 'Statusi'}:</Text>
+                <Text style={{
+                  color: selectedAttendanceForDetail?.status.includes('justified') ? '#059669' : '#ef4444',
+                  fontWeight: '900',
+                  fontSize: 15
+                }}>
+                  {selectedAttendanceForDetail?.status.includes('justified') ? (t('justified') || 'Arsyetuar') : (t('unjustified') || 'Paarsyetuar')}
+                </Text>
+              </View>
+              {(selectedAttendanceForDetail?.reason || selectedAttendanceForDetail?.comment || selectedAttendanceForDetail?.note || (selectedAttendanceForDetail?.status?.includes('justified') && selectedAttendanceForDetail?.status?.split(':').length > 1)) && (
+                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0' }}>
+                  <Text style={{ color: '#64748b', fontWeight: '700', fontSize: 12, marginBottom: 8, textTransform: 'uppercase' }}>
+                    {selectedAttendanceForDetail?.status?.includes('justified') ? (t('justification_reason') || 'Arsyeja e Arsyetimit') : (t('reason') || 'Arsyeja')}:
+                  </Text>
+                  <Text style={{ color: '#1e293b', fontWeight: '600', fontSize: 16, lineHeight: 22 }}>
+                    {(() => {
+                      const s = selectedAttendanceForDetail?.status || '';
+                      if (s.includes('justified')) {
+                        const parts = s.split(':');
+                        // Format: TYPE:justified:REASON or TYPE:TIME:justified:REASON
+                        if (parts.includes('justified')) {
+                          const idx = parts.indexOf('justified');
+                          if (parts[idx + 1]) return parts[idx + 1];
+                        }
+                      }
+                      return selectedAttendanceForDetail.reason || selectedAttendanceForDetail.comment || selectedAttendanceForDetail.note;
+                    })()}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {(selectedAttendanceForDetail?.hour === 0 || selectedAttendanceForDetail?.hour === '0') && (
+              <View style={{ width: '100%', marginBottom: 20 }}>
+                {selectedAttendanceForDetail?.status.includes('justified') ? (
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const s = selectedAttendanceForDetail.status || '';
+                        const parts = s.split(':');
+                        const justifiedIdx = parts.indexOf('justified');
+                        const currentReason = parts[justifiedIdx + 1] || '';
+                        setJustifyReason(currentReason);
+                        // We need to temporarily "un-justify" in the UI to show the input
+                        setSelectedAttendanceForDetail({
+                          ...selectedAttendanceForDetail,
+                          status: selectedAttendanceForDetail.status.replace(':justified:', ':editing:')
+                        });
+                      }}
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#f1f5f9',
+                        paddingVertical: 14,
+                        borderRadius: 16,
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: '#e2e8f0'
+                      }}
+                    >
+                      <Text style={{ color: '#64748b', fontWeight: '900', fontSize: 16 }}>
+                        {t('edit') || 'Ndrysho'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={handleDeleteJustification}
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#fee2e2',
+                        paddingVertical: 14,
+                        borderRadius: 16,
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: '#fecaca'
+                      }}
+                    >
+                      <Text style={{ color: '#ef4444', fontWeight: '900', fontSize: 16 }}>
+                        {t('delete') || 'Fshij'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={{ color: '#64748b', fontWeight: '800', fontSize: 11, marginBottom: 8, textTransform: 'uppercase' }}>
+                      {t('justification_reason') || 'Arsyeja e Arsyetimit'}
+                    </Text>
+                    <TextInput
+                      style={{
+                        backgroundColor: '#f8fafc',
+                        borderRadius: 16,
+                        padding: 12,
+                        borderWidth: 1.5,
+                        borderColor: '#e2e8f0',
+                        fontSize: 14,
+                        color: '#1e293b',
+                        minHeight: 60,
+                        textAlignVertical: 'top'
+                      }}
+                      placeholder={t('enter_reason_placeholder') || 'Shkruani arsyen...'}
+                      value={justifyReason}
+                      onChangeText={setJustifyReason}
+                      multiline
+                    />
+                    <TouchableOpacity
+                      onPress={async () => {
+                        if (!justifyReason.trim()) {
+                          showAlert(t('enter_justification_reason') || 'Ju lutem shkruani arsyen e arsyetimit', 'error');
+                          return;
+                        }
+                        setIsUpdating(true);
+                        try {
+                          const sId = selectedAttendanceForDetail.student_id || selectedAttendanceForDetail.studentId;
+                          await onJustifyAttendance(sId, selectedAttendanceForDetail.date, justifyReason);
+                          setIsDetailModalVisible(false);
+                          setJustifyReason('');
+                          showAlert(t('attendance_justified_success') || 'Mungesa u arsyetua me sukses', 'success');
+                        } catch (err) {
+                          showAlert(err.message, 'error');
+                        } finally {
+                          setIsUpdating(false);
+                        }
+                      }}
+                      style={{
+                        marginTop: 16,
+                        backgroundColor: '#2563eb',
+                        paddingVertical: 14,
+                        borderRadius: 16,
+                        alignItems: 'center',
+                        shadowColor: '#2563eb',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.2,
+                        shadowRadius: 8,
+                        elevation: 4
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontWeight: '900', fontSize: 16 }}>
+                        {isUpdating ? (t('saving') || 'Duke ruajtur...') : (t('justify') || 'Arsyeto')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity
+              onPress={() => {
+                setIsDetailModalVisible(false);
+              }}
+              style={{
+                width: '100%',
+                paddingVertical: 14,
+                borderRadius: 16,
+                backgroundColor: '#f1f5f9',
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 5,
+                elevation: 2
+              }}
+            >
+              <Text style={{ color: '#64748b', fontWeight: '900', fontSize: 16 }}>{t('close') || 'Mbyll'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
 
       {!isDesktop && (
@@ -4159,7 +5255,13 @@ const TeacherDashboard = ({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={modalStyles.title} numberOfLines={2}>{selectedNotice.title}</Text>
-                  <Text style={modalStyles.date}>{new Date(selectedNotice.created_at).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })}</Text>
+                  <Text style={modalStyles.date}>{(() => {
+                    const d = new Date(selectedNotice.created_at);
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const year = d.getFullYear();
+                    return `${day}/${month}/${year}`;
+                  })()}</Text>
                 </View>
               </View>
 
@@ -4175,7 +5277,7 @@ const TeacherDashboard = ({
                   }}
                 >
                   <Download size={20} color="white" />
-                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment') || 'Shkarko bashkëngjitjen'}</Text>
+                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment') || 'Shkarko bashkngjitjen'}</Text>
                 </TouchableOpacity>
               )}
 
@@ -4198,7 +5300,7 @@ const TeacherDashboard = ({
             <View style={styles.modalHeaderScroll}>
               <View>
                 <Text style={styles.modalTitleEmphasized}>
-                  {pendingTimeType === 'late' ? t('time_modal_late_title') || '⏰ Ritardo' : t('time_modal_early_exit_title') || '🚪 Uscita Anticipata'}
+                  {pendingTimeType === 'late' ? t('time_modal_late_title') || 'â° Ritardo' : t('time_modal_early_exit_title') || 'ðŸšª Uscita Anticipata'}
                 </Text>
                 <Text style={styles.modalSubtitle}>
                   {pendingTimeType === 'late'
@@ -4220,8 +5322,8 @@ const TeacherDashboard = ({
                 <Clock size={18} color={pendingTimeType === 'late' ? '#d97706' : '#ea580c'} />
                 <Text style={{ fontSize: 13, color: pendingTimeType === 'late' ? '#92400e' : '#7c2d12', fontWeight: '600', flex: 1, lineHeight: 20 }}>
                   {pendingTimeType === 'late'
-                    ? t('time_modal_late_desc') || 'Lo studente era assente alla prima ora ma è arrivato in seguito. Registra l\'ora di ingresso.'
-                    : t('time_modal_early_exit_desc') || 'Lo studente era presente ma è uscito prima della fine. Registra l\'ora di uscita.'}
+                    ? t('time_modal_late_desc') || 'Lo studente era assente alla prima ora ma Ã¨ arrivato in seguito. Registra l\'ora di ingresso.'
+                    : t('time_modal_early_exit_desc') || 'Lo studente era presente ma Ã¨ uscito prima della fine. Registra l\'ora di uscita.'}
                 </Text>
               </View>
 
@@ -4546,7 +5648,7 @@ const styles = StyleSheet.create({
     marginTop: Platform.OS === 'ios' ? 0 : 12,
   },
   glassBackButton: {
-    
+
     flexDirection: 'row',
     height: 44,
     borderRadius: 14,
@@ -5612,4 +6714,5 @@ const modalStyles = StyleSheet.create({
 });
 
 export default TeacherDashboard;
+
 

@@ -22,6 +22,7 @@ export const DatabaseProvider = ({ children }) => {
   const [noticeReads, setNoticeReads] = useState([]);
   const [schoolCalendar, setSchoolCalendar] = useState([]);
   const [tests, setTests] = useState([]);
+  const [academicYearHistory, setAcademicYearHistory] = useState([]);
   const [migrationRun, setMigrationRun] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -79,14 +80,15 @@ export const DatabaseProvider = ({ children }) => {
       if (user.role === 'admin') {
         const isSuperAdmin = user.email === 'admin@ditari-elektronik.com';
         // Admin needs everything
-        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes, calendarRes] = await Promise.all([
+        const [schoolsRes, profilesRes, classesRes, teacherClassesRes, studentClassesRes, noticesRes, calendarRes, historyRes] = await Promise.all([
           supabase.from('schools').select('*'),
           supabase.from('profiles').select('*'),
           supabase.from('classes').select('*'),
           applyYearFilter(supabase.from('teacher_classes').select('*')),
           applyYearFilter(supabase.from('student_classes').select('*')),
           supabase.from('notices').select('*').order('created_at', { ascending: false }),
-          supabase.from('school_calendar').select('*')
+          applyYearFilter(supabase.from('school_calendar').select('*')),
+          selectedGlobalAcademicYear ? supabase.from('academic_year_history').select('*').eq('academic_year', selectedGlobalAcademicYear) : { data: [] }
         ]);
 
         if (!isSuperAdmin && user.school_id) {
@@ -151,6 +153,7 @@ export const DatabaseProvider = ({ children }) => {
           const mappedClasses = classesRes.data.map(c => ({
             ...c,
             schoolId: c.school_id,
+            coordinatorId: c.coordinator_id,
             teacherIds: [...new Set((teacherClassesRes.data || [])
               .filter(tc => tc.class_id === c.id)
               .map(tc => tc.teacher_id))]
@@ -159,10 +162,26 @@ export const DatabaseProvider = ({ children }) => {
         }
         if (noticesRes.data) setNotices(noticesRes.data);
         if (calendarRes.data) setSchoolCalendar(calendarRes.data);
+        if (historyRes.data) setAcademicYearHistory(historyRes.data);
 
       } else if (user.role === 'mesues') {
         // Teacher data: Fetch classes the teacher belongs to (historical or current)
         const { data: tcData } = await applyYearFilter(supabase.from('teacher_classes').select('*, classes(*)').eq('teacher_id', user.id));
+        // Also fetch classes the teacher coordinates
+        const { data: coordData } = await applyYearFilter(supabase.from('classes').select('*').eq('coordinator_id', user.id));
+
+        // Fetch all teachers in the school to show names in oversight
+        const { data: allTeachersRes } = await supabase.from('profiles').select('*').eq('school_id', user.school_id).eq('role', 'mesues');
+        if (allTeachersRes) {
+          const mappedTeachers = allTeachersRes.map(p => ({
+            ...p,
+            schoolId: p.school_id,
+            name: `${p.first_name} ${p.last_name}`,
+            firstName: p.first_name,
+            lastName: p.last_name
+          }));
+          setTeachers(mappedTeachers);
+        }
 
         let classIds = [];
 
@@ -173,6 +192,7 @@ export const DatabaseProvider = ({ children }) => {
             return {
               ...tcItems[0].classes,
               teacherIds: [tcItems[0].teacher_id],
+              coordinatorId: tcItems[0].classes.coordinator_id,
               subjects: tcItems.map(tc => tc.subject)
             };
           });
@@ -182,7 +202,24 @@ export const DatabaseProvider = ({ children }) => {
           const uniqueSubjects = [...new Set(tcData.map(tc => tc.subject))];
           user.teachingSubjects = uniqueSubjects; // Use teachingSubjects instead of overwriting subjects
 
-          classIds = mappedClasses.map(c => c.id);
+          classIds = [...new Set([
+            ...mappedClasses.map(c => c.id),
+            ...(coordData || []).map(c => c.id)
+          ])];
+
+          // Ensure coordinated classes are also in classes state if not already there
+          if (coordData && coordData.length > 0) {
+            setClasses(prev => {
+              const existingIds = prev.map(c => c.id);
+              const newCoords = coordData.filter(c => !existingIds.includes(c.id)).map(c => ({
+                ...c,
+                teacherIds: [],
+                coordinatorId: c.coordinator_id,
+                subjects: []
+              }));
+              return [...prev, ...newCoords];
+            });
+          }
           if (classIds.length > 0) {
             const { data: scData } = await applyYearFilter(supabase.from('student_classes').select('student_id, class_id').in('class_id', classIds));
             if (scData) {
@@ -213,16 +250,17 @@ export const DatabaseProvider = ({ children }) => {
           }
         }
 
-        const [testsRes, gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, calendarRes, schoolsRes] = await Promise.all([
+        const [testsRes, gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, calendarRes, schoolsRes, historyRes] = await Promise.all([
           classIds.length > 0 ? applyYearFilter(supabase.from('tests').select('*').in('class_id', classIds)) : { data: [] },
-          classIds.length > 0 ? applyYearFilter(supabase.from('grades').select('*').in('class_id', classIds)) : { data: [] },
+          classIds.length > 0 ? applyYearFilter(supabase.from('grades').select('*, profiles!teacher_id(first_name, last_name)').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('lessons').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('attendance').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('homework').select('*').in('class_id', classIds)) : { data: [] },
           classIds.length > 0 ? applyYearFilter(supabase.from('notes').select('*').in('class_id', classIds)) : { data: [] },
           supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
-          supabase.from('school_calendar').select('*').eq('school_id', user.school_id),
-          supabase.from('schools').select('*').eq('id', user.school_id)
+          applyYearFilter(supabase.from('school_calendar').select('*').eq('school_id', user.school_id)),
+          supabase.from('schools').select('*').eq('id', user.school_id),
+          selectedGlobalAcademicYear ? supabase.from('academic_year_history').select('*').eq('school_id', user.school_id).eq('academic_year', selectedGlobalAcademicYear) : { data: [] }
         ]);
 
         if (testsRes.data) setTests(testsRes.data);
@@ -234,6 +272,7 @@ export const DatabaseProvider = ({ children }) => {
         if (noticesRes.data) setNotices(noticesRes.data);
         if (calendarRes.data) setSchoolCalendar(calendarRes.data);
         if (schoolsRes.data) setSchools(schoolsRes.data);
+        if (historyRes.data) setAcademicYearHistory(historyRes.data);
 
         // ── Auto-initialize today's attendance as 'absent' for ALL teacher classes ──
         // Only run for the current year (not archive views) to avoid polluting history.
@@ -264,7 +303,7 @@ export const DatabaseProvider = ({ children }) => {
 
         const classIds = studentClassId ? [studentClassId] : [];
 
-        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes, calendarRes, schoolsRes] = await Promise.all([
+        const [gradesRes, lessonsRes, attendanceRes, homeworkRes, notesRes, noticesRes, noticeReadsRes, testsRes, calendarRes, schoolsRes, historyRes] = await Promise.all([
           applyYearFilter(supabase.from('grades').select('*, profiles!teacher_id(first_name, last_name)').eq('student_id', user.id)),
           classIds.length > 0 ? applyYearFilter(supabase.from('lessons').select('*, profiles(first_name, last_name)').in('class_id', classIds)) : { data: [] },
           applyYearFilter(supabase.from('attendance').select('*').eq('student_id', user.id)),
@@ -273,8 +312,9 @@ export const DatabaseProvider = ({ children }) => {
           supabase.from('notices').select('*').eq('school_id', user.school_id).order('created_at', { ascending: false }),
           supabase.from('notice_reads').select('notice_id').eq('student_id', user.id),
           classIds.length > 0 ? applyYearFilter(supabase.from('tests').select('*, profiles(first_name, last_name)').in('class_id', classIds)) : { data: [] },
-          supabase.from('school_calendar').select('*').eq('school_id', user.school_id),
-          supabase.from('schools').select('*').eq('id', user.school_id)
+          applyYearFilter(supabase.from('school_calendar').select('*').eq('school_id', user.school_id)),
+          supabase.from('schools').select('*').eq('id', user.school_id),
+          selectedGlobalAcademicYear ? supabase.from('academic_year_history').select('*').eq('school_id', user.school_id).eq('academic_year', selectedGlobalAcademicYear) : { data: [] }
         ]);
 
         if (testsRes.data) setTests(testsRes.data);
@@ -287,6 +327,7 @@ export const DatabaseProvider = ({ children }) => {
         if (noticeReadsRes.data) setNoticeReads(noticeReadsRes.data.map(r => r.notice_id));
         if (calendarRes.data) setSchoolCalendar(calendarRes.data);
         if (schoolsRes.data) setSchools(schoolsRes.data);
+        if (historyRes.data) setAcademicYearHistory(historyRes.data);
 
         // ── Auto-initialize today's attendance as 'absent' for the student's class ──
         if (!selectedGlobalAcademicYear && classIds.length > 0) {
@@ -448,8 +489,8 @@ export const DatabaseProvider = ({ children }) => {
     const now = new Date();
     const curYear = now.getFullYear();
     const curMonth = now.getMonth();
-    const currentYearName = curMonth < 7 
-      ? `${curYear - 1}/${curYear}` 
+    const currentYearName = curMonth < 7
+      ? `${curYear - 1}/${curYear}`
       : `${curYear}/${curYear + 1}`;
 
     // map city to address
@@ -540,7 +581,7 @@ export const DatabaseProvider = ({ children }) => {
     // 1. Check if profile already exists for this email
     const { data: existingProfile } = await supabase.from('profiles').select('id, role').eq('email', validEmail).single();
     if (existingProfile) {
-      const errorMsg = existingProfile.role === 'mesues' 
+      const errorMsg = existingProfile.role === 'mesues'
         ? (t('teacher_already_exists') || 'Një mësues me këtë email ekziston tashmë.')
         : (t('email_in_use_by_other_role') || 'Ky email është i zënë nga një llogari tjetër.');
       return { error: { message: errorMsg } };
@@ -601,6 +642,28 @@ export const DatabaseProvider = ({ children }) => {
     return { data, error };
   };
 
+  const updateClassCoordinator = async (classId, teacherId) => {
+    try {
+      const { error } = await supabase
+        .from('classes')
+        .update({ coordinator_id: teacherId })
+        .eq('id', classId);
+
+      if (error) throw error;
+      setClasses(prev => prev.map(c => c.id === classId ? { ...c, coordinatorId: teacherId } : c));
+
+      // Also ensure teacher has is_kujdestar flag
+      if (teacherId) {
+        await updateTeacherKujdestar(teacherId, true);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating class coordinator:', error);
+      return { error };
+    }
+  };
+
   const updateTeacherKujdestar = async (teacherId, value) => {
     const { data, error } = await supabase
       .from('profiles')
@@ -626,12 +689,12 @@ export const DatabaseProvider = ({ children }) => {
       .eq('id', teacherId)
       .select()
       .single();
-      
+
     if (!error && data) {
-      setTeachers(prev => prev.map(t => t.id === teacherId ? { 
-        ...t, 
-        first_name: data.first_name, 
-        last_name: data.last_name, 
+      setTeachers(prev => prev.map(t => t.id === teacherId ? {
+        ...t,
+        first_name: data.first_name,
+        last_name: data.last_name,
         name: `${data.first_name} ${data.last_name}`,
         subjects: data.subjects,
         is_kujdestar: data.is_kujdestar
@@ -761,6 +824,18 @@ export const DatabaseProvider = ({ children }) => {
       setGrades(prev => prev.map(g => g.id === gradeId ? data : g));
     }
     return { data, error };
+  };
+
+  const deleteGrade = async (gradeId) => {
+    try {
+      const { error } = await supabase.from('grades').delete().eq('id', gradeId);
+      if (error) throw error;
+      setGrades(prev => prev.filter(g => g.id !== gradeId));
+      return { success: true };
+    } catch (error) {
+      console.error("Error deleting grade:", error);
+      return { error };
+    }
   };
 
   const addLesson = async (lesson) => {
@@ -981,6 +1056,7 @@ export const DatabaseProvider = ({ children }) => {
 
     // 3. Determine new daily status
     let newDailyStatus = defaultStatus;
+    let dailyTime = '';
 
     const presentHours = Object.keys(statuses).filter(h => statuses[h] === 'present').map(Number);
     const absentHours = Object.keys(statuses).filter(h => statuses[h] === 'absent' || statuses[h].startsWith('absent')).map(Number);
@@ -997,8 +1073,14 @@ export const DatabaseProvider = ({ children }) => {
 
       if (isLate) {
         newDailyStatus = 'late';
+        // Try to find a time from the hourly late records
+        const lateRec = dayRecords.find(r => r.status.startsWith('late:'));
+        if (lateRec) dailyTime = lateRec.status.split(':').slice(1).join(':');
       } else if (isEarlyExit) {
         newDailyStatus = 'early_exit';
+        // Try to find a time from the hourly early_exit records
+        const earlyRec = dayRecords.find(r => r.status.startsWith('early_exit:'));
+        if (earlyRec) dailyTime = earlyRec.status.split(':').slice(1).join(':');
       } else {
         newDailyStatus = 'present';
       }
@@ -1009,6 +1091,8 @@ export const DatabaseProvider = ({ children }) => {
       newDailyStatus = defaultStatus;
     }
 
+    const finalDailyStatus = dailyTime ? `${newDailyStatus}:${dailyTime}` : newDailyStatus;
+
     // 4. Update Database for hour 0
     const student = students.find(s => s.id === studentId);
     const { data: syncData, error: syncError } = await supabase.from('attendance').upsert({
@@ -1017,13 +1101,13 @@ export const DatabaseProvider = ({ children }) => {
       date: date,
       hour: 0,
       term: resolveTermForDate(date),
-      status: newDailyStatus
+      status: finalDailyStatus
     }, { onConflict: 'student_id, class_id, date, hour' }).select().single();
 
     if (!syncError && syncData) {
       setAttendance(prev => {
         const filtered = prev.filter(a =>
-          !((a.student_id === studentId || a.studentId === studentId) && a.date === date && a.hour === 0)
+          !((a.student_id === studentId || a.studentId === studentId) && a.date === date && parseInt(a.hour || 0, 10) === 0)
         );
         return [...filtered, syncData];
       });
@@ -1031,33 +1115,34 @@ export const DatabaseProvider = ({ children }) => {
   };
 
   const toggleAttendance = async (studentId, date, status, hour, time = '') => {
-    // Permission Check: Only the teacher of that specific hour's lesson can edit attendance
-    // EXCEPTION: Hour 0 (Daily Summary) can be edited without a registered lesson
-    if (user.role === 'mesues' && hour !== 0) {
-      const student = students.find(s => s.id === studentId);
-      const studentClassId = student?.classId || student?.class_id;
+    const student = students.find(s => s.id === studentId);
+    const studentClassId = student?.classId || student?.class_id;
+    let subjectToStore = null;
 
+    // Determine subject for hourly absences (hour != 0)
+    if (hour !== 0 && hour !== '0') {
       const lesson = lessons.find(l =>
         (l.class_id === studentClassId) &&
         l.date === date &&
         l.topic?.includes(`[Ora ${hour}]`)
       );
 
-      if (!lesson) {
+      if (lesson) {
+        subjectToStore = lesson.subject;
+        // Permission Check: Only the teacher of that specific hour's lesson can edit attendance
+        if (user.role === 'mesues' && lesson.teacher_id !== user.id) {
+          return { error: { message: "Nuk keni leje të ndryshoni prezencën për këtë orë, pasi nuk jeni profesori i kësaj lënde." } };
+        }
+      } else if (user.role === 'mesues') {
         return { error: { message: `Nuk ka asnjë orë të regjistruar për orën ${hour}. Ju lutem regjistroni orën në axhendë më parë.` } };
-      }
-
-      if (lesson.teacher_id !== user.id) {
-        return { error: { message: "Nuk keni leje të ndryshoni prezencën për këtë orë, pasi nuk jeni profesori i kësaj lënde." } };
       }
     }
 
     const finalStatus = time ? `${status}:${time}` : status;
     // Upsert attendance including hour in conflict resolution
-    const student = students.find(s => s.id === studentId);
     const { data, error } = await supabase.from('attendance').upsert({
       student_id: studentId,
-      class_id: student?.classId || student?.class_id,
+      class_id: studentClassId,
       date: date,
       hour: hour,
       term: resolveTermForDate(date),
@@ -1067,7 +1152,7 @@ export const DatabaseProvider = ({ children }) => {
 
     if (!error && data) {
       const currentFiltered = attendance.filter(a =>
-        !((a.student_id === studentId || a.studentId === studentId) && a.date === date && a.hour === hour)
+        !((a.student_id === studentId || a.studentId === studentId) && a.date === date && parseInt(a.hour || 0, 10) === parseInt(hour || 0, 10))
       );
       const updatedList = [...currentFiltered, data];
       setAttendance(updatedList);
@@ -1094,9 +1179,9 @@ export const DatabaseProvider = ({ children }) => {
     const updates = recordsToUpdate.map(record => {
       const currentStatus = record.status || 'absent';
       const typePart = currentStatus.split(':')[0];
-      const timePart = (currentStatus.includes(':') && !['justified', 'unjustified'].includes(currentStatus.split(':')[1]))
-        ? currentStatus.split(':')[1]
-        : '';
+      // Extract full time (HH:mm) if present
+      const timeMatch = currentStatus.match(/(\d{1,2}:\d{2})/);
+      const timePart = timeMatch ? timeMatch[1] : '';
 
       let newStatus = `${typePart}:justified:${reason}`;
       if (timePart) newStatus = `${typePart}:${timePart}:justified:${reason}`;
@@ -1117,6 +1202,50 @@ export const DatabaseProvider = ({ children }) => {
     }
 
     // Update local state
+    setAttendance(prev => prev.map(a => {
+      const updateObj = updates.find(u => u.id === a.id);
+      if (updateObj) return { ...a, status: updateObj.status };
+      return a;
+    }));
+
+    return { success: true };
+  };
+
+  const unjustifyAttendance = async (studentId, date) => {
+    // Find all justified records for this student on this date
+    const recordsToUpdate = attendance.filter(a =>
+      (a.student_id === studentId || a.studentId === studentId) &&
+      a.date === date &&
+      a.status.includes('justified')
+    );
+
+    if (recordsToUpdate.length === 0) return { error: { message: "Asnjë mungesë e arsyetuar nuk u gjet." } };
+
+    const updates = recordsToUpdate.map(record => {
+      const currentStatus = record.status || '';
+      const parts = currentStatus.split(':');
+      // Reconstruct original status by removing 'justified' and 'reason'
+      // TYPE:justified:REASON -> TYPE
+      // TYPE:TIME:justified:REASON -> TYPE:TIME
+      const justifiedIdx = parts.indexOf('justified');
+      const originalParts = parts.slice(0, justifiedIdx);
+      const newStatus = originalParts.join(':');
+
+      return { id: record.id, status: newStatus };
+    });
+
+    const updatePromises = updates.map(u =>
+      supabase.from('attendance').update({ status: u.status }).eq('id', u.id).select().single()
+    );
+
+    const results = await Promise.allSettled(updatePromises);
+    const hasError = results.some(r => r.status === 'rejected' || (r.value && r.value.error));
+
+    if (hasError) {
+      console.error("Some records failed to update in backend:", results);
+      return { error: { message: "Gabim gjatë heqjes së arsyetimit." } };
+    }
+
     setAttendance(prev => prev.map(a => {
       const updateObj = updates.find(u => u.id === a.id);
       if (updateObj) return { ...a, status: updateObj.status };
@@ -1348,6 +1477,7 @@ export const DatabaseProvider = ({ children }) => {
           supabase.from('homework').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('notes').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
           supabase.from('tests').update({ academic_year: yearName }).in('class_id', schoolClassIds).is('academic_year', null),
+          supabase.from('school_calendar').update({ academic_year: yearName }).eq('school_id', schoolId).is('academic_year', null),
         ]);
 
         // 2. Snapshot memberships: Copy CURRENT associations to the archive
@@ -1368,14 +1498,25 @@ export const DatabaseProvider = ({ children }) => {
           archivePromises.push(supabase.from('student_classes').insert(scArchive));
         }
 
-        // 3. Archive School Year Dates as special calendar events
+        // 3. Archive School Year Dates to academic_year_history
         const matchedSchool = schools.find(s => s.id === schoolId);
-        if (matchedSchool?.school_year_start && matchedSchool?.school_year_end) {
-          const events = [
-            { school_id: schoolId, date: matchedSchool.school_year_start, event_name: `Fillimi i Vitit ${yearName}`, type: 'holiday' },
-            { school_id: schoolId, date: matchedSchool.school_year_end, event_name: `Mbarimi i Vitit ${yearName}`, type: 'holiday' }
-          ];
-          archivePromises.push(supabase.from('school_calendar').insert(events));
+        if (matchedSchool) {
+          const historyEntry = {
+            school_id: schoolId,
+            academic_year: yearName,
+            school_year_start: matchedSchool.school_year_start,
+            school_year_end: matchedSchool.school_year_end,
+            term_two_start_date: matchedSchool.term_two_start_date
+          };
+          archivePromises.push(supabase.from('academic_year_history').insert([historyEntry]));
+
+          if (matchedSchool.school_year_start && matchedSchool.school_year_end) {
+            const events = [
+              { school_id: schoolId, date: matchedSchool.school_year_start, event_name: `Fillimi i Vitit ${yearName}`, type: 'holiday', academic_year: yearName },
+              { school_id: schoolId, date: matchedSchool.school_year_end, event_name: `Mbarimi i Vitit ${yearName}`, type: 'holiday', academic_year: yearName }
+            ];
+            archivePromises.push(supabase.from('school_calendar').insert(events));
+          }
         }
 
         if (archivePromises.length > 0) {
@@ -1395,7 +1536,9 @@ export const DatabaseProvider = ({ children }) => {
       const { error: schoolError } = await supabase.from('schools').update({
         current_year: nextYearName,
         current_term: 1,
-        term_two_start_date: null
+        term_two_start_date: null,
+        school_year_start: null,
+        school_year_end: null
       }).eq('id', schoolId);
 
       if (schoolError) throw schoolError;
@@ -1853,8 +1996,8 @@ export const DatabaseProvider = ({ children }) => {
       console.log(`[deleteAllData] STARTING Global System Reset by SuperAdmin=${user?.id}`);
 
       // 1. Attempt to use the high-performance RPC function (Created via SQL script)
-      const { error: rpcError } = await supabase.rpc('nuke_all_data', { 
-        admin_id_to_keep: user.id 
+      const { error: rpcError } = await supabase.rpc('nuke_all_data', {
+        admin_id_to_keep: user.id
       });
 
       if (!rpcError) {
@@ -1918,13 +2061,13 @@ export const DatabaseProvider = ({ children }) => {
   const value = {
     schools, teachers, schoolAdmins, classes, students, grades, lessons, attendance, homework, notes, notices, noticeReads, tests, loading,
     currentTerm, selectedGlobalAcademicYear, availableAcademicYears, changeAcademicYear,
-    addSchool, addClass, addTeacher, addStudent, addGrade, addLesson, updateLesson, deleteLesson, addHomework, addNote, addNotice, addTest, deleteTest, toggleAttendance, justifyAttendance,
-    activateProfile, updateClassTeachers, assignStudentToClass, initializeDailyAttendance,
+    addSchool, addClass, updateClassCoordinator, addTeacher, addStudent, addGrade, addLesson, updateLesson, deleteLesson, addHomework, addNote, addNotice, addTest, deleteTest, toggleAttendance, justifyAttendance, unjustifyAttendance,
+    activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, bulkPromoteStudents, deleteNotice, markNoticeRead, updateGrade,
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, bulkPromoteStudents, deleteNotice, markNoticeRead, updateGrade, deleteGrade,
     uploadFile, updateCurrentTerm, updateSchoolDates, updateTermStartDate, updateSchoolStatus, deleteAllData,
     schoolCalendar, addCalendarEvent, addCalendarEvents, deleteCalendarEvent,
-    refreshData, updateTeacherKujdestar, updateTeacher
+    refreshData, updateTeacherKujdestar, updateTeacher, academicYearHistory
   };
 
   return (

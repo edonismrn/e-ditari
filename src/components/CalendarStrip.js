@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, Dimensions, Platform } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { getDayName, getMonthName } from '../utils/dateUtils';
+import { getDayName, getMonthName, formatDate } from '../utils/dateUtils';
 import { useLanguage } from '../context/LanguageContext';
 
 const { width } = Dimensions.get('window');
@@ -9,12 +9,12 @@ const ITEM_WIDTH = 48;
 const ITEM_MARGIN = 14;
 const TOTAL_ITEM_WIDTH = ITEM_WIDTH + ITEM_MARGIN;
 
-const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndDate }) => {
+const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndDate, schoolCalendar }) => {
   const { t } = useLanguage();
-  const days = t('days');
-  const full_days = t('full_days');
-  const months = t('months');
-  const full_months = t('full_months');
+  const days = t("days");
+  const full_days = t("full_days");
+  const months = t("months");
+  const full_months = t("full_months");
   const flatListRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [visibleDate, setVisibleDate] = useState(selectedDate);
@@ -29,27 +29,27 @@ const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndD
     }
   }).current;
 
-  // Generate school year dates: Sept 1 to Jun 30 (or custom from school profile)
   // Generate school year dates
   const dates = useMemo(() => {
     let startDate, endDate;
 
     if (schoolStartDate && schoolEndDate) {
-      const sParts = schoolStartDate.split('-');
-      const eParts = schoolEndDate.split('-');
+      const sParts = schoolStartDate.split("-");
+      const eParts = schoolEndDate.split("-");
       if (sParts.length === 3 && eParts.length === 3) {
-        startDate = new Date(parseInt(sParts[0]), parseInt(sParts[1]) - 1, parseInt(sParts[2]), 0, 0, 0);
-        endDate = new Date(parseInt(eParts[0]), parseInt(eParts[1]) - 1, parseInt(eParts[2]), 23, 59, 59);
+        // Use NOON (12:00:00) for all dates to avoid DST/Timezone midnight shifts
+        startDate = new Date(parseInt(sParts[0]), parseInt(sParts[1]) - 1, parseInt(sParts[2]), 12, 0, 0);
+        endDate = new Date(parseInt(eParts[0]), parseInt(eParts[1]) - 1, parseInt(eParts[2]), 12, 0, 0);
       } else {
         startDate = new Date(schoolStartDate);
         endDate = new Date(schoolEndDate);
-        startDate.setHours(0,0,0,0);
-        endDate.setHours(23,59,59,999);
+        startDate.setHours(12, 0, 0, 0);
+        endDate.setHours(12, 0, 0, 0);
       }
     } else {
       const today = new Date();
-      startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
-      endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+      startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
+      endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
     }
 
     const dateArray = [];
@@ -87,32 +87,49 @@ const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndD
     index,
   });
 
-  const renderItem = ({ item }) => {
+  const renderItem = ({ item, index }) => {
     const isSelected = item.toDateString() === selectedDate.toDateString();
+    
+    // Holiday check
+    const dateStr = formatDate(item);
+    const calendarEvent = (schoolCalendar || []).find(e => e.date === dateStr);
+    
+    const isHoliday = calendarEvent?.type === "holiday";
+    const isWorkDayOverride = calendarEvent?.type === "work_day";
     const isWeekend = item.getDay() === 0 || item.getDay() === 6;
     
-    // Alternate month backgrounds (light gray vs dark blue)
-    const isAlternateMonth = item.getMonth() % 2 === 0;
-    const monthBg = isAlternateMonth ? '#93c5fd' : '#f1f5f9';
+    const isRedDay = (isWeekend && !isWorkDayOverride) || isHoliday;
+    
+    // Month separator check
+    const nextDay = dates[index + 1];
+    const isEndOfMonth = nextDay && nextDay.getMonth() !== item.getMonth();
 
     return (
-      <View style={{ width: TOTAL_ITEM_WIDTH, backgroundColor: monthBg, paddingVertical: 14, alignItems: 'center' }}>
-        <TouchableOpacity 
-          style={[
-            styles.dateCard, 
-            { marginRight: 0 }, // Center safely inside the uniform 62px width
-            isSelected && styles.selectedCard,
-            isWeekend && !isSelected && styles.weekendCard
-          ]}
-          onPress={() => onDateSelect(item)}
-        >
-          <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.dayName, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
-            {getDayName(item, full_days || days)}
-          </Text>
-          <Text style={[styles.dateNumber, isSelected && styles.selectedText, isWeekend && !isSelected && styles.weekendText]}>
-            {item.getDate()}
-          </Text>
-        </TouchableOpacity>
+      <View style={{ 
+        flexDirection: "row", 
+        alignItems: "center",
+        borderRightWidth: isEndOfMonth ? 2 : 0,
+        borderRightColor: isEndOfMonth ? "#94a3b8" : "transparent",
+        backgroundColor: "transparent"
+      }}>
+        <View style={{ width: TOTAL_ITEM_WIDTH, paddingVertical: 14, alignItems: "center" }}>
+          <TouchableOpacity 
+            style={[
+              styles.dateCard, 
+              { marginRight: 0 },
+              isSelected && styles.selectedCard,
+              isRedDay && !isSelected && styles.weekendCard
+            ]}
+            onPress={() => onDateSelect(item)}
+          >
+            <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.dayName, isSelected && styles.selectedText, isRedDay && !isSelected && styles.weekendText]}>
+              {getDayName(item, full_days || days)}
+            </Text>
+            <Text style={[styles.dateNumber, isSelected && styles.selectedText, isRedDay && !isSelected && styles.weekendText]}>
+              {item.getDate()}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -197,11 +214,9 @@ const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndD
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 16,
-    paddingBottom: 4,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    paddingTop: 12,
+    paddingBottom: 0,
+    backgroundColor: 'transparent',
   },
   navRow: {
     flexDirection: 'row',
@@ -215,11 +230,11 @@ const styles = StyleSheet.create({
     width: ITEM_WIDTH,
     height: 60,
     borderRadius: 14,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
     marginRight: ITEM_MARGIN,
   },
   selectedCard: {
@@ -232,8 +247,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   weekendCard: {
-    backgroundColor: '#fef2f2',
-    borderColor: '#fee2e2',
+    backgroundColor: '#e2e8f0',
+    borderColor: '#cbd5e1',
   },
   dayName: {
     fontSize: 10,
@@ -258,13 +273,13 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   weekendText: {
-    color: '#ef4444',
+    color: '#94a3b8',
   },
   navButton: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

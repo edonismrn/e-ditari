@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { School, Mail, Lock, LogIn, ArrowLeft, Languages, CheckCircle, XCircle, X } from 'lucide-react-native';
+import { School, Mail, Lock, LogIn, ArrowLeft, Languages, CheckCircle, XCircle, X, Eye, EyeOff } from 'lucide-react-native';
 import { Modal } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -23,6 +23,8 @@ const LoginScreen = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Password Reset State
   const { resetPassword, updatePassword, isPasswordRecovery, verifyResetOtp } = useAuth();
@@ -165,8 +167,14 @@ const LoginScreen = ({ onLogin }) => {
                   style={styles.input}
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                 />
+                <TouchableOpacity 
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={{ padding: 8 }}
+                >
+                  {showPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -224,8 +232,14 @@ const LoginScreen = ({ onLogin }) => {
                       style={styles.input}
                       value={newPassword}
                       onChangeText={setNewPassword}
-                      secureTextEntry
+                      secureTextEntry={!showNewPassword}
                     />
+                    <TouchableOpacity 
+                      onPress={() => setShowNewPassword(!showNewPassword)}
+                      style={{ padding: 8 }}
+                    >
+                      {showNewPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
+                    </TouchableOpacity>
                   </View>
                 </View>
 
@@ -237,7 +251,7 @@ const LoginScreen = ({ onLogin }) => {
                       style={styles.input}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      secureTextEntry
+                      secureTextEntry={!showNewPassword}
                     />
                   </View>
                 </View>

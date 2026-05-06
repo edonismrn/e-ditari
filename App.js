@@ -25,14 +25,14 @@ function AppContent() {
     addGrade, addLesson, updateLesson, deleteLesson, toggleAttendance, addHomework, addNote, addNotice,
     activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, deleteNotice, updateGrade,
-    justifyAttendance,
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, deleteNotice, updateGrade, deleteGrade,
+    justifyAttendance, unjustifyAttendance,
     markNoticeRead, noticeReads, uploadFile, deleteAllData, updateSchoolStatus, addTest, deleteTest, tests, updateCurrentTerm, updateTermStartDate,
     schoolCalendar, updateSchoolDates, addCalendarEvent, addCalendarEvents, deleteCalendarEvent,
     loading: dataLoading,
     refreshData, bulkPromoteStudents, currentTerm,
     availableAcademicYears, selectedGlobalAcademicYear, changeAcademicYear,
-    updateTeacherKujdestar, updateTeacher
+    updateTeacherKujdestar, updateTeacher, academicYearHistory, updateClassCoordinator
   } = useDatabase();
   const { t } = useLanguage();
   const { showAlert } = useAlert();
@@ -151,8 +151,10 @@ function AppContent() {
           onAddCalendarEvent={addCalendarEvent}
           onAddCalendarEvents={addCalendarEvents}
           onDeleteCalendarEvent={deleteCalendarEvent}
+          onUpdateClassCoordinator={updateClassCoordinator}
           onUpdateTeacherKujdestar={updateTeacherKujdestar}
           onUpdateTeacher={updateTeacher}
+          academicYearHistory={academicYearHistory}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -184,13 +186,17 @@ function AppContent() {
           onDeleteLesson={deleteLesson}
           onToggleAttendance={toggleAttendance}
           onJustifyAttendance={justifyAttendance}
+          onUnjustifyAttendance={unjustifyAttendance}
           onAddHomework={addHomework}
           onAddNote={addNote}
           onAddTest={addTest}
           onDeleteTest={deleteTest}
+          onDeleteGrade={deleteGrade}
           onRefresh={refreshData}
           schoolCalendar={schoolCalendar}
           schools={schools}
+          teachers={teachers}
+          academicYearHistory={academicYearHistory}
         />
         <StatusBar barStyle="dark-content" />
       </View>
@@ -220,6 +226,7 @@ function AppContent() {
           onRefresh={refreshData}
           currentTerm={currentTerm}
           schoolCalendar={schoolCalendar}
+          academicYearHistory={academicYearHistory}
         />
         <StatusBar barStyle="dark-content" />
       </View>

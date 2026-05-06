@@ -6,12 +6,27 @@ import { useAlert } from '../context/AlertContext';
 const { width } = Dimensions.get('window');
 
 const StylishAlert = () => {
-  const { alertConfig, hideAlert } = useAlert();
-  const { visible, message, type, title } = alertConfig;
+  const { alertConfig, hideAlert, confirmConfig, hideConfirm } = useAlert();
+  const { visible: alertVisible, message: alertMessage, type, title: alertTitle } = alertConfig;
+  const { visible: confirmVisible, message: confirmMessage, title: confirmTitle, onConfirm, onCancel, confirmText, cancelText } = confirmConfig;
 
-  if (!visible && message === '') return null;
+  const isAlert = alertVisible;
+  const isConfirm = confirmVisible;
+  const visible = isAlert || isConfirm;
+
+  if (!visible) return null;
+
+  const message = isAlert ? alertMessage : confirmMessage;
+  const title = isAlert ? alertTitle : confirmTitle;
 
   const getTheme = () => {
+    if (isConfirm) {
+      return {
+        color: '#4f46e5',
+        bg: '#eef2ff',
+        icon: Info
+      };
+    }
     switch (type) {
       case 'success':
         return {
@@ -38,6 +53,16 @@ const StylishAlert = () => {
   const theme = getTheme();
   const Icon = theme.icon;
 
+  const handleConfirm = () => {
+    onConfirm();
+    hideConfirm();
+  };
+
+  const handleCancel = () => {
+    onCancel();
+    hideConfirm();
+  };
+
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay}>
@@ -49,12 +74,29 @@ const StylishAlert = () => {
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           
-          <TouchableOpacity 
-            style={[styles.button, { backgroundColor: theme.color }]} 
-            onPress={hideAlert}
-          >
-            <Text style={styles.buttonText}>Në rregull</Text>
-          </TouchableOpacity>
+          {isAlert ? (
+            <TouchableOpacity 
+              style={[styles.button, { backgroundColor: theme.color }]} 
+              onPress={hideAlert}
+            >
+              <Text style={styles.buttonText}>Në rregull</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.buttonRow}>
+              <TouchableOpacity 
+                style={[styles.halfButton, { backgroundColor: '#f1f5f9' }]} 
+                onPress={handleCancel}
+              >
+                <Text style={[styles.buttonText, { color: '#64748b' }]}>{cancelText}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.halfButton, { backgroundColor: theme.color }]} 
+                onPress={handleConfirm}
+              >
+                <Text style={styles.buttonText}>{confirmText}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -113,6 +155,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 2,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  halfButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
   },
   buttonText: {
     color: 'white',

@@ -10,6 +10,16 @@ export const AlertProvider = ({ children }) => {
     title: ''
   });
 
+  const [confirmConfig, setConfirmConfig] = useState({
+    visible: false,
+    message: '',
+    title: '',
+    onConfirm: () => {},
+    onCancel: () => {},
+    confirmText: 'Po',
+    cancelText: 'Jo'
+  });
+
   const showAlert = useCallback((message, type = 'error', title = null) => {
     setAlertConfig({
       visible: true,
@@ -23,8 +33,31 @@ export const AlertProvider = ({ children }) => {
     setAlertConfig(prev => ({ ...prev, visible: false }));
   }, []);
 
+  const showConfirm = useCallback((message, onConfirm, title = 'Konfirmim', confirmText = 'Po', cancelText = 'Jo', onCancel = null) => {
+    setConfirmConfig({
+      visible: true,
+      message,
+      title,
+      onConfirm,
+      onCancel: onCancel || (() => {}),
+      confirmText,
+      cancelText
+    });
+  }, []);
+
+  const hideConfirm = useCallback(() => {
+    setConfirmConfig(prev => ({ ...prev, visible: false }));
+  }, []);
+
   return (
-    <AlertContext.Provider value={{ showAlert, hideAlert, alertConfig }}>
+    <AlertContext.Provider value={{ 
+      showAlert, 
+      hideAlert, 
+      alertConfig,
+      showConfirm,
+      hideConfirm,
+      confirmConfig
+    }}>
       {children}
     </AlertContext.Provider>
   );
