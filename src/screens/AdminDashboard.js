@@ -890,10 +890,21 @@ const AdminDashboard = ({
       return (
         <View style={styles.viewContainer}>
           <View style={styles.navigationHeader}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
-              <ArrowLeft size={18} color="#1e293b" />
-              {isDesktop && <Text style={styles.backButtonText}>{t('back')}</Text>}
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+                <ArrowLeft size={18} color="#1e293b" />
+                {isDesktop && <Text style={styles.backButtonText}>{t('back')}</Text>}
+              </TouchableOpacity>
+              {isSuperAdmin && !isClassesOnly && (
+                <TouchableOpacity
+                  style={styles.smallAddButton}
+                  onPress={() => setIsSchoolModalVisible(true)}
+                >
+                  <Plus size={18} color="white" />
+                  <Text style={styles.smallAddButtonText}>{t('add_new_school')}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           <View style={styles.searchBarContainer}>
@@ -2037,6 +2048,52 @@ const AdminDashboard = ({
   };
 
   const renderSchoolYearMgmt = () => {
+    const activeSchoolId = isSuperAdmin ? selectedCalendarSchool : user.school_id;
+    const currentSchool = schools.find(s => s.id === activeSchoolId);
+    const archivedYear = selectedGlobalAcademicYear ? academicYearHistory?.find(h => h.academic_year === selectedGlobalAcademicYear) : null;
+
+    if (isSuperAdmin && !selectedCalendarSchool) {
+      return (
+        <View style={styles.viewContainer}>
+          <View style={styles.navigationHeader}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setNavigation({ view: 'home', data: null })}>
+              <ArrowLeft size={18} color="#1e293b" />
+              {isDesktop && <Text style={styles.backButtonText}>{t('back')}</Text>}
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.scrollContent} contentContainerStyle={{ padding: 20 }}>
+            <View style={{ marginBottom: 32, alignItems: 'center', marginTop: 20 }}>
+              <View style={{ width: 80, height: 80, borderRadius: 28, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                <Building2 size={40} color="#2563eb" />
+              </View>
+              <Text style={{ fontSize: 24, fontWeight: '900', color: '#0f172a', textAlign: 'center' }}>{t('select_school_first')}</Text>
+              <Text style={{ fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 8 }}>{t('select_school_to_manage_year') || 'Zgjidhni një shkollë për të menaxhuar vitin shkollor'}</Text>
+            </View>
+            <View style={{ gap: 16 }}>
+              {schools.map(s => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.card, { padding: 20, marginBottom: 0, flexDirection: 'row', alignItems: 'center', borderRadius: 24, borderWidth: 1, borderColor: '#f1f5f9' }]}
+                  onPress={() => {
+                    setSelectedCalendarSchool(s.id);
+                  }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <School size={24} color="#64748b" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 17, fontWeight: '800', color: '#1e293b' }}>{s.name}</Text>
+                    <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2, fontWeight: '600' }}>{s.city}</Text>
+                  </View>
+                  <ChevronRight size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      );
+    }
+
     if (schoolYearSubTab === 'end' && selectedPromotionClassId !== null && selectedPromotionClassId !== -1) {
       const filteredClasses = (classes || []).filter(c => c.school_id === activeSchoolId);
       const selectedClass = filteredClasses.find(c => c.id === selectedPromotionClassId);
