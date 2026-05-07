@@ -2,6 +2,7 @@ export const translations = {
   sq: {
     // Login Screen
     welcome_title: "e-ditari",
+
     welcome_subtitle: "Mirësevini në portalin tuaj arsimor",
     teacher: "Mësues",
     student: 'Nxënësi',
@@ -177,6 +178,7 @@ export const translations = {
 
     // Admin Dashboard
     welcome_admin: "Mirësevini, Admin!",
+    select_school_to_manage_year: "Zgjidh Shkollën",
     admin_subtitle: "Zgjidhni një veprim për të filluar menaxhimin.",
     manage_schools: "Menaxho Shkollat",
     manage_teachers: "Menaxho Mësuesit",
