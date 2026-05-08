@@ -1798,13 +1798,79 @@ export const DatabaseProvider = ({ children }) => {
     }
   };
 
-  const markNoticeRead = async (noticeId) => {
-    if (noticeReads.includes(noticeId)) return;
+  const updateNotice = async (id, updates) => {
     try {
-      await supabase.from('notice_reads').upsert({ notice_id: noticeId, student_id: user.id }, { onConflict: 'notice_id,student_id' });
-      setNoticeReads(prev => [...prev, noticeId]);
+      const noticeToUpdate = notices.find(n => n.id === id);
+      if (!noticeToUpdate) return { error: { message: "Njoftimi nuk u gjet në memorje." } };
+
+      const { batch_id, title, message, attachment_url, created_at } = noticeToUpdate;
+      
+      const payload = {
+        title: updates.title,
+        message: updates.message,
+        attachment_url: updates.attachmentUrl || null
+      };
+
+      // 1. Update the primary record first using the simplest possible filter (ID)
+      // This is the most likely to succeed under strict RLS policies.
+      const { data: primaryData, error: primaryError } = await supabase.from('notices')
+        .update(payload)
+        .eq('id', id)
+        .select();
+
+      if (primaryError) throw primaryError;
+      
+      if (!primaryData || primaryData.length === 0) {
+        throw new Error("Përditësimi dështoi: Nuk keni leje për të modifikuar këtë njoftim.");
+      }
+
+      // 2. Update the rest of the batch/similar notices in the background
+      if (batch_id) {
+        await supabase.from('notices').update(payload).eq('batch_id', batch_id);
+      } else {
+        // Fallback for legacy notices: match by content
+        await supabase.from('notices').update(payload)
+          .eq('title', title)
+          .eq('message', message)
+          .eq('created_at', created_at);
+      }
+
+      // 3. Update local state for all relevant notices
+      setNotices(prev => prev.map(n => {
+        const isBatchMatch = batch_id && n.batch_id === batch_id;
+        const isContentMatch = !batch_id && (n.title === title && n.message === message && n.created_at === created_at);
+        
+        return (n.id === id || isBatchMatch || isContentMatch) ? { ...n, ...payload } : n;
+      }));
+
+      return { success: true };
     } catch (error) {
-      console.error('Error marking notice read:', error);
+      console.error('Error updating notice:', error);
+      return { error };
+    }
+  };
+
+  const markNoticeRead = async (noticeId) => {
+    if (!user || !user.id || noticeReads.includes(noticeId)) return;
+    
+    // Update local state immediately for better UX
+    setNoticeReads(prev => [...prev, noticeId]);
+
+    try {
+      const { error } = await supabase
+        .from('notice_reads')
+        .insert({ notice_id: noticeId, student_id: user.id });
+
+      if (error) {
+        // If it's a duplicate key error (code 23505), we can safely ignore it as the notice is already marked read
+        if (error.code === '23505') {
+          console.log('Notice already marked as read in DB.');
+        } else {
+          console.error('Error marking notice read in DB:', error.message);
+        }
+      }
+    } catch (err) {
+      console.error('Unexpected error marking notice read:', err);
     }
   };
 
@@ -2064,7 +2130,7 @@ export const DatabaseProvider = ({ children }) => {
     addSchool, addClass, updateClassCoordinator, addTeacher, addStudent, addGrade, addLesson, updateLesson, deleteLesson, addHomework, addNote, addNotice, addTest, deleteTest, toggleAttendance, justifyAttendance, unjustifyAttendance,
     activateProfile, updateClassTeachers, assignStudentToClass,
     deleteSchool, deleteClass, removeTeacherFromClass, removeStudentFromClass,
-    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, bulkPromoteStudents, deleteNotice, markNoticeRead, updateGrade, deleteGrade,
+    deleteTeacher, deleteStudent, archiveCurrentYear, promoteStudents, promoteStudentToClass, bulkPromoteStudents, deleteNotice, updateNotice, markNoticeRead, updateGrade, deleteGrade,
     uploadFile, updateCurrentTerm, updateSchoolDates, updateTermStartDate, updateSchoolStatus, deleteAllData,
     schoolCalendar, addCalendarEvent, addCalendarEvents, deleteCalendarEvent,
     refreshData, updateTeacherKujdestar, updateTeacher, academicYearHistory

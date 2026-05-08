@@ -123,7 +123,8 @@ const CalendarStrip = ({ selectedDate, onDateSelect, schoolStartDate, schoolEndD
             onPress={() => onDateSelect(item)}
           >
             <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.dayName, isSelected && styles.selectedText, isRedDay && !isSelected && styles.weekendText]}>
-              {getDayName(item, full_days || days)}
+              {getDayName(item, days)}
+
             </Text>
             <Text style={[styles.dateNumber, isSelected && styles.selectedText, isRedDay && !isSelected && styles.weekendText]}>
               {item.getDate()}

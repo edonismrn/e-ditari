@@ -12,12 +12,13 @@ import {
   Platform,
   RefreshControl,
   Modal,
-  TextInput,
-  Linking
+  Linking,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatClassName } from '../utils/stringUtils';
 import Svg, { Circle } from 'react-native-svg';
+import { WebView } from 'react-native-webview';
 import {
   Home,
   Book,
@@ -36,6 +37,7 @@ import {
   Link,
   X,
   ArrowLeft,
+  Eye,
 } from 'lucide-react-native';
 import CalendarStrip from '../components/CalendarStrip';
 import { useLanguage } from '../context/LanguageContext';
@@ -149,16 +151,11 @@ const StudentDashboard = ({
       throw err;
     }
   };
-  const [gradeSemester, setGradeSemester] = React.useState(currentTerm || 0); // Default to currentTerm
-
-  // Update gradeSemester when currentTerm changes (on login/refresh)
-  React.useEffect(() => {
-    if (currentTerm && gradeSemester === 0) {
-      setGradeSemester(currentTerm);
-    }
-  }, [currentTerm]);
+  const [gradeSemester, setGradeSemester] = React.useState(0); // Default to 'All'
   const [selectedSubject, setSelectedSubject] = React.useState(null);
   const [selectedNotice, setSelectedNotice] = React.useState(null);
+  const [showFullScreenPreview, setShowFullScreenPreview] = React.useState(false);
+  const [previewData, setPreviewData] = React.useState(null);
   const [refreshing, setRefreshing] = React.useState(false);
 
   // Global Academic Year context applied to all props by DatabaseContext
@@ -444,7 +441,7 @@ const StudentDashboard = ({
                     <AlertTriangle size={18} color="#f59e0b" />
                   </View>
                   <Text style={[styles.hBarValue, { color: '#f59e0b', fontSize: 26, marginBottom: 2 }]}>{unjustifiedCount}</Text>
-                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('to_justify') || "Për t'u arsyetuar"}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('to_justify')}</Text>
                 </View>
 
                 {/* Lates */}
@@ -518,7 +515,7 @@ const StudentDashboard = ({
                   {item.subject ? <Text style={styles.attendanceSubject}>{t(item.subject)}</Text> : null}
                   {(item.description || extractedReason || !isJustified) ? (
                     <Text style={{ fontSize: 13, color: isJustified ? '#059669' : '#ef4444', fontStyle: 'italic', marginTop: 4 }}>
-                      {isJustified ? `"${item.description || extractedReason}"` : t('unjustified') || 'Senza giustificazione'}
+                      {isJustified ? `"${item.description || extractedReason}"` : t('unjustified')}
                     </Text>
                   ) : null}
                 </View>
@@ -538,6 +535,65 @@ const StudentDashboard = ({
           )}
         />
       </View>
+    );
+  };
+
+  const NoticePreviewModal = () => {
+    if (!showFullScreenPreview || !previewData) return null;
+    
+    const { url, title } = previewData;
+    const ext = url.split('.').pop().split('?')[0]?.toLowerCase() || '';
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+    const fileName = `${title.replace(/[^a-z0-9]/gi, '_')}.${ext}`;
+
+    return (
+      <Modal visible={showFullScreenPreview} animationType="slide" transparent={false}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
+          <View style={{ 
+            height: 60, 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            paddingHorizontal: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: '#262626'
+          }}>
+            <TouchableOpacity onPress={() => setShowFullScreenPreview(false)} style={{ padding: 8 }}>
+              <ArrowLeft size={24} color="white" />
+            </TouchableOpacity>
+            
+            <Text style={{ color: 'white', fontWeight: '800', fontSize: 16, flex: 1, textAlign: 'center' }} numberOfLines={1}>
+              {title}
+            </Text>
+
+            <TouchableOpacity onPress={() => downloadFile(url, fileName)} style={{ padding: 8 }}>
+              <Download size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            {isImage ? (
+              <Image 
+                source={{ uri: url }} 
+                style={{ width: '100%', height: '100%' }} 
+                resizeMode="contain" 
+              />
+            ) : Platform.OS === 'web' ? (
+              <iframe 
+                src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
+                style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'white' }}
+              />
+            ) : (
+              <WebView 
+                source={{ uri: `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true` }}
+                style={{ width: windowWidth, height: '100%' }}
+                originWhitelist={['*']}
+                scalesPageToFit={true}
+              />
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
     );
   };
 
@@ -602,10 +658,10 @@ const StudentDashboard = ({
           }[statusKey] || '?';
 
           const statusLabels = {
-            absent: t('absent') || "Mungesë",
-            late: t('late_entry') || "Vonesë",
-            early_exit: t('early_exit') || "Largim",
-            present: t('present') || "Prezent"
+            absent: t('absent'),
+            late: t('late_entry'),
+            early_exit: t('early_exit'),
+            present: t('present')
           };
 
           const displayStatus = statusLabels[statusKey] || statusKey;
@@ -662,7 +718,7 @@ const StudentDashboard = ({
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                           <Text style={{ fontSize: 11, fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: 1 }}>
-                            {note.is_class_note ? (t('class_note') || 'Klasa') : (t('personal_note') || 'Personale')}
+                            {note.is_class_note ? t('class_note') : t('personal_note')}
                           </Text>
                         </View>
                         {note.profiles && (
@@ -713,11 +769,11 @@ const StudentDashboard = ({
                       <Book size={20} color="#2563eb" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>{hw.subject}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#0369a1' }}>{t(hw.subject)}</Text>
                       <Text style={{ fontSize: 15, color: '#0c4a6e', fontWeight: '600' }}>{hw.description}</Text>
                       {hw.profiles && (
                         <Text style={{ fontSize: 11, fontWeight: '700', color: '#60a5fa', marginTop: 4 }}>
-                          {t('issued_by') || 'Leshuar nga'}: {hw.profiles.first_name} {hw.profiles.last_name}
+                          {t('issued_by')}: {hw.profiles.first_name} {hw.profiles.last_name}
                         </Text>
                       )}
                     </View>
@@ -730,7 +786,7 @@ const StudentDashboard = ({
         })()}
 
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{t('lessons') || 'Mësimi'}</Text>
+          <Text style={styles.sectionTitle}>{t('lessons')}</Text>
           <Book size={20} color="#2563eb" />
         </View>
 
@@ -804,7 +860,7 @@ const StudentDashboard = ({
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#f43f5e' }} />
                   <Text style={{ fontSize: 13, fontWeight: '800', color: '#f43f5e', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                    {t('test_exam') || 'Verifica / Provim'}
+                    {t('test_exam')}
                   </Text>
                 </View>
                 {dateTests.map((test, idx) => (
@@ -823,7 +879,7 @@ const StudentDashboard = ({
                     elevation: 4,
                   }}>
                     <View style={{ marginBottom: 8 }}>
-                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{test.subject}</Text>
+                      <Text style={{ fontSize: 18, fontWeight: '900', color: '#881337', marginBottom: 2 }}>{t(test.subject)}</Text>
                       {test.profiles && (
                         <Text style={{ fontSize: 13, fontWeight: '700', color: '#be123c' }}>
                           {test.profiles.first_name} {test.profiles.last_name}
@@ -1185,9 +1241,34 @@ const StudentDashboard = ({
                   )}
                 </View>
 
+                {/* Quick Preview Button */}
+                {hasAttachment && (
+                  <TouchableOpacity
+                    style={{
+                      width: 40, height: 40, borderRadius: 12,
+                      backgroundColor: isRead ? '#f8fafc' : '#fce7f3',
+                      alignItems: 'center', justifyContent: 'center',
+                      marginLeft: 8,
+                      borderWidth: 1,
+                      borderColor: isRead ? '#f1f5f9' : '#fbcfe8',
+                    }}
+                    onPress={() => {
+                      if (!isRead && onMarkNoticeRead) onMarkNoticeRead(item.id);
+                      const urls = item.attachment_url?.split('|') || [];
+                      setPreviewData({
+                        url: urls[0],
+                        title: item.title
+                      });
+                      setShowFullScreenPreview(true);
+                    }}
+                  >
+                    <Eye size={20} color={isRead ? '#94a3b8' : '#db2777'} />
+                  </TouchableOpacity>
+                )}
+
                 {/* Unread dot */}
                 {!isRead && (
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#db2777', flexShrink: 0 }} />
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#db2777', marginLeft: 8, flexShrink: 0 }} />
                 )}
               </TouchableOpacity>
             );
@@ -1204,6 +1285,7 @@ const StudentDashboard = ({
       </View>
     );
   };
+
 
 
   return (
@@ -1322,6 +1404,7 @@ const StudentDashboard = ({
         {activeTab === 'grades' && renderGrades()}
         {activeTab === 'attendance' && renderAttendance()}
         {activeTab === 'notices' && renderNotices()}
+        <NoticePreviewModal />
       </View>
 
       {!isDesktop && (
@@ -1359,7 +1442,10 @@ const StudentDashboard = ({
             <View>
               <Bell size={24} color={activeTab === 'notices' ? '#2563eb' : '#94a3b8'} />
               {(() => {
-                const schoolNotices = notices?.filter(n => n.school_id === studentClass?.schoolId) || [];
+                const schoolNotices = notices?.filter(n =>
+                  (n.school_id === studentClass?.schoolId || !n.school_id) &&
+                  (!n.class_id || n.class_id === user.classId)
+                ) || [];
                 const unreadCount = schoolNotices.filter(n => !noticeReads?.includes(n.id)).length;
                 if (unreadCount > 0) {
                   return (
@@ -1403,17 +1489,27 @@ const StudentDashboard = ({
               </ScrollView>
 
               {selectedNotice.attachment_url && (
-                <TouchableOpacity
-                  style={modalStyles.attachmentBtn}
-                  onPress={() => {
-                    const extension = selectedNotice.attachment_url.split('.').pop().split('?')[0] || 'pdf';
-                    const fileName = `${selectedNotice.title.replace(/[^a-z0-9]/gi, '_')}.${extension}`;
-                    downloadFile(selectedNotice.attachment_url, fileName);
-                  }}
-                >
-                  <Download size={20} color="white" />
-                  <Text style={modalStyles.attachmentBtnText}>{t('download_attachment')}</Text>
-                </TouchableOpacity>
+                <View style={{ gap: 8, marginTop: 4 }}>
+                  {selectedNotice.attachment_url.split('|').map((url, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[modalStyles.attachmentBtn, { backgroundColor: '#db2777' }]}
+                      onPress={() => {
+                        setPreviewData({
+                          url: url,
+                          title: selectedNotice.title + (selectedNotice.attachment_url.includes('|') ? ` (${idx + 1})` : '')
+                        });
+                        setShowFullScreenPreview(true);
+                        setSelectedNotice(null);
+                      }}
+                    >
+                      <Eye size={20} color="white" />
+                      <Text style={modalStyles.attachmentBtnText} numberOfLines={1}>
+                        {t('view_attachment')} {selectedNotice.attachment_url.includes('|') ? `#${idx + 1}` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               )}
 
               <TouchableOpacity
