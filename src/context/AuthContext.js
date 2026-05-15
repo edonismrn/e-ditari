@@ -159,11 +159,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password) => {
+  const login = async (email, password, skipAutoRegister = false) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     
     // Auto-register for easy dev testing if they don't exist
-    if (error && error.message.includes('Invalid login credentials')) {
+    if (!skipAutoRegister && error && error.message.includes('Invalid login credentials')) {
       console.log('User not found, attempting auto-registration for development...');
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email,

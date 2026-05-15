@@ -13,7 +13,8 @@ import {
   Modal,
   TextInput,
   RefreshControl,
-  Linking
+  Linking,
+  Image
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Circle } from 'react-native-svg';
@@ -376,7 +377,18 @@ const TeacherDashboard = ({
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  const isSchoolDay = (date) => {
+  const isSchoolDay = (dateInput) => {
+    let date;
+    if (typeof dateInput === 'string') {
+      const parts = dateInput.split('-');
+      if (parts.length === 3) {
+        date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+      } else {
+        date = new Date();
+      }
+    } else {
+      date = dateInput;
+    }
     const dateStr = formatDateString(date);
     const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
 
@@ -1194,125 +1206,86 @@ const TeacherDashboard = ({
 
   const renderClassNotatGrid = (currentClass) => {
     if (!currentClass) return null;
-    const classStudents = getDynamicClassStudents(currentClass.id);
-    const studentIds = classStudents.map(s => s.id);
 
-    // Filter grades by selected subject and current class students
-    const subjectGrades = grades.filter(g =>
-      g.subject === selectedSubject &&
-      (studentIds.includes(g.student_id) || studentIds.includes(g.studentId)) &&
+    const studentsInClass = getDynamicClassStudents(currentClass.id).sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '')
+    );
+
+    const classGrades = grades.filter(g =>
+      (g.class_id === currentClass.id || g.classId === currentClass.id) &&
+      (g.academic_year === selectedGlobalAcademicYear || (!g.academic_year && !selectedGlobalAcademicYear)) &&
       (gradeSemester === 0 || getTermForDate(g.date, g.term) === gradeSemester)
     );
 
-    const availableSubjects = getAvailableSubjects(currentClass);
+    const subjectsWithGrades = [...new Set(classGrades.map(g => g.subject))];
+    const classSubjects = getAvailableSubjects(currentClass);
+    const allSubjectsForClass = ['Tutte', ...[...new Set([...classSubjects, ...subjectsWithGrades])].sort((a, b) => a.localeCompare(b, 'sq'))];
+
+    // State key per class: reuse selectedCoordinatorSubject (reset it when entering this view)
+    if (!selectedCoordinatorSubject) {
+      setSelectedCoordinatorSubject('Tutte');
+    }
 
     return (
-      <View style={{ flex: 1, backgroundColor: '#f8fafc' }}>
-        {/* Standard Navigation Header */}
+      <View style={styles.viewContainer}>
+        {/* Navigation Header */}
         <View style={styles.navigationHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <TouchableOpacity
               style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}
-              onPress={() => {
-                setNavigation({ view: 'my-classes', data: null });
-                setSelectedRegistryStudent(null);
-                setSelectedActionStudent(null);
-                setSelectedStudentForGrade(null);
-              }}
+              onPress={() => setNavigation({ view: 'my-classes', data: null })}
             >
               <ArrowLeft size={18} color="#1e293b" />
             </TouchableOpacity>
             <View>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('grades')}</Text>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>{t('grades') || 'Notat'}</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>{formatClassName(currentClass)}</Text>
             </View>
           </View>
         </View>
 
-        {/* Separated Subject Dropdown Area */}
-        <View style={{ paddingHorizontal: 20, marginTop: 16, zIndex: 20 }}>
-          <View style={{ position: 'relative' }}>
-            <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{t('lesson_subject')}</Text>
-            <TouchableOpacity
-              onPress={() => setIsSubjectDropdownVisible(!isSubjectDropdownVisible)}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                backgroundColor: 'white',
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderRadius: 16,
-                borderWidth: 1.5,
-                borderColor: isSubjectDropdownVisible ? '#2563eb' : '#f1f5f9',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.03,
-                shadowRadius: 5,
-                elevation: 2
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        {/* Subject Dropdown */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            {t('select_subject') || 'Zgjidh Lëndën'}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setIsSubjectPickerVisible(true)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: 'white',
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: '#e2e8f0',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.05,
+              shadowRadius: 10,
+              elevation: 2
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center' }}>
                 <BookIcon size={18} color="#2563eb" />
-                <Text style={{ fontSize: 15, fontWeight: '800', color: '#1e293b' }}>
-                  {selectedSubject ? t(selectedSubject) : t('select_subject')}
-                </Text>
               </View>
-              <ChevronDown size={20} color="#64748b" style={{ transform: [{ rotate: isSubjectDropdownVisible ? '180deg' : '0deg' }] }} />
-            </TouchableOpacity>
-
-            {isSubjectDropdownVisible && (
-              <View style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                marginTop: 8,
-                backgroundColor: 'white',
-                borderRadius: 16,
-                padding: 8,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 10 },
-                shadowOpacity: 0.1,
-                shadowRadius: 20,
-                elevation: 10,
-                borderWidth: 1,
-                borderColor: '#f1f5f9',
-                zIndex: 100
-              }}>
-                {availableSubjects.map((sub) => (
-                  <TouchableOpacity
-                    key={sub}
-                    onPress={() => {
-                      setSelectedSubject(sub);
-                      setIsSubjectDropdownVisible(false);
-                    }}
-                    style={{
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      borderRadius: 10,
-                      backgroundColor: selectedSubject === sub ? '#eff6ff' : 'transparent',
-                      marginBottom: 4
-                    }}
-                  >
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: selectedSubject === sub ? '800' : '600',
-                      color: selectedSubject === sub ? '#2563eb' : '#475569'
-                    }}>{t(sub)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b' }}>
+                {selectedCoordinatorSubject === 'Tutte' ? (t('all_subjects') || 'Të gjitha lëndët') : (selectedCoordinatorSubject || (t('select_subject') || 'Zgjidh Lëndën'))}
+              </Text>
+            </View>
+            <ChevronDown size={20} color="#64748b" />
+          </TouchableOpacity>
         </View>
 
-        {/* Semester Selector */}
-        <View style={[styles.semesterSelector, { marginTop: 24, marginBottom: 12 }]}>
+        {/* Semester Tab */}
+        <View style={styles.semesterSelector}>
           {[
-            { id: 0, label: t('all') },
-            { id: 1, label: t('first_semester') },
-            { id: 2, label: t('second_semester') },
+            { id: 0, label: t('all') || 'Të gjitha' },
+            { id: 1, label: t('first_semester') || 'Semestri 1' },
+            { id: 2, label: t('second_semester') || 'Semestri 2' },
           ].map(sem => (
             <TouchableOpacity
               key={sem.id}
@@ -1326,102 +1299,136 @@ const TeacherDashboard = ({
           ))}
         </View>
 
-        {selectedSubject ? (
-          <View style={{ flex: 1 }}>
-            <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 120 }}>
-              {classStudents.map((student, idx) => {
-                const studentGrades = subjectGrades
-                  .filter(g => g.student_id === student.id || g.studentId === student.id)
-                  .sort((a, b) => new Date(a.date) - new Date(b.date));
-                const avg = studentGrades.length > 0
-                  ? (studentGrades.reduce((acc, curr) => acc + curr.grade, 0) / studentGrades.length).toFixed(1)
-                  : '0.0';
+        {/* Subject Picker Modal */}
+        <Modal visible={isSubjectPickerVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.premiumActionModal, { maxHeight: '70%' }]}>
+              <View style={styles.modalHeaderScroll}>
+                <Text style={styles.modalTitleEmphasized}>{t('select_subject') || 'Zgjidh Lëndën'}</Text>
+                <TouchableOpacity onPress={() => setIsSubjectPickerVisible(false)} style={styles.closeModalBtn}>
+                  <X size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={{ padding: 10 }} showsVerticalScrollIndicator={false}>
+                {allSubjectsForClass.map(sub => (
+                  <TouchableOpacity
+                    key={sub}
+                    onPress={() => {
+                      setSelectedCoordinatorSubject(sub);
+                      setIsSubjectPickerVisible(false);
+                    }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: 16,
+                      borderRadius: 14,
+                      backgroundColor: selectedCoordinatorSubject === sub ? '#eff6ff' : 'white',
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: selectedCoordinatorSubject === sub ? '#2563eb' : '#f1f5f9'
+                    }}
+                  >
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: selectedCoordinatorSubject === sub ? '#2563eb' : '#475569' }}>
+                      {sub === 'Tutte' ? (t('all_subjects') || 'Të gjitha lëndët') : sub}
+                    </Text>
+                    {selectedCoordinatorSubject === sub && <Check size={20} color="#2563eb" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
 
-                return (
-                  <View key={student.id} style={{
-                    flexDirection: 'row',
-                    backgroundColor: 'white',
-                    marginHorizontal: 16,
-                    marginBottom: 12,
-                    borderRadius: 20,
+        {/* Student Grades List */}
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 32, overflow: 'hidden', borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+            {studentsInClass.map((student, idx) => {
+              const sGrades = classGrades.filter(g =>
+                (g.student_id === student.id || g.studentId === student.id) &&
+                (selectedCoordinatorSubject === 'Tutte' || g.subject === selectedCoordinatorSubject)
+              );
+              const avg = sGrades.length > 0
+                ? (sGrades.reduce((acc, curr) => acc + curr.grade, 0) / sGrades.length).toFixed(1)
+                : '0.0';
+
+              return (
+                <View key={student.id} style={{
+                  backgroundColor: 'white',
+                  borderRadius: 24,
+                  marginBottom: 16,
+                  padding: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: '#f1f5f9',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.03,
+                  shadowRadius: 10,
+                  elevation: 2
+                }}>
+                  {/* Avatar */}
+                  <View style={{
+                    width: 50, height: 50, borderRadius: 18,
+                    backgroundColor: idx % 2 === 0 ? '#eff6ff' : '#f8fafc',
+                    alignItems: 'center', justifyContent: 'center',
+                    marginRight: 15,
                     borderWidth: 1,
-                    borderColor: '#f1f5f9',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.02,
-                    shadowRadius: 5,
-                    elevation: 1,
-                    overflow: 'hidden'
+                    borderColor: idx % 2 === 0 ? '#dbeafe' : '#e2e8f0'
                   }}>
-                    {/* Student Info */}
-                    <View style={{ width: 140, padding: 16, borderRightWidth: 1, borderRightColor: '#f8fafc', justifyContent: 'center' }}>
-                      <Text style={{ fontWeight: '800', color: '#1e293b', fontSize: 13 }} numberOfLines={2}>{student.name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 }}>
-                        <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#64748b' }}>{studentGrades.length}</Text>
-                        </View>
-                        <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: '600' }}>{t('grades')}</Text>
-                      </View>
-                    </View>
+                    <Text style={{ fontSize: 18, fontWeight: '900', color: idx % 2 === 0 ? '#2563eb' : '#64748b' }}>
+                      {(student.name || '?').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
 
-                    {/* Grades Area */}
-                    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 12, alignItems: 'center' }}>
-                      {studentGrades.map((gradeObj, gIdx) => (
-                        <View key={gradeObj.id || gIdx} style={{ alignItems: 'center', gap: 2 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '900', color: '#94a3b8' }}>
-                            {gradeObj.date.split('-').reverse().slice(0, 2).join('/')}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => !isReadOnly && handleEditGradeClick(gradeObj)}
-                            disabled={isReadOnly}
-                          >
-                            <GradeRing value={gradeObj.grade} size={38} />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                      {!isReadOnly && (
+                  {/* Name + Grade Bubbles */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '900', color: '#0f172a' }}>{student.name}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
+                      {sGrades.sort((a, b) => new Date(a.date) - new Date(b.date)).map(g => (
                         <TouchableOpacity
-                          style={{
-                            width: 38, height: 38, borderRadius: 19, backgroundColor: '#f8fafc',
-                            alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
-                            borderColor: '#e2e8f0', borderStyle: 'dashed'
-                          }}
-                          onPress={() => {
-                            setSelectedStudentForGrade(student);
-                            setIsGradeModalVisible(true);
-                          }}
+                          key={g.id}
+                          onPress={() => setSelectedGradeForDetail(g)}
+                          style={{ alignItems: 'center', gap: 6 }}
                         >
-                          <Plus size={16} color="#cbd5e1" />
+                          <View style={{
+                            width: 60, height: 60, borderRadius: 30,
+                            backgroundColor: getGradeColor(g.grade).bg,
+                            alignItems: 'center', justifyContent: 'center',
+                            borderWidth: 3,
+                            borderColor: getGradeColor(g.grade).border,
+                            shadowColor: getGradeColor(g.grade).text,
+                            shadowOffset: { width: 0, height: 3 },
+                            shadowOpacity: 0.15,
+                            shadowRadius: 6,
+                            elevation: 3
+                          }}>
+                            <Text style={{ fontSize: 24, fontWeight: '900', color: getGradeColor(g.grade).text }}>{g.grade}</Text>
+                          </View>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: '#64748b' }}>
+                            {g.date.split('-').reverse().slice(0, 2).join('/')}
+                          </Text>
                         </TouchableOpacity>
+                      ))}
+                      {sGrades.length === 0 && (
+                        <Text style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>{t('no_grades') || 'Pa nota'}</Text>
                       )}
                     </View>
-
-                    {/* Average */}
-                    <View style={{
-                      width: 70,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: '#f8fafc',
-                      borderLeftWidth: 1,
-                      borderLeftColor: '#f1f5f9'
-                    }}>
-                      <Text style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase' }}>{t('average')}</Text>
-                      <GradeRing value={avg} size={38} />
-                    </View>
                   </View>
-                );
-              })}
-            </ScrollView>
-          </View>
-        ) : (
-          <View style={{ flex: 1, padding: 40, alignItems: 'center', justifyContent: 'center' }}>
-            <View style={{ width: 80, height: 80, borderRadius: 30, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
-              <BookIcon size={40} color="#2563eb" />
-            </View>
-            <Text style={{ fontSize: 16, color: '#1e293b', fontWeight: '800', textAlign: 'center' }}>{t('select_subject')}</Text>
-            <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '500', textAlign: 'center', marginTop: 4 }}>{t('select_subject_instruction')}</Text>
-          </View>
-        )}
+
+                  {/* Average Ring */}
+                  <View style={{ marginLeft: 15, alignItems: 'center' }}>
+                    <GradeRing value={avg} size={72} />
+                    <Text style={{ fontSize: 11, fontWeight: '900', color: '#94a3b8', marginTop: 6, textTransform: 'uppercase' }}>{t('average_short')}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {renderGradeDetailModal()}
       </View>
     );
   };
@@ -1583,10 +1590,9 @@ const TeacherDashboard = ({
                     <TouchableOpacity
                       style={[styles.classActionButton, !isDesktop && { minWidth: '100%', paddingVertical: 14 }, { backgroundColor: '#fdf4ff' }]}
                       onPress={() => {
+                        setSelectedCoordinatorSubject(null);
+                        setGradeSemester(0);
                         setNavigation({ view: 'class-notat-grid', data: item });
-                        if (item.subjects && item.subjects.length > 0) {
-                          setSelectedSubject(item.subjects[0]);
-                        }
                       }}
                     >
                       <Award size={18} color="#c026d3" />
@@ -1951,7 +1957,7 @@ const TeacherDashboard = ({
                     style={[styles.premiumSubmitButton, (!tempAttendanceStatus || (['late', 'early_exit'].includes(tempAttendanceStatus) && (!selHour || !selMinute))) && { opacity: 0.5 }]}
                     disabled={!tempAttendanceStatus || (['late', 'early_exit'].includes(tempAttendanceStatus) && (!selHour || !selMinute)) || isAttendanceSaving}
                     onPress={async () => {
-                      const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
+                      const dayStatus = isSchoolDay(gradeCustomDate || selectedDate);
                       if (!dayStatus.isWork) {
                         setIsActionModalVisible(false);
                         showAlert(t('holiday_registration_blocked'), 'info');
@@ -2048,7 +2054,7 @@ const TeacherDashboard = ({
                     style={[styles.premiumSubmitButton, { backgroundColor: '#dc2626' }, !noteText && { opacity: 0.5 }]}
                     disabled={!noteText}
                     onPress={async () => {
-                      const dayStatus = isSchoolDay(new Date(gradeCustomDate || selectedDate));
+                      const dayStatus = isSchoolDay(gradeCustomDate || selectedDate);
                       if (!dayStatus.isWork) {
                         setIsActionModalVisible(false);
                         showAlert(t('holiday_registration_blocked'), 'info');
@@ -2205,7 +2211,7 @@ const TeacherDashboard = ({
                       const finalTopic = `[Ora ${lessonHour}] ${lessonTopic}`.trim();
                       const finalDate = lessonDate || formatDate(selectedDate);
 
-                      const dayStatus = isSchoolDay(new Date(finalDate));
+                      const dayStatus = isSchoolDay(finalDate);
                       if (!dayStatus.isWork) {
                         setIsLessonModalVisible(false);
                         showAlert(t('holiday_registration_blocked'), 'info');
@@ -4847,12 +4853,11 @@ const TeacherDashboard = ({
       <View style={styles.header}>
         <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
-            <View style={styles.logoIcon}>
-              <BookIcon size={18} color="white" />
-            </View>
-            <View>
-              <Text style={styles.headerTitle}>Ditari Elektronik</Text>
-            </View>
+            <Image
+              source={require('../../assets/logo.png')}
+              style={{ width: 220, height: 60 }}
+              resizeMode="contain"
+            />
           </View>
 
           {isDesktop && (

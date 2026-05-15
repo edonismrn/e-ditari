@@ -17,7 +17,8 @@ const ProfileDropdown = ({
   availableAcademicYears = [],
   selectedGlobalAcademicYear = null,
   changeAcademicYear,
-  schoolCurrentYear
+  schoolCurrentYear,
+  userClassName
 }) => {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -90,7 +91,6 @@ const ProfileDropdown = ({
   const languages = [
     { code: 'sq', label: t('albanian') || 'Shqip' },
     { code: 'sr', label: t('serbian') || 'Srpski' },
-    { code: 'tr', label: t('turkish') || 'Türkçe' },
   ];
 
   return (
@@ -121,7 +121,15 @@ const ProfileDropdown = ({
                 </View>
                 <Text style={styles.userName}>{displayName}</Text>
                 <Text style={styles.userEmail}>{user.email}</Text>
-                <Text style={styles.userRole}>{userRole}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 }}>
+                  <Text style={styles.userRole}>{userRole}</Text>
+                  {userClassName && (
+                    <>
+                      <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />
+                      <Text style={[styles.userRole, { color: '#2563eb', fontWeight: '900' }]}>{userClassName}</Text>
+                    </>
+                  )}
+                </View>
               </View>
 
               <View style={styles.divider} />
@@ -313,7 +321,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748b',
     fontWeight: '700',
-    marginTop: 4,
     textTransform: 'uppercase',
     letterSpacing: 1,
     textAlign: 'center',

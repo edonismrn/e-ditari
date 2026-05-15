@@ -53,29 +53,9 @@ function AppContent() {
 
   const handleLogin = async (data) => {
     try {
-      // In Supabase, email is the primary identifier.
       const email = data.email || data.username;
-      const res = await login(email, data.password);
-
-      // Verify role matches the selected tab
-      const userRole = res.profile?.role;
-      const requestedRole = data.role; // 'mesues' or 'nxenes'
-
-      let roleMatch = false;
-      if (requestedRole === 'mesues') {
-        // Teacher tab accepts both admin and mesues
-        roleMatch = (userRole === 'admin' || userRole === 'mesues');
-      } else if (requestedRole === 'nxenes') {
-        // Student tab only accepts nxenes
-        roleMatch = (userRole === 'nxenes');
-      }
-
-      if (!roleMatch) {
-        await logout();
-        throw new Error('invalid_credentials');
-      }
+      await login(email, data.password);
     } catch (err) {
-      // Standardize all login errors to "invalid_credentials"
       showAlert(t('invalid_credentials'), 'error');
       console.error("Login error:", err);
     }

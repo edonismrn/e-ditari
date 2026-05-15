@@ -139,7 +139,7 @@ const StudentDashboard = ({
   const handleUpdatePassword = async (currentPass, newPass) => {
     try {
       // Re-verify
-      await login(user.email, currentPass);
+      await login(user.email, currentPass, true);
       // Update
       await updatePassword(newPass);
       showAlert(t('password_updated_success'), 'success');
@@ -214,7 +214,18 @@ const StudentDashboard = ({
   // NOTE: Attendance auto-initialization removed.
   // Students only see attendance records explicitly entered by teachers.
 
-  const isSchoolDay = (date) => {
+  const isSchoolDay = (dateInput) => {
+    let date;
+    if (typeof dateInput === 'string') {
+      const parts = dateInput.split('-');
+      if (parts.length === 3) {
+        date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+      } else {
+        date = new Date();
+      }
+    } else {
+      date = dateInput;
+    }
     const dateStr = formatDateString(date);
     const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
 
@@ -450,7 +461,7 @@ const StudentDashboard = ({
                     <Clock size={18} color="#3b82f6" />
                   </View>
                   <Text style={[styles.hBarValue, { color: '#3b82f6', fontSize: 26, marginBottom: 2 }]}>{latesCount}</Text>
-                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('late_entry') || "Vonesë"}</Text>
+                  <Text style={[styles.statCardTitle, { color: '#64748b', marginBottom: 0 }]}>{t('late_entry')}</Text>
                 </View>
 
                 {/* Early Exits */}
@@ -477,20 +488,20 @@ const StudentDashboard = ({
             const isJustified = item.status.includes(':justified');
 
             statusChar = {
-              present: 'P',
-              absent: 'M',
-              late: 'V',
-              early_exit: 'L'
+              present: t('present_short'),
+              absent: t('absent_short'),
+              late: t('late_short'),
+              early_exit: t('early_exit_short')
             }[statusType] || '?';
 
             if (statusType === 'absent') statusColor = '#ef4444';
             else if (statusType === 'late' || statusType === 'early_exit') statusColor = '#f59e0b';
 
             const statusLabels = {
-              absent: t('absent') || "Mungesë",
-              late: t('late_entry') || "Vonesë",
-              early_exit: t('early_exit') || "Largim",
-              present: t('present') || "Prezent"
+              absent: t('absent'),
+              late: t('late_entry'),
+              early_exit: t('early_exit'),
+              present: t('present')
             };
             let statusLabel = statusLabels[statusType] || statusType;
 
@@ -651,10 +662,10 @@ const StudentDashboard = ({
           if (isWarning) statusColor = '#f59e0b'; // Orange
 
           const statusInitial = {
-            present: 'P',
-            absent: 'M',
-            late: 'V',
-            early_exit: 'L'
+            present: t('present_short'),
+            absent: t('absent_short'),
+            late: t('late_short'),
+            early_exit: t('early_exit_short')
           }[statusKey] || '?';
 
           const statusLabels = {
@@ -1293,20 +1304,15 @@ const StudentDashboard = ({
       <View style={styles.header}>
         <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
-            <View style={styles.logoIcon}>
-              <BookIcon size={18} color="white" />
-            </View>
+            <Image
+              source={require('../../assets/logo.png')}
+              style={{ width: 220, height: 60 }}
+              resizeMode="contain"
+            />
             <View>
-              <Text style={styles.headerTitle}>Ditari Elektronik</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                 {userName && (
                   <Text style={[styles.headerSubtitle, { color: '#64748b' }]}>{userName}</Text>
-                )}
-                {studentClass && (
-                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />
-                )}
-                {studentClass && (
-                  <Text style={styles.headerSubtitle}>{formatClassName(studentClass)}</Text>
                 )}
                 {selectedGlobalAcademicYear && (
                   <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#cbd5e1' }} />
@@ -1345,6 +1351,7 @@ const StudentDashboard = ({
             selectedGlobalAcademicYear={selectedGlobalAcademicYear}
             changeAcademicYear={onChangeAcademicYear}
             schoolCurrentYear={(schools || []).find(s => s.id === user.school_id || s.id === user.schoolId)?.current_year}
+            userClassName={studentClass ? formatClassName(studentClass) : null}
           />
         </View>
 

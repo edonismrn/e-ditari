@@ -12,7 +12,8 @@ import {
   FlatList,
   RefreshControl,
   Linking,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -59,7 +60,9 @@ import {
   AlertTriangle,
   User,
   ArrowUpRight,
-  Edit
+  Edit,
+  XCircle,
+  CheckCircle
 } from 'lucide-react-native';
 import { useLanguage } from '../context/LanguageContext';
 import { useAlert } from '../context/AlertContext';
@@ -199,7 +202,7 @@ const AdminDashboard = ({
   const handleUpdatePassword = async (currentPass, newPass) => {
     try {
       // Verify current password by re-authenticating
-      await login(user.email, currentPass);
+      await login(user.email, currentPass, true);
       // If successful, update to new password
       await updatePassword(newPass);
       showAlert(t('password_updated_success'), 'success');
@@ -799,7 +802,7 @@ const AdminDashboard = ({
         <View style={styles.statCard}>
           <Users size={20} color="#64748b" style={{ marginBottom: 12 }} />
           <Text style={styles.statValue}>{teachers.length}</Text>
-          <Text style={styles.statLabel}>{t('manage_teachers')}</Text>
+          <Text style={styles.statLabel}>{t('teachers_label')}</Text>
         </View>
         <View style={styles.statCard}>
           <GraduationCap size={20} color="#64748b" style={{ marginBottom: 12 }} />
@@ -1813,7 +1816,7 @@ const AdminDashboard = ({
                     style={[styles.card, { padding: 16, marginBottom: 0, flexDirection: 'row', alignItems: 'center', borderRadius: 20, borderWidth: 1, borderColor: '#f1f5f9' }]}
                     onPress={() => {
                       setSelectedCalendarSchool(s.id);
-                      setCalendarSubTab('setup');
+                      setCalendarSubTab('calendar');
                       setSettingsSearchQuery('');
                     }}
                   >
@@ -1858,8 +1861,8 @@ const AdminDashboard = ({
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
             {[
               { label: t('total'), value: calendarEvents.length, accent: '#6366f1', bg: '#eef2ff' },
-    { label: t('holiday'), value: calendarEvents.filter(e => e.type === 'holiday').length, accent: '#ef4444', bg: '#fef2f2' },
-    { label: t('work_day'), value: calendarEvents.filter(e => e.type === 'work_day').length, accent: '#10b981', bg: '#ecfdf5' },
+              { label: t('holiday'), value: calendarEvents.filter(e => e.type === 'holiday').length, accent: '#ef4444', bg: '#fef2f2' },
+              { label: t('work_day'), value: calendarEvents.filter(e => e.type === 'work_day').length, accent: '#10b981', bg: '#ecfdf5' },
             ].map(stat => (
               <View key={stat.label} style={{ flex: 1, backgroundColor: stat.bg, borderRadius: 18, padding: 14, alignItems: 'center' }}>
                 <Text style={{ fontSize: 26, fontWeight: '900', color: stat.accent }}>{stat.value}</Text>
@@ -1888,155 +1891,209 @@ const AdminDashboard = ({
           </View>
         </View>
         <ScrollView style={[styles.scrollContent, { backgroundColor: '#f8fafc' }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 100 }}>
-
-          {/* setup tab removed from here — moved to school_year_mgmt view */}
-
           {calendarSubTab === 'calendar' && (
-            <View style={[styles.card, { flexDirection: 'column', padding: 0, borderRadius: 32, overflow: 'hidden', borderBottomWidth: 0, shadowColor: '#94a3b8', shadowRadius: 25, shadowOpacity: 0.12 }]}>
+            <View style={{ width: '100%' }}>
               {calendarStep === 1 ? (
-                <>
-                  {/* Sleek Header & Controls */}
-                  <View style={{ paddingVertical: 16, paddingHorizontal: 20, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      {/* Month Navigator */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                        <TouchableOpacity onPress={() => setViewDate(new Date(year, month - 1, 1))} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
-                          <ChevronRight size={18} color="#64748b" style={{ transform: [{ rotate: '180deg' }] }} />
+                <View style={{ gap: 24 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+                      <Text style={{ fontSize: 32, fontWeight: '900', color: '#1e293b', textTransform: 'capitalize', letterSpacing: -1 }}>{monthName} <Text style={{ color: '#94a3b8', fontWeight: '400' }}>{year}</Text></Text>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity onPress={() => setViewDate(new Date(year, month - 1, 1))} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
+                          <ChevronRight size={20} color="#64748b" style={{ transform: [{ rotate: '180deg' }] }} />
                         </TouchableOpacity>
-                        <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b', textTransform: 'capitalize', minWidth: 100, textAlign: 'center' }}>{monthName}</Text>
-                        <TouchableOpacity onPress={() => setViewDate(new Date(year, month + 1, 1))} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
-                          <ChevronRight size={18} color="#64748b" />
+                        <TouchableOpacity onPress={() => setViewDate(new Date(year, month + 1, 1))} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
+                          <ChevronRight size={20} color="#64748b" />
                         </TouchableOpacity>
                       </View>
-
-                      {/* Floating CTA (Inline) */}
-                      {selectedDates.size > 0 ? (
-                        <TouchableOpacity
-                          style={{ paddingHorizontal: 16, height: 36, borderRadius: 12, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowRadius: 6, shadowOpacity: 0.25, elevation: 4, flexDirection: 'row', gap: 6 }}
-                          onPress={() => setCalendarStep(2)}
-                        >
-                          <Text style={{ color: 'white', fontWeight: '900', fontSize: 13 }}>{t('continue')} ({selectedDates.size})</Text>
-                          <ChevronRight size={14} color="white" />
-                        </TouchableOpacity>
-                      ) : (
-                        <View style={{ paddingHorizontal: 16, height: 36, borderRadius: 12, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: '#94a3b8', fontWeight: '800', fontSize: 12 }}>{t('select_dates')}</Text>
-                        </View>
-                      )}
                     </View>
 
-                    {/* Mode Segmented Control */}
-                    <View style={{ flexDirection: 'row', padding: 4, backgroundColor: '#e2e8f0', borderRadius: 12, marginTop: 16 }}>
-                      {[
-                        { id: 'single', label: t('single_select_mode'), icon: Search },
-                        { id: 'multi', label: t('multi_select_mode'), icon: Plus },
-                        { id: 'range', label: t('select_range'), icon: Calendar }
-                      ].map(mode => {
-                        const modeActive = selectionMode === mode.id;
-                        return (
-                          <TouchableOpacity
-                            key={mode.id}
-                            onPress={() => { setSelectionMode(mode.id); setSelectedDates(new Set()); setRangeStart(null); }}
-                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, backgroundColor: modeActive ? 'white' : 'transparent', shadowColor: modeActive ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: modeActive ? 0.05 : 0, shadowRadius: 2, elevation: modeActive ? 1 : 0 }}
-                          >
-                            <mode.icon size={13} color={modeActive ? '#2563eb' : '#64748b'} strokeWidth={modeActive ? 2.5 : 2} />
-                            <Text style={{ fontSize: 11, fontWeight: '900', color: modeActive ? '#2563eb' : '#64748b' }}>{mode.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {/* Compact Grid */}
-                  <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, backgroundColor: 'white' }}>
-                    <View style={{ flexDirection: 'row', marginBottom: 10 }}>
-                      {dayLabels.map(label => (
-                        <Text key={label} style={{ flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>{label}</Text>
-                      ))}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                      {Array.from({ length: firstDay }).map((_, i) => (
-                        <View key={`empty-${i}`} style={{ width: `${100 / 7}%`, height: 42 }} />
-                      ))}
-                      {Array.from({ length: daysInMonth }).map((_, i) => {
-                        const day = i + 1;
-                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                        const isSelected = selectedDates.has(dateStr);
-                        const isToday = dateStr === new Date().toISOString().split('T')[0];
-                        const existingEvent = calendarEvents.find(e => e.date === dateStr);
-
-                        return (
-                          <TouchableOpacity
-                            key={day}
-                            style={{ width: `${100 / 7}%`, height: 42, alignItems: 'center', justifyContent: 'center', position: 'relative' }}
-                            onPress={() => toggleDateSelection(dateStr)}
-                          >
-                            <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isSelected ? '#2563eb' : (existingEvent ? (existingEvent.type === 'holiday' ? '#fee2e2' : '#dcfce7') : 'transparent'), borderWidth: isToday ? 1.5 : 0, borderColor: '#2563eb' }}>
-                              <Text style={{ fontSize: 13, fontWeight: (isSelected || isToday) ? '900' : '700', color: isSelected ? 'white' : (existingEvent ? (existingEvent.type === 'holiday' ? '#ef4444' : '#16a34a') : '#1e293b') }}>{day}</Text>
-                            </View>
-                            {existingEvent && !isSelected && (
-                              <View style={{ position: 'absolute', bottom: 3, width: 4, height: 4, borderRadius: 2, backgroundColor: existingEvent.type === 'holiday' ? '#ef4444' : '#16a34a' }} />
-                            )}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-
-                    {/* Quick clear embedded inside grid bottom corner subtly */}
                     {selectedDates.size > 0 && (
-                      <View style={{ alignItems: 'center', marginTop: 12 }}>
-                        <TouchableOpacity style={{ padding: 6 }} onPress={() => setSelectedDates(new Set())}>
-                          <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('clear_selection')}</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity 
+                        style={{ paddingHorizontal: 20, height: 48, borderRadius: 16, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fee2e2' }}
+                        onPress={() => setSelectedDates(new Set())}
+                      >
+                        <Text style={{ color: '#ef4444', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 }}>{t('clear_selection').toUpperCase()}</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
-                </>
-              ) : (
-                <View style={{ paddingBottom: 32 }}>
-                  {/* Step 2 Header */}
-                  <View style={{ padding: 20, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                    <TouchableOpacity onPress={() => setCalendarStep(1)} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#e2e8f0' }}>
-                      <ArrowLeft size={20} color="#1e293b" />
-                    </TouchableOpacity>
-                  </View>
 
-                  {/* Event Type Selection */}
-                  <View style={{ padding: 20, gap: 12 }}>
-                    {[
-                      { type: 'holiday', label: t('holiday'), color: '#ef4444', bg: '#fef2f2', desc: t('holiday_desc') },
-                      { type: 'work_day', label: t('work_day'), color: '#10b981', bg: '#ecfdf5', desc: t('work_day_desc') },
-                    ].map(opt => (
+                  <View style={[
+                    styles.card, 
+                    { 
+                      padding: 0, borderRadius: 32, overflow: 'hidden', borderBottomWidth: 0, 
+                      shadowColor: '#94a3b8', shadowRadius: 30, shadowOpacity: 0.15,
+                      backgroundColor: 'white'
+                    }
+                  ]}>
+                    <View style={{ padding: 24, backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                      <View style={{ flexDirection: 'row', padding: 6, backgroundColor: '#f1f5f9', borderRadius: 18 }}>
+                        {[
+                          { id: 'single', label: t('single'), icon: Search },
+                          { id: 'multi', label: t('multi'), icon: Plus },
+                          { id: 'range', label: t('range'), icon: Calendar }
+                        ].map(mode => {
+                          const active = selectionMode === mode.id;
+                          return (
+                            <TouchableOpacity
+                              key={mode.id}
+                              onPress={() => { setSelectionMode(mode.id); setSelectedDates(new Set()); }}
+                              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: active ? 'white' : 'transparent', shadowColor: active ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 5, elevation: active ? 2 : 0 }}
+                            >
+                              <mode.icon size={14} color={active ? '#6366f1' : '#64748b'} strokeWidth={active ? 2.5 : 2} />
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: active ? '#6366f1' : '#64748b' }}>{mode.label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    <View style={{ padding: 32 }}>
+                      <View style={{ flexDirection: 'row', marginBottom: 20 }}>
+                        {dayLabels.map(label => (
+                          <Text key={label} style={{ flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 2 }}>{label}</Text>
+                        ))}
+                      </View>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                        {Array.from({ length: firstDay }).map((_, i) => <View key={`e-${i}`} style={{ width: `${100 / 7}%`, height: 80 }} />)}
+                        {Array.from({ length: daysInMonth }).map((_, i) => {
+                          const day = i + 1;
+                          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                          const isSelected = selectedDates.has(dateStr);
+                          const isToday = dateStr === new Date().toISOString().split('T')[0];
+                          const event = calendarEvents.find(e => e.date === dateStr);
+                          return (
+                            <TouchableOpacity
+                              key={day}
+                              style={{ width: `${100 / 7}%`, height: 80, alignItems: 'center', justifyContent: 'center' }}
+                              onPress={() => toggleDateSelection(dateStr)}
+                            >
+                              <View style={{ 
+                                width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+                                backgroundColor: isSelected ? '#6366f1' : (event ? (event.type === 'holiday' ? '#fef2f2' : '#ecfdf5') : 'transparent'),
+                                borderWidth: isToday ? 2 : 0, borderColor: '#6366f1'
+                              }}>
+                                <Text style={{ fontSize: 18, fontWeight: '800', color: isSelected ? 'white' : (event ? (event.type === 'holiday' ? '#ef4444' : '#10b981') : '#1e293b') }}>{day}</Text>
+                              </View>
+                              {event && !isSelected && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: event.type === 'holiday' ? '#ef4444' : '#10b981', marginTop: 6 }} />}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      {selectedDates.size > 0 && (
+                        <TouchableOpacity
+                          activeOpacity={0.9}
+                          style={{ 
+                            marginTop: 32, height: 64, borderRadius: 22, backgroundColor: '#2563eb', 
+                            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+                            shadowColor: '#2563eb', shadowOpacity: 0.3, shadowRadius: 15, elevation: 8
+                          }}
+                          onPress={() => setCalendarStep(2)}
+                        >
+                          <Text style={{ color: 'white', fontWeight: '900', fontSize: 17 }}>{t('continue')} ({selectedDates.size} {t('dates')})</Text>
+                          <ArrowLeft size={20} color="white" style={{ transform: [{ rotate: '180deg' }] }} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View style={[
+                  styles.card, 
+                  { 
+                    padding: 40, borderRadius: 32, backgroundColor: 'white',
+                    shadowColor: '#94a3b8', shadowRadius: 30, shadowOpacity: 0.15,
+                  }
+                ]}>
+                  <View style={{ gap: 32 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View>
+                        <Text style={{ fontSize: 24, fontWeight: '900', color: '#1e293b' }}>{t('configure_events')}</Text>
+                        <Text style={{ fontSize: 15, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{selectedDates.size} {t('selected_dates')}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => setCalendarStep(1)}
+                        style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <ArrowLeft size={22} color="#64748b" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -40, paddingHorizontal: 40 }}>
+                      <View style={{ flexDirection: 'row', gap: 12 }}>
+                        {Array.from(selectedDates).sort().map(date => (
+                          <View key={date} style={{ backgroundColor: '#f8fafc', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, borderWidth: 1, borderColor: '#f1f5f9' }}>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: '#1e293b' }}>{date.split('-').reverse().join('/')}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </ScrollView>
+
+                    <View style={{ gap: 16 }}>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b', marginLeft: 4 }}>{t('select_event_type')}:</Text>
+                      <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
+                        {[
+                          { id: 'holiday', label: t('holiday'), icon: XCircle, color: '#ef4444', desc: t('holiday_desc') || 'Dita pushimi pa mësim' },
+                          { id: 'work_day', label: t('work_day'), icon: CheckCircle, color: '#10b981', desc: t('work_day_desc') || 'Dita e rregullt mësimi' }
+                        ].map(opt => {
+                          const active = calendarType === opt.id;
+                          return (
+                            <TouchableOpacity
+                              key={opt.id}
+                              onPress={() => setCalendarType(opt.id)}
+                              style={{ 
+                                flex: 1, padding: 24, borderRadius: 24, backgroundColor: active ? opt.color : '#f8fafc',
+                                borderWidth: 2, borderColor: active ? opt.color : '#f1f5f9',
+                                shadowColor: active ? opt.color : '#000', shadowOpacity: active ? 0.2 : 0, shadowRadius: 10, elevation: active ? 6 : 0
+                              }}
+                            >
+                              <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: 'white', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                                <opt.icon size={28} color={opt.color} />
+                              </View>
+                              <Text style={{ fontSize: 18, fontWeight: '900', color: active ? 'white' : '#1e293b' }}>{opt.label}</Text>
+                              <Text style={{ fontSize: 13, color: active ? '#ffffff90' : '#64748b', fontWeight: '600', marginTop: 4 }}>{opt.desc}</Text>
+                              {active && <View style={{ position: 'absolute', top: 20, right: 20 }}><Check size={24} color="white" strokeWidth={3} /></View>}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    <View>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: '#1e293b', marginLeft: 4, marginBottom: 12 }}>{t('optional_description')}</Text>
+                      <TextInput
+                        style={[styles.input, { height: 120, borderRadius: 24, padding: 20, textAlignVertical: 'top', backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#f1f5f9', fontSize: 15 }]}
+                        placeholder={t('write_description_placeholder')}
+                        multiline
+                        value={calendarDescription}
+                        onChangeText={setCalendarDescription}
+                      />
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 16 }}>
                       <TouchableOpacity
-                        key={opt.type}
-                        style={{ backgroundColor: opt.bg, borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, borderWidth: 1.5, borderColor: opt.color + '30' }}
+                        style={{ flex: 1, height: 64, borderRadius: 22, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}
+                        onPress={() => setCalendarStep(1)}
+                      >
+                        <Text style={{ color: '#64748b', fontWeight: '800', fontSize: 16 }}>{t('cancel')}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{ flex: 2, height: 64, borderRadius: 22, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#2563eb', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
                         onPress={async () => {
                           setIsProcessing(true);
-                          const datesArr = Array.from(selectedDates).map(date => ({ date, type: opt.type, description: calendarDescription, school_id: activeSchoolId }));
+                          const datesArr = Array.from(selectedDates).map(date => ({ date, type: calendarType, description: calendarDescription, school_id: activeSchoolId }));
                           await onAddCalendarEvents(datesArr);
                           setIsProcessing(false);
                           setSelectedDates(new Set());
                           setCalendarStep(1);
                           setCalendarDescription('');
+                          showAlert(t('success'), 'success');
                         }}
                       >
-                        <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: opt.color, alignItems: 'center', justifyContent: 'center' }}>
-                          <Calendar size={24} color='white' />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 17, fontWeight: '900', color: opt.color }}>{opt.label}</Text>
-                          <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 2 }}>{opt.desc}</Text>
-                        </View>
-                        <ChevronRight size={20} color={opt.color} />
+                        <Text style={{ color: 'white', fontWeight: '900', fontSize: 17 }}>{t('confirm_and_save')}</Text>
                       </TouchableOpacity>
-                    ))}
-                    <TextInput
-                      style={[styles.input, { marginTop: 8 }]}
-                      placeholder={t('optional_description')}
-                      value={calendarDescription}
-                      onChangeText={setCalendarDescription}
-                    />
+                    </View>
                   </View>
                 </View>
               )}
@@ -2044,38 +2101,56 @@ const AdminDashboard = ({
           )}
 
           {calendarSubTab === 'history' && (
-            <View style={{ gap: 12 }}>
+            <View style={{ gap: 16 }}>
               {calendarEvents.length === 0 ? (
-                <View style={{ padding: 40, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 15, color: '#94a3b8', fontWeight: '700' }}>{t('no_events')}</Text>
+                <View style={{ padding: 60, alignItems: 'center' }}>
+                  <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                    <Calendar size={40} color="#94a3b8" />
+                  </View>
+                  <Text style={{ fontSize: 16, color: '#94a3b8', fontWeight: '700' }}>{t('no_events')}</Text>
+                  <Text style={{ fontSize: 13, color: '#cbd5e1', marginTop: 4, textAlign: 'center' }}>{t('no_events_desc') || 'Nuk ka ngjarje të regjistruara për këtë shkollë.'}</Text>
                 </View>
               ) : (
                 calendarEvents
                   .sort((a, b) => new Date(b.date) - new Date(a.date))
                   .map(event => (
                     <View key={event.id} style={{
-                      backgroundColor: event.type === 'holiday' ? '#fef2f2' : '#ecfdf5',
-                      borderRadius: 16, padding: 16,
-                      borderLeftWidth: 4, borderLeftColor: event.type === 'holiday' ? '#ef4444' : '#10b981'
+                      backgroundColor: 'white',
+                      borderRadius: 24, padding: 18,
+                      borderWidth: 1, borderColor: '#f1f5f9',
+                      shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 10, elevation: 2
                     }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                        <View style={{ 
+                          width: 48, height: 48, borderRadius: 16, 
+                          backgroundColor: event.type === 'holiday' ? '#fef2f2' : '#ecfdf5',
+                          alignItems: 'center', justifyContent: 'center'
+                        }}>
+                          {event.type === 'holiday' ? <XCircle size={24} color="#ef4444" /> : <CheckCircle size={24} color="#10b981" />}
+                        </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 15, fontWeight: '800', color: event.type === 'holiday' ? '#dc2626' : '#059669' }}>
-                            {event.type === 'holiday' ? t('holiday') : t('work_day')}
-                          </Text>
-                          <Text style={{ fontSize: 13, color: '#64748b', fontWeight: '600', marginTop: 2 }}>
-                            {event.date}
-                          </Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <View>
+                              <Text style={{ fontSize: 15, fontWeight: '800', color: event.type === 'holiday' ? '#dc2626' : '#059669' }}>
+                                {event.type === 'holiday' ? t('holiday') : t('work_day')}
+                              </Text>
+                              <Text style={{ fontSize: 13, color: '#1e293b', fontWeight: '700', marginTop: 2 }}>
+                                {event.date.split('-').reverse().join('/')}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => showConfirm(t('confirm_delete') + '?', () => onDeleteCalendarEvent(event.id))}
+                              style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              <Trash2 size={16} color="#ef4444" />
+                            </TouchableOpacity>
+                          </View>
                           {event.description ? (
-                            <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{event.description}</Text>
+                            <View style={{ marginTop: 10, padding: 10, backgroundColor: '#f8fafc', borderRadius: 12 }}>
+                              <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', lineHeight: 16 }}>{event.description}</Text>
+                            </View>
                           ) : null}
                         </View>
-                        <TouchableOpacity
-                          onPress={() => showConfirm(t('confirm_delete') + '?', () => onDeleteCalendarEvent(event.id))}
-                          style={{ padding: 8 }}
-                        >
-                          <Trash2 size={16} color="#ef4444" />
-                        </TouchableOpacity>
                       </View>
                     </View>
                   ))
@@ -2164,8 +2239,8 @@ const AdminDashboard = ({
           </View>
           <View style={{ padding: 24, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>Përzgjidhni nxënësit</Text>
-              <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4 }}>Klikoni mbi nxënësit që do të kalojnë në klasën pasardhëse.</Text>
+              <Text style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>{t('select_students_promotion')}</Text>
+              <Text style={{ fontSize: 13.5, color: '#64748b', fontWeight: '600', marginTop: 4 }}>{t('click_to_promote_desc')}</Text>
             </View>
             <TouchableOpacity
               style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0' }}
@@ -2177,7 +2252,7 @@ const AdminDashboard = ({
                 setPromotedStudentIds(newSet);
               }}
             >
-              <Text style={{ color: '#475569', fontWeight: '800', fontSize: 13 }}>{classStudents.every(s => promotedStudentIds.has(s.id)) ? 'Hiqi t Gjith' : 'Selekto t Gjith'}</Text>
+              <Text style={{ color: '#475569', fontWeight: '800', fontSize: 13 }}>{classStudents.every(s => promotedStudentIds.has(s.id)) ? t('deselect_all') : t('select_all_students')}</Text>
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}>
@@ -2200,7 +2275,7 @@ const AdminDashboard = ({
                     </View>
                     <View>
                       <Text style={{ fontSize: 16, fontWeight: '700', color: isSelected ? '#065f46' : '#1e293b' }}>{student.name}</Text>
-                      <Text style={{ fontSize: 12, color: isSelected ? '#059669' : '#94a3b8', fontWeight: '600' }}>{isSelected ? 'Do t Pajiset me Dftes / Kalon' : 'Nuk sht selektuar'}</Text>
+                      <Text style={{ fontSize: 12, color: isSelected ? '#059669' : '#94a3b8', fontWeight: '600' }}>{isSelected ? t('will_receive_certificate') : t('not_selected')}</Text>
                     </View>
                   </View>
                   {isSelected && (
@@ -2217,7 +2292,7 @@ const AdminDashboard = ({
               style={{ height: 64, borderRadius: 24, backgroundColor: '#10b981', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, shadowColor: '#10b981', shadowOpacity: 0.3, shadowRadius: 15, elevation: 5 }}
               onPress={() => setSelectedPromotionClassId(-1)}
             >
-              <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>Vazhdo me Klasat e Tjera</Text>
+              <Text style={{ color: 'white', fontWeight: '900', fontSize: 17, letterSpacing: 0.5 }}>{t('continue_other_classes')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2534,8 +2609,8 @@ const AdminDashboard = ({
                             setIsClosingYearProcess(false);
                             setSelectedPromotionClassId(null);
                             setNavigation({ view: 'home', data: null });
-                            if (promRes?.error) showAlert("Viti u arkivua por pati një problem me promovimet: " + promRes.error.message, 'warning');
-                            else showAlert("Mbyllja e vitit u krye me sukses!", "success");
+                            if (promRes?.error) showAlert(t('year_archived_promotion_error') + promRes.error.message, 'warning');
+                            else showAlert(t('year_closure_success'), "success");
                           });
                         }}
                       >
@@ -3727,9 +3802,11 @@ const AdminDashboard = ({
       <View style={styles.header}>
         <View style={[styles.headerTopBar, isDesktop && { paddingHorizontal: 20 }]}>
           <View style={styles.headerLogo}>
-            <View style={styles.logoIcon}>
-              <School size={18} color="white" />
-            </View>
+            <Image
+              source={require('../../assets/logo.png')}
+              style={{ width: 220, height: 60 }}
+              resizeMode="contain"
+            />
           </View>
 
           {isDesktop && (
